@@ -25,7 +25,13 @@ module AgentApropos
       # a symlink.
       CONTEXT_FILENAME = "AGENTS.md"
 
-      HOOK_COMMANDS = ["agent-apropos hook pre", "agent-apropos hook post"]
+      # `--tool gemini` tells the binary which dialect wired the invocation,
+      # so `Hook` can label a Cause's layer as read-triggered without parsing
+      # `tool_name` itself. The write/edit group and the read-only group
+      # (`ensure_read_group`) deliberately share the identical `pre` command
+      # — the read/write distinction comes from `Gemini#read?` inspecting the
+      # payload at run time, not from which group fired.
+      HOOK_COMMANDS = ["agent-apropos hook pre --tool gemini", "agent-apropos hook post --tool gemini"]
 
       # Gemini CLI's hook `timeout` is passed straight to JS `setTimeout()` —
       # milliseconds, not seconds like Claude Code's own hook `timeout`.
@@ -39,6 +45,10 @@ module AgentApropos
 
       def name : String
         "gemini"
+      end
+
+      def read?(payload : Hook::Payload) : Bool
+        payload.tool_name == "read_file"
       end
 
       def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
@@ -96,7 +106,7 @@ module AgentApropos
         groups.compact_map(&.as_h?).any? do |group|
           commands = (group["hooks"]?.try(&.as_a?) || [] of JSON::Any)
             .compact_map { |hook| hook.as_h?.try(&.["command"]?).try(&.as_s?) }
-          commands.includes?("agent-apropos hook pre") && commands.includes?("agent-apropos hook post")
+          commands.includes?(HOOK_COMMANDS[0]) && commands.includes?(HOOK_COMMANDS[1])
         end
       end
 
@@ -160,17 +170,35 @@ module AgentApropos
       # (only the delivery mechanism's own healing can fix this; the
       # settings file itself gives no other signal that the value is
       # stale).
+      # An entry whose command matches `HOOK_COMMANDS` exactly is refreshed in
+      # place; one that merely *starts with* our prefix — a command string
+      # from a prior agent-apropos version, e.g. before a `--tool` suffix
+      # existed — is upgraded to the corresponding current command instead of
+      # being left as "foreign", so re-running `init` converges an old
+      # install onto the new command rather than appending a duplicate.
       private def with_missing_hooks(group : JSON::Any) : JSON::Any
         hash = group.as_h.dup
         present = hash["hooks"]?.try(&.as_a?) || [] of JSON::Any
         refreshed = present.map do |entry|
           command = entry.as_h?.try(&.["command"]?).try(&.as_s?)
-          command && HOOK_COMMANDS.includes?(command) ? hook(command) : entry
+          next entry unless command
+          target = HOOK_COMMANDS.includes?(command) ? command : upgrade_target(command, HOOK_COMMANDS)
+          target ? hook(target) : entry
         end
-        commands = present.compact_map { |entry| entry.as_h?.try(&.["command"]?).try(&.as_s?) }
+        commands = refreshed.compact_map { |entry| entry.as_h?.try(&.["command"]?).try(&.as_s?) }
         missing = HOOK_COMMANDS.reject { |command| commands.includes?(command) }
         hash["hooks"] = JSON::Any.new(refreshed + missing.map { |command| hook(command) })
         JSON::Any.new(hash)
+      end
+
+      # The current command that an old, prefix-matching command should
+      # converge to, matched on subcommand ("hook pre" vs "hook post") so a
+      # stale `hook pre` entry never gets upgraded to `hook post` or
+      # vice versa. `nil` for anything that isn't ours at all.
+      private def upgrade_target(command : String, desired : Array(String)) : String?
+        return nil unless command.starts_with?("agent-apropos hook")
+        sub = command.starts_with?("agent-apropos hook pre") ? "agent-apropos hook pre" : "agent-apropos hook post"
+        desired.find(&.starts_with?(sub))
       end
 
       # A second, independent group matched on `read_file` alone, carrying
@@ -193,21 +221,28 @@ module AgentApropos
         groups
       end
 
+      # The read-only group's command is always `HOOK_COMMANDS[0]` — the same
+      # `pre` command the write/edit group carries. An entry from a prior
+      # agent-apropos version (un-suffixed `agent-apropos hook pre`) is
+      # upgraded to it rather than left as "foreign", same reasoning as
+      # `with_missing_hooks`.
       private def with_missing_read_hook(group : JSON::Any) : JSON::Any
         hash = group.as_h.dup
         present = hash["hooks"]?.try(&.as_a?) || [] of JSON::Any
+        target = HOOK_COMMANDS[0]
         refreshed = present.map do |entry|
-          entry.as_h?.try(&.["command"]?).try(&.as_s?) == "agent-apropos hook pre" ? hook("agent-apropos hook pre") : entry
+          command = entry.as_h?.try(&.["command"]?).try(&.as_s?)
+          command && command.starts_with?("agent-apropos hook pre") ? hook(target) : entry
         end
-        has_pre = refreshed.any? { |entry| entry.as_h?.try(&.["command"]?).try(&.as_s?) == "agent-apropos hook pre" }
-        hash["hooks"] = JSON::Any.new(has_pre ? refreshed : refreshed + [hook("agent-apropos hook pre")])
+        has_target = refreshed.any? { |entry| entry.as_h?.try(&.["command"]?).try(&.as_s?) == target }
+        hash["hooks"] = JSON::Any.new(has_target ? refreshed : refreshed + [hook(target)])
         JSON::Any.new(hash)
       end
 
       private def read_group : JSON::Any
         JSON::Any.new({
           "matcher" => JSON::Any.new("read_file"),
-          "hooks"   => JSON::Any.new([hook("agent-apropos hook pre")]),
+          "hooks"   => JSON::Any.new([hook(HOOK_COMMANDS[0])]),
         })
       end
 

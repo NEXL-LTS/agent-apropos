@@ -29,8 +29,21 @@ module AgentApropos
       # like Claude Code's.
       HOOK_TIMEOUT = 10
 
+      # `--tool copilot` tells the binary which dialect wired the invocation,
+      # so `Hook` can label a Cause's layer as read-triggered without parsing
+      # `tool_name` itself. The `view` matcher and the `create|edit` matcher
+      # share the identical `HOOK_PRE` command — the read/write distinction
+      # comes from `Copilot#read?` inspecting the payload at run time, not
+      # from which matcher fired.
+      HOOK_PRE  = "agent-apropos hook pre --tool copilot"
+      HOOK_POST = "agent-apropos hook post --tool copilot"
+
       def name : String
         "copilot"
+      end
+
+      def read?(payload : Hook::Payload) : Bool
+        payload.tool_name == "view"
       end
 
       def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
@@ -87,7 +100,7 @@ module AgentApropos
           .select { |entry| entry["matcher"]?.try(&.as_s?) == "create|edit" }
           .compact_map { |entry| entry["command"]?.try(&.as_s?) }
 
-        commands.includes?("agent-apropos hook pre") && commands.includes?("agent-apropos hook post")
+        commands.includes?(HOOK_PRE) && commands.includes?(HOOK_POST)
       end
 
       HOOKS_JSON = <<-JSON
@@ -98,19 +111,19 @@ module AgentApropos
               {
                 "type": "command",
                 "matcher": "view",
-                "command": "agent-apropos hook pre",
+                "command": "#{HOOK_PRE}",
                 "timeoutSec": #{HOOK_TIMEOUT}
               },
               {
                 "type": "command",
                 "matcher": "create|edit",
-                "command": "agent-apropos hook pre",
+                "command": "#{HOOK_PRE}",
                 "timeoutSec": #{HOOK_TIMEOUT}
               },
               {
                 "type": "command",
                 "matcher": "create|edit",
-                "command": "agent-apropos hook post",
+                "command": "#{HOOK_POST}",
                 "timeoutSec": #{HOOK_TIMEOUT}
               }
             ]

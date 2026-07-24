@@ -22,5 +22,25 @@ module AgentApropos
     def self.names : Set(String)
       ALL.map(&.name).to_set
     end
+
+    # The agent named by `--tool <name>` on `hook pre`/`hook post`, or `nil`
+    # for an absent or unrecognized name (the caller falls back to `.detect`).
+    def self.find(name : String?) : Agent?
+      return nil unless name
+      ALL.find { |agent| agent.name == name }
+    end
+
+    # Best-effort fallback when `hook pre`/`hook post` ran without `--tool`
+    # (an older wiring, or a manual invocation) — identify the dialect from
+    # the payload's own shape. Copilot and Gemini each carry a distinguishing
+    # marker (`toolArgs`, `hook_event_name`); Claude and OpenCode are
+    # payload-shape-identical by design (see `Hook`'s doc comment), so this
+    # defaults to Claude for both — a wrong guess here only costs `read?`'s
+    # debugging label, never match/injection correctness.
+    def self.detect(payload : Hook::Payload) : Agent
+      return Copilot.new if payload.copilot?
+      return Gemini.new if payload.hook_event_name == "AfterTool"
+      Claude.new
+    end
   end
 end

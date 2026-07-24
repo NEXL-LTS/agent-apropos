@@ -75,14 +75,15 @@ private def read_json(file_path : String, session_id : String? = "s", cwd : Stri
 end
 
 private def invoke(event : Symbol, input : String, fs : AgentApropos::Filesystem,
-                   override : String? = "/repo", now : Time = NOW, verbose : Bool = false) : {Int32, String}
+                   override : String? = "/repo", now : Time = NOW, verbose : Bool = false,
+                   tool : String? = nil) : {Int32, String}
   stdout = IO::Memory.new
   reader = IO::Memory.new(input)
   code =
     if event == :pre
-      AgentApropos::Hook.pre(reader, stdout, fs, now, override, verbose)
+      AgentApropos::Hook.pre(reader, stdout, fs, now, override, verbose, tool)
     else
-      AgentApropos::Hook.post(reader, stdout, fs, now, override, verbose)
+      AgentApropos::Hook.post(reader, stdout, fs, now, override, verbose, tool)
     end
   {code, stdout.to_s}
 end
@@ -101,14 +102,24 @@ describe AgentApropos::Hook do
       fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_true
     end
 
-    it "injects a rule at most once per session" do
+    it "injects a rule at most once per file per session" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      invoke(:pre, pre_json("src/app.cr"), fs)[1]
+        .should contain("Convention (docs/conventions/a.md):")
+
+      code, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
+      code.should eq(0)
+      stdout.should be_empty
+    end
+
+    it "delivers the same rule fresh to a different file that also matches it" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, pre_json("src/app.cr"), fs)[1]
         .should contain("Convention (docs/conventions/a.md):")
 
       code, stdout = invoke(:pre, pre_json("src/other.cr"), fs)
       code.should eq(0)
-      stdout.should be_empty
+      stdout.should contain("Convention (docs/conventions/a.md):")
     end
 
     it "emits nothing when no Layer 2 rule matches the path" do
@@ -166,6 +177,30 @@ describe AgentApropos::Hook do
       stdout.should contain("summarized to fit")
       stdout.should contain("First paragraph.")
       stdout.should contain("Read the full rule in docs/conventions/a.md")
+    end
+
+    it "labels the recorded cause 'agent' when the payload's own dialect marks it a read" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      invoke(:pre, read_json("src/app.cr"), fs, tool: "claude")
+      fs.files["/repo/.cache/agent-apropos/sessions/s.json"].should contain(%("layer": "agent"))
+    end
+
+    it "labels the recorded cause with the numeric layer for an edit even when --tool is given" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      invoke(:pre, pre_json("src/app.cr"), fs, tool: "claude")
+      fs.files["/repo/.cache/agent-apropos/sessions/s.json"].should contain(%("layer": 2))
+    end
+
+    it "auto-detects the dialect and still labels a read 'agent' when --tool is absent" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      invoke(:pre, read_json("src/app.cr"), fs)
+      fs.files["/repo/.cache/agent-apropos/sessions/s.json"].should contain(%("layer": "agent"))
+    end
+
+    it "falls back to auto-detection for an unrecognized --tool value" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      invoke(:pre, read_json("src/app.cr"), fs, tool: "nonexistent")
+      fs.files["/repo/.cache/agent-apropos/sessions/s.json"].should contain(%("layer": "agent"))
     end
 
     it "still injects when the cache is unwritable and dedup is unavailable" do
@@ -273,27 +308,24 @@ describe AgentApropos::Hook do
     it "still delivers the session notice on a read, even when no rule matches" do
       code, stdout = invoke(:pre, read_json("docs/readme.md"), InMemoryFS.new)
       code.should eq(0)
-      stdout.should contain("No need to search for coding conventions")
+      stdout.should contain("agent-apropos is connected and running")
     end
   end
 
-  # The one-time "don't bother exploring docs/conventions/ yourself" notice —
+  # The one-time, purely descriptive "agent-apropos is running" notice —
   # delivered on whichever of pre/post fires first for a session, regardless
-  # of whether that particular edit matches any rule, so a model that would
-  # otherwise proactively `cat` the conventions directory gets steered away
-  # from a path that has nothing to do with agent-apropos's actual delivery
-  # mechanism (see the AGENTS.md discussion this followed from).
+  # of whether that particular edit matches any rule.
   describe "session-start notice" do
     it "fires on the first call even when no rule matches" do
       code, stdout = invoke(:pre, pre_json("docs/readme.md"), InMemoryFS.new)
       code.should eq(0)
-      stdout.should contain("No need to search for coding conventions")
+      stdout.should contain("agent-apropos is connected and running")
     end
 
     it "is combined with a real match on the very first call" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       _, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
-      stdout.should contain("No need to search for coding conventions")
+      stdout.should contain("agent-apropos is connected and running")
       stdout.should contain("Convention (docs/conventions/a.md):")
     end
 
@@ -308,7 +340,7 @@ describe AgentApropos::Hook do
     it "is claimed by whichever of pre/post fires first" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC})
       pre_stdout = invoke(:pre, pre_json("docs/readme.md"), fs)[1]
-      pre_stdout.should contain("No need to search for coding conventions")
+      pre_stdout.should contain("agent-apropos is connected and running")
 
       code, post_stdout = invoke(:post, write_json("lib/x.cr", "just some code"), fs)
       code.should eq(0)
@@ -318,7 +350,7 @@ describe AgentApropos::Hook do
     it "a read delivers Layer 2 + the notice; the edit that follows gets neither repeated" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       read_stdout = invoke(:pre, read_json("src/app.cr"), fs)[1]
-      read_stdout.should contain("No need to search for coding conventions")
+      read_stdout.should contain("agent-apropos is connected and running")
       read_stdout.should contain("Convention (docs/conventions/a.md):")
 
       code, edit_stdout = invoke(:pre, pre_json("src/app.cr"), fs)

@@ -33,7 +33,23 @@ private def check_named(checks : Array(AgentApropos::Check), name : String) : Ag
   checks.find! { |check| check.name == name }
 end
 
+private def payload(tool_name : String) : AgentApropos::Hook::Payload
+  json = %({"tool_name":"#{tool_name}"})
+  AgentApropos::Hook::Payload.parse(json) || raise "expected #{json.inspect} to parse"
+end
+
 describe AgentApropos::Agents::Gemini do
+  describe "#read?" do
+    it "is true for Gemini's read_file tool" do
+      AgentApropos::Agents::Gemini.new.read?(payload("read_file")).should be_true
+    end
+
+    it "is false for Gemini's write_file/replace tools" do
+      AgentApropos::Agents::Gemini.new.read?(payload("write_file")).should be_false
+      AgentApropos::Agents::Gemini.new.read?(payload("replace")).should be_false
+    end
+  end
+
   describe "#scaffold" do
     it "writes AfterTool hooks and context.fileName" do
       fs = InMemoryFS.new
@@ -114,6 +130,20 @@ describe AgentApropos::Agents::Gemini do
       merged.scan(%("timeout": 10000)).size.should eq(3)
     end
 
+    it "upgrades a pre-`--tool` command from an older agent-apropos version in place, without duplicating it" do
+      seed = %({"hooks":{"AfterTool":[{"matcher":"write_file|replace","hooks":) +
+             %([{"type":"command","command":"agent-apropos hook pre","timeout":10000},) +
+             %({"type":"command","command":"agent-apropos hook post","timeout":10000}]}]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      merged = fs.files[SETTINGS_PATH]
+
+      merged.scan(%("agent-apropos hook pre --tool gemini")).size.should eq(2) # write group + read_file group
+      merged.scan(%("agent-apropos hook post --tool gemini")).size.should eq(1)
+      merged.should_not contain(%("command": "agent-apropos hook pre",))
+      merged.should_not contain(%("command": "agent-apropos hook post",))
+    end
+
     it "does not duplicate the read_file group on a second run" do
       fs = InMemoryFS.new
       run_scaffold(fs)
@@ -154,6 +184,8 @@ describe AgentApropos::Agents::Gemini do
       merged = fs.files[SETTINGS_PATH]
       merged.should_not contain(%("timeout": 10,))
       merged.scan(%("timeout": 10000)).size.should eq(3) # read's pre, write's pre, write's post
+      merged.should_not contain(%("command": "agent-apropos hook pre",))
+      merged.scan(%("agent-apropos hook pre --tool gemini")).size.should eq(2)
     end
 
     it "preserves the group's matcher and a foreign hook alongside it while healing" do
@@ -232,8 +264,8 @@ describe AgentApropos::Agents::Gemini do
     it "is ok when gemini is on PATH and both hooks are wired" do
       env = FakeEnv.new(Set{"gemini"})
       wired = %({"hooks":{"AfterTool":[{"hooks":[) +
-              %({"type":"command","command":"agent-apropos hook pre"},) +
-              %({"type":"command","command":"agent-apropos hook post"}]}]}})
+              %({"type":"command","command":"agent-apropos hook pre --tool gemini"},) +
+              %({"type":"command","command":"agent-apropos hook post --tool gemini"}]}]}})
       fs = InMemoryFS.new({SETTINGS_PATH => wired})
       check_named(run_checks(fs, env), "gemini").detail.should contain("AfterTool hook wired")
     end

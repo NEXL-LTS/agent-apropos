@@ -16,6 +16,15 @@ module AgentApropos
       # a merge never duplicates a group it already installed.
       AGENT_APROPOS_HOOK_PREFIX = "agent-apropos hook"
 
+      # `--tool claude` tells the binary which dialect wired the invocation,
+      # so `Hook` can label a Cause's layer as read-triggered without parsing
+      # `tool_name` itself. Both matchers below ("Edit|Write" and "Read")
+      # deliberately share the identical `HOOK_PRE` command — the read/write
+      # distinction comes from `Claude#read?` inspecting the payload at run
+      # time, not from which matcher fired.
+      HOOK_PRE  = "agent-apropos hook pre --tool claude"
+      HOOK_POST = "agent-apropos hook post --tool claude"
+
       # Claude Code's hook `timeout` is seconds.
       CLAUDE_HOOK_TIMEOUT = 10_i64
 
@@ -25,6 +34,10 @@ module AgentApropos
 
       def name : String
         "claude"
+      end
+
+      def read?(payload : Hook::Payload) : Bool
+        payload.tool_name == "Read"
       end
 
       def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
@@ -48,12 +61,12 @@ module AgentApropos
         hooks = (root["hooks"]?.try(&.as_h?)).try(&.dup) || {} of String => JSON::Any
 
         pre_groups = (hooks["PreToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
-        pre_groups = ensure_commands(pre_groups, "Edit|Write", ["agent-apropos hook pre"], CLAUDE_HOOK_TIMEOUT)
-        pre_groups = ensure_commands(pre_groups, "Read", ["agent-apropos hook pre"], CLAUDE_HOOK_TIMEOUT)
+        pre_groups = ensure_commands(pre_groups, "Edit|Write", [HOOK_PRE], CLAUDE_HOOK_TIMEOUT)
+        pre_groups = ensure_commands(pre_groups, "Read", [HOOK_PRE], CLAUDE_HOOK_TIMEOUT)
         hooks["PreToolUse"] = JSON::Any.new(pre_groups)
 
         post_groups = (hooks["PostToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
-        post_groups = ensure_commands(post_groups, "Edit|Write", ["agent-apropos hook post"], CLAUDE_HOOK_TIMEOUT)
+        post_groups = ensure_commands(post_groups, "Edit|Write", [HOOK_POST], CLAUDE_HOOK_TIMEOUT)
         hooks["PostToolUse"] = JSON::Any.new(post_groups)
 
         root["hooks"] = JSON::Any.new(hooks)
@@ -112,15 +125,35 @@ module AgentApropos
       # current `hook_command` shape (so a stale field converges on the next
       # `init` run instead of surviving forever). Foreign hooks (anything not
       # in `commands`) pass through untouched.
+      #
+      # An entry whose command already matches `commands` exactly is
+      # refreshed in place. One that merely *starts with* our prefix — a
+      # command string from a prior agent-apropos version, e.g. before a
+      # `--tool` suffix existed — is upgraded to the corresponding current
+      # command instead of being left alone, so re-running `init` converges
+      # an old install onto the new command rather than appending a second,
+      # duplicate entry alongside it.
       private def refresh_owned_hooks(group : JSON::Any, commands : Array(String), timeout : Int64) : JSON::Any
         hash = group.as_h.dup
         present = hash["hooks"]?.try(&.as_a?) || [] of JSON::Any
         refreshed = present.map do |hook|
           command = hook.as_h?.try(&.["command"]?).try(&.as_s?)
-          command && commands.includes?(command) ? hook_command(command, timeout) : hook
+          next hook unless command
+          target = commands.includes?(command) ? command : upgrade_target(command, commands)
+          target ? hook_command(target, timeout) : hook
         end
         hash["hooks"] = JSON::Any.new(refreshed)
         JSON::Any.new(hash)
+      end
+
+      # The current command that an old, prefix-matching command should
+      # converge to, matched on subcommand ("hook pre" vs "hook post") so a
+      # stale `hook pre` entry never gets upgraded to `hook post` or
+      # vice versa. `nil` for anything that isn't ours at all.
+      private def upgrade_target(command : String, commands : Array(String)) : String?
+        return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
+        sub = command.starts_with?("agent-apropos hook pre") ? "agent-apropos hook pre" : "agent-apropos hook post"
+        commands.find(&.starts_with?(sub))
       end
 
       private def append_hooks(group : JSON::Any, commands : Array(String), timeout : Int64) : JSON::Any

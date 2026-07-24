@@ -33,7 +33,23 @@ private def check_named(checks : Array(AgentApropos::Check), name : String) : Ag
   checks.find! { |check| check.name == name }
 end
 
+private def payload(tool_name : String) : AgentApropos::Hook::Payload
+  json = %({"toolName":"#{tool_name}"})
+  AgentApropos::Hook::Payload.parse(json) || raise "expected #{json.inspect} to parse"
+end
+
 describe AgentApropos::Agents::Copilot do
+  describe "#read?" do
+    it "is true for Copilot's view tool" do
+      AgentApropos::Agents::Copilot.new.read?(payload("view")).should be_true
+    end
+
+    it "is false for Copilot's create/edit tools" do
+      AgentApropos::Agents::Copilot.new.read?(payload("create")).should be_false
+      AgentApropos::Agents::Copilot.new.read?(payload("edit")).should be_false
+    end
+  end
+
   describe "#scaffold" do
     it "writes the postToolUse hook config calling agent-apropos hook pre/post directly (no bridge)" do
       fs = InMemoryFS.new
@@ -43,8 +59,8 @@ describe AgentApropos::Agents::Copilot do
       hooks.should contain(%("postToolUse"))
       hooks.should contain(%("matcher": "view"))
       hooks.should contain(%("matcher": "create|edit"))
-      hooks.should contain(%("command": "agent-apropos hook pre"))
-      hooks.should contain(%("command": "agent-apropos hook post"))
+      hooks.should contain(%("command": "agent-apropos hook pre --tool copilot"))
+      hooks.should contain(%("command": "agent-apropos hook post --tool copilot"))
       hooks.should_not contain("bridge")
       stdout.should contain(".github/hooks/agent-apropos.json")
     end
@@ -107,9 +123,9 @@ describe AgentApropos::Agents::Copilot do
     it "is ok when copilot is on PATH and both hooks are wired" do
       env = FakeEnv.new(Set{"copilot"})
       wired = %({"hooks":{"postToolUse":[) +
-              %({"matcher":"view","command":"agent-apropos hook pre"},) +
-              %({"matcher":"create|edit","command":"agent-apropos hook pre"},) +
-              %({"matcher":"create|edit","command":"agent-apropos hook post"}) +
+              %({"matcher":"view","command":"agent-apropos hook pre --tool copilot"},) +
+              %({"matcher":"create|edit","command":"agent-apropos hook pre --tool copilot"},) +
+              %({"matcher":"create|edit","command":"agent-apropos hook post --tool copilot"}) +
               %(]}})
       fs = InMemoryFS.new({HOOKS_PATH => wired})
       check_named(run_checks(fs, env), "copilot").detail.should contain("postToolUse hook wired")

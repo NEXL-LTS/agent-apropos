@@ -83,8 +83,8 @@ describe "agent-apropos init/lint/doctor/help (binary)" do
 
       hooks = File.read(File.join(dir, ".github/hooks/agent-apropos.json"))
       hooks.should contain("postToolUse")
-      hooks.should contain(%("command": "agent-apropos hook pre"))
-      hooks.should contain(%("command": "agent-apropos hook post"))
+      hooks.should contain(%("command": "agent-apropos hook pre --tool copilot"))
+      hooks.should contain(%("command": "agent-apropos hook post --tool copilot"))
 
       # `copilot` is genuinely on PATH in this devcontainer (npm-installed), so
       # doctor's advisory check actually runs rather than skipping — confirming

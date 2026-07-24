@@ -34,7 +34,23 @@ private def check_named(checks : Array(AgentApropos::Check), name : String) : Ag
   checks.find! { |check| check.name == name }
 end
 
+private def payload(tool_name : String) : AgentApropos::Hook::Payload
+  json = %({"tool_name":"#{tool_name}"})
+  AgentApropos::Hook::Payload.parse(json) || raise "expected #{json.inspect} to parse"
+end
+
 describe AgentApropos::Agents::Claude do
+  describe "#read?" do
+    it "is true for Claude's Read tool" do
+      AgentApropos::Agents::Claude.new.read?(payload("Read")).should be_true
+    end
+
+    it "is false for Claude's Edit/Write tools" do
+      AgentApropos::Agents::Claude.new.read?(payload("Edit")).should be_false
+      AgentApropos::Agents::Claude.new.read?(payload("Write")).should be_false
+    end
+  end
+
   describe "#scaffold" do
     it "creates .claude/settings.json wiring PreToolUse and PostToolUse" do
       fs = InMemoryFS.new
@@ -167,6 +183,23 @@ describe AgentApropos::Agents::Claude do
       pre_section = fs.files[SETTINGS_PATH].split(%("PostToolUse"))[0]
       pre_section.should_not contain(%("timeout": 999))
       pre_section.scan(%("timeout": 10)).size.should eq(2) # Read's own pre, Edit|Write's pre
+    end
+
+    it "upgrades a pre-`--tool` command from an older agent-apropos version in place, without duplicating it" do
+      seed = %({"hooks":{"PreToolUse":[) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook pre","timeout":10}]},) +
+             %({"matcher":"Read","hooks":[{"type":"command","command":"agent-apropos hook pre","timeout":10}]}) +
+             %(],"PostToolUse":[) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook post","timeout":10}]}) +
+             %(]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      merged = fs.files[SETTINGS_PATH]
+
+      merged.scan(%("agent-apropos hook pre --tool claude")).size.should eq(2)
+      merged.scan(%("agent-apropos hook post --tool claude")).size.should eq(1)
+      merged.should_not contain(%("command": "agent-apropos hook pre",))
+      merged.should_not contain(%("command": "agent-apropos hook post",))
     end
 
     it "budgets Claude Code's hook timeout in seconds" do
