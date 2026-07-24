@@ -45,5 +45,15 @@ describe AgentApropos::Agents do
       payload = parse(%({"tool_name":"read","tool_input":{"file_path":"a.cr"}}))
       AgentApropos::Agents.detect(payload).should be_a(AgentApropos::Agents::Claude)
     end
+
+    it "returns the registered singleton instances rather than allocating fresh ones" do
+      copilot = parse(%({"toolName":"view","toolArgs":"{\\"path\\":\\"/repo/a.cr\\"}"}))
+      gemini = parse(%({"hook_event_name":"AfterTool","tool_name":"write_file"}))
+      claude = parse(%({"tool_name":"Edit","tool_input":{"file_path":"a.cr"}}))
+
+      AgentApropos::Agents.detect(copilot).should be(AgentApropos::Agents.find("copilot"))
+      AgentApropos::Agents.detect(gemini).should be(AgentApropos::Agents.find("gemini"))
+      AgentApropos::Agents.detect(claude).should be(AgentApropos::Agents.find("claude"))
+    end
   end
 end

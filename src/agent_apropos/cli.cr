@@ -264,10 +264,16 @@ module AgentApropos
     end
 
     # Extract a `--flag VALUE` pair from hook args, ignoring anything else
-    # (fail open — a stray flag must not break the hook path).
+    # (fail open — a stray flag must not break the hook path). A missing
+    # value, or one that looks like another flag (the caller omitted this
+    # flag's value), is treated as absent rather than consuming the next
+    # flag as this one's value.
     private def flag_value(args : Array(String), flag : String) : String?
       index = args.index(flag)
-      index ? args[index + 1]? : nil
+      return nil unless index
+      value = args[index + 1]?
+      return nil if value.nil? || value.starts_with?("--")
+      value
     end
 
     # Mutable holder for parsed `match` options, so the parse loop and the

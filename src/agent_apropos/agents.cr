@@ -38,9 +38,9 @@ module AgentApropos
     # defaults to Claude for both — a wrong guess here only costs `read?`'s
     # debugging label, never match/injection correctness.
     def self.detect(payload : Hook::Payload) : Agent
-      return Copilot.new if payload.copilot?
-      return Gemini.new if payload.hook_event_name == "AfterTool"
-      Claude.new
+      return find("copilot") || Claude.new if payload.copilot?
+      return find("gemini") || Claude.new if payload.hook_event_name == "AfterTool"
+      find("claude") || Claude.new
     end
   end
 end
