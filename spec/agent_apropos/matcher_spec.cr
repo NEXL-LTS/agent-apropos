@@ -31,6 +31,17 @@ describe AgentApropos::Matcher do
     end
   end
 
+  describe ".matching_paths" do
+    it "returns only the patterns that match" do
+      AgentApropos::Matcher.matching_paths(["lib/**", "spec/**", "app/**"], "spec/a_spec.cr")
+        .should eq(["spec/**"])
+    end
+
+    it "is empty when no pattern matches" do
+      AgentApropos::Matcher.matching_paths(["lib/**", "spec/**"], "src/x.cr").should be_empty
+    end
+  end
+
   describe ".content_match?" do
     it "matches content against a PCRE2 regex source" do
       AgentApropos::Matcher.content_match?("\\btransaction\\b", "db.transaction do").should be_true
@@ -54,6 +65,16 @@ describe AgentApropos::Matcher do
 
     it "is false for an empty source list" do
       AgentApropos::Matcher.any_content_match?([] of String, "content").should be_false
+    end
+  end
+
+  describe ".matching_contents" do
+    it "returns only the sources that match" do
+      AgentApropos::Matcher.matching_contents(["nope", "wor.d"], "hello world").should eq(["wor.d"])
+    end
+
+    it "is empty when no source matches" do
+      AgentApropos::Matcher.matching_contents(["nope", "zilch"], "hello world").should be_empty
     end
   end
 

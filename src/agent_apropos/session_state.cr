@@ -4,8 +4,14 @@ require "./filesystem"
 module AgentApropos
   # Per-session dedup store: the set of rule-file paths already
   # injected during a Claude Code session, so a rule is delivered at most once
-  # per session. Persisted as JSON at `.cache/agent-apropos/sessions/<session_id>.json`
-  # with an `updated_at` stamp used to prune stale files opportunistically.
+  # per session. Persisted as pretty-printed JSON at
+  # `.cache/agent-apropos/sessions/<session_id>.json` with an `updated_at` stamp
+  # used to prune stale files opportunistically.
+  #
+  # Each injection also carries a `cause` — the layer, the hook event, the file
+  # that triggered it, and the specific glob/regex pattern(s) that matched — so
+  # the cache doubles as a debugging trail: reading the file answers "why did
+  # this rule show up?" without re-deriving it from the index.
   #
   # All disk access goes through an injected `Filesystem`; the clock is injected
   # too (`now`), so persistence and pruning are unit-testable without real time.
@@ -15,25 +21,76 @@ module AgentApropos
     # Session files untouched for longer than this are pruned on any hook run.
     MAX_AGE = 7.days
 
-    # The on-disk shape. Kept minimal so a lost concurrent update costs at most
-    # one duplicate injection. `notified` defaults to false so session files
-    # written before that field existed still parse.
+    # Why a rule was injected: which layer matched, the hook event that fired,
+    # the file that triggered the match, and the specific frontmatter
+    # glob/regex pattern(s) that made it fire.
+    struct Cause
+      include JSON::Serializable
+
+      getter layer : Int32
+      getter event : String
+      getter file : String
+      getter matched_patterns : Array(String)
+
+      def initialize(@layer : Int32, @event : String, @file : String, @matched_patterns : Array(String))
+      end
+    end
+
+    # One rule-doc path plus the cause that first injected it this session.
+    struct Injection
+      include JSON::Serializable
+
+      getter path : String
+      getter cause : Cause
+
+      def initialize(@path : String, @cause : Cause)
+      end
+    end
+
+    # Just enough of the on-disk shape to decide staleness, independent of how
+    # `injected` is shaped. `.prune` parses this instead of the full
+    # `Document` so a schema change to `injected` (e.g. the string-array ->
+    # object-array upgrade) still ages the file out on schedule instead of
+    # leaving it stuck forever as "unparseable".
+    private struct Timestamp
+      include JSON::Serializable
+
+      @[JSON::Field(key: "updated_at")]
+      getter updated_at : Int64
+    end
+
+    # The on-disk shape. Kept minimal beyond `cause` so a lost concurrent
+    # update costs at most one duplicate injection. `notified` defaults to
+    # false so session files written before that field existed still parse.
+    # A schema change here (e.g. the string-array -> object-array upgrade for
+    # `injected`) is not migrated: an old-format file simply fails to parse and
+    # is treated as empty state, same as any other corrupt file (see `.load`).
+    # It still ages out on schedule, since `.prune` doesn't depend on this
+    # schema (see `Timestamp`).
     struct Document
       include JSON::Serializable
 
       @[JSON::Field(key: "updated_at")]
       getter updated_at : Int64
-      getter injected : Array(String)
+      getter injected : Array(Injection)
       getter? notified : Bool = false
 
-      def initialize(@updated_at : Int64, @injected : Array(String), @notified : Bool = false)
+      def initialize(@updated_at : Int64, @injected : Array(Injection), @notified : Bool = false)
+      end
+
+      # Deterministic, human-readable on-disk form: pretty JSON, LF endings, a
+      # single trailing newline.
+      def to_document : String
+        String.build do |io|
+          to_pretty_json(io)
+          io << '\n'
+        end
       end
     end
 
-    getter injected : Set(String)
     getter? notified : Bool
 
-    def initialize(@injected : Set(String) = Set(String).new, @notified : Bool = false)
+    def initialize(@injected : Hash(String, Injection) = {} of String => Injection, @notified : Bool = false)
     end
 
     # Load the state for `session_id`. A missing or unparseable file is treated
@@ -44,7 +101,8 @@ module AgentApropos
       json = fs.read?(file_for(repo_root, session_id).to_s)
       return new unless json
       document = Document.from_json(json)
-      new(document.injected.to_set, document.notified?)
+      injected = document.injected.to_h { |entry| {entry.path, entry} }
+      new(injected, document.notified?)
     rescue JSON::ParseException
       new
     end
@@ -56,26 +114,32 @@ module AgentApropos
       fs.glob(repo_root.join(DIR), "*.json").each do |file|
         json = fs.read?(file)
         next unless json
-        document = parse(json)
-        next unless document
-        fs.remove(file) if document.updated_at < cutoff
+        timestamp = parse(json)
+        next unless timestamp
+        fs.remove(file) if timestamp.updated_at < cutoff
       end
     end
 
-    private def self.parse(json : String) : Document?
-      Document.from_json(json)
+    private def self.parse(json : String) : Timestamp?
+      Timestamp.from_json(json)
     rescue JSON::ParseException
       nil
     end
 
     # Has `rule_path` already been injected this session?
     def injected?(rule_path : String) : Bool
-      @injected.includes?(rule_path)
+      @injected.has_key?(rule_path)
     end
 
-    # Record `rule_path` as injected.
-    def add(rule_path : String) : Nil
-      @injected << rule_path
+    # The injected rule paths, for inspection (order unspecified).
+    def injected : Array(String)
+      @injected.keys
+    end
+
+    # Record `rule_path` as injected, with the cause that triggered it. A
+    # rule already recorded keeps its original cause (first injection wins).
+    def add(rule_path : String, cause : Cause) : Nil
+      @injected[rule_path] ||= Injection.new(rule_path, cause)
     end
 
     # Mark the one-time session-start notice as delivered.
@@ -83,13 +147,15 @@ module AgentApropos
       @notified = true
     end
 
-    # Persist the state for `session_id`, stamping `now`. The injected set is
-    # sorted so the file is byte-stable for a given set (aids debugging and
-    # avoids spurious churn). A nil `session_id` is a no-op.
+    # Persist the state for `session_id`, stamping `now`. Entries are sorted by
+    # path and the document is pretty-printed so the file is byte-stable for a
+    # given set and easy to scan by hand for debugging. A nil `session_id` is a
+    # no-op.
     def save(repo_root : Path, fs : Filesystem, session_id : String?, now : Time) : Nil
       return unless session_id
-      document = Document.new(now.to_unix, @injected.to_a.sort, @notified)
-      fs.write(SessionState.file_for(repo_root, session_id).to_s, "#{document.to_json}\n")
+      entries = @injected.values.sort_by!(&.path)
+      document = Document.new(now.to_unix, entries, @notified)
+      fs.write(SessionState.file_for(repo_root, session_id).to_s, document.to_document)
     end
 
     def self.file_for(repo_root : Path, session_id : String) : Path

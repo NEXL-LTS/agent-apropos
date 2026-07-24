@@ -94,17 +94,27 @@ module AgentApropos
 
       SessionState.prune(root, fs, now)
       state = SessionState.load(root, fs, payload.session_id)
-      fresh = matches.reject { |entry| state.injected?(entry.path) }
+      fresh = matches.reject { |match| state.injected?(match.entry.path) }
 
       notice = session_notice(state, payload.session_id)
-      combined = combine(notice, build_context(root, fs, fresh))
+      combined = combine(notice, build_context(root, fs, fresh.map(&.entry)))
       return if combined.empty?
 
-      fresh.each { |entry| state.add(entry.path) }
+      layer = event == :pre ? 2 : 3
+      name = event_name(event)
+      fresh.each do |match|
+        cause = SessionState::Cause.new(layer, name, relative, match.patterns)
+        state.add(match.entry.path, cause)
+      end
       state.notify! if notice
       state.save(root, fs, payload.session_id, now)
-      emit(stdout, event_name(event), combined, payload.copilot?)
+      emit(stdout, name, combined, payload.copilot?)
     end
+
+    # A matched rule together with the specific glob/regex pattern(s) from its
+    # frontmatter that fired, kept alongside the entry so the cause can be
+    # recorded without re-matching.
+    private record Match, entry : Index::Entry, patterns : Array(String)
 
     # The one-time notice, or nil once already delivered this session. A nil
     # `session_id` means there is no key to remember "already notified"
@@ -122,7 +132,7 @@ module AgentApropos
     end
 
     private def matches_for(event : Symbol, index : Index, payload : Payload,
-                            root : Path, fs : Filesystem, relative : String) : Array(Index::Entry)
+                            root : Path, fs : Filesystem, relative : String) : Array(Match)
       case event
       when :pre
         match_pre(index, relative)
@@ -132,23 +142,32 @@ module AgentApropos
     end
 
     # Layer 2: any path-scoped rule whose glob matches the edited path.
-    private def match_pre(index : Index, relative : String) : Array(Index::Entry)
-      index.docs.select do |entry|
-        entry.layer2? && Matcher.any_path_match?(entry.paths, relative)
+    private def match_pre(index : Index, relative : String) : Array(Match)
+      index.docs.compact_map do |entry|
+        next unless entry.layer2?
+        patterns = Matcher.matching_paths(entry.paths, relative)
+        next if patterns.empty?
+        Match.new(entry, patterns)
       end
     end
 
     # Layer 3: any content-scoped rule whose regex matches the written content;
-    # when the rule also declares `paths`, the path must match too (AND).
+    # when the rule also declares `paths`, the path must match too (AND). The
+    # recorded cause combines whichever pattern(s) fired on each side.
     private def match_post(index : Index, payload : Payload, root : Path,
-                           fs : Filesystem, relative : String) : Array(Index::Entry)
+                           fs : Filesystem, relative : String) : Array(Match)
       content = post_content(payload, root, fs, relative)
-      return [] of Index::Entry unless content
+      return [] of Match unless content
 
-      index.docs.select do |entry|
-        next false unless entry.layer3?
-        next false unless Matcher.any_content_match?(entry.contents, content)
-        entry.paths.empty? || Matcher.any_path_match?(entry.paths, relative)
+      index.docs.compact_map do |entry|
+        next unless entry.layer3?
+        content_patterns = Matcher.matching_contents(entry.contents, content)
+        next if content_patterns.empty?
+
+        path_patterns = entry.paths.empty? ? [] of String : Matcher.matching_paths(entry.paths, relative)
+        next if !entry.paths.empty? && path_patterns.empty?
+
+        Match.new(entry, content_patterns + path_patterns)
       end
     end
 

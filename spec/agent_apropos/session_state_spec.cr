@@ -7,6 +7,10 @@ private def session_path(id : String) : String
   "/repo/.cache/agent-apropos/sessions/#{id}.json"
 end
 
+private def cause(file : String = "src/app.cr", patterns : Array(String) = ["src/**"]) : AgentApropos::SessionState::Cause
+  AgentApropos::SessionState::Cause.new(layer: 2, event: "PreToolUse", file: file, matched_patterns: patterns)
+end
+
 # A filesystem whose glob returns paths that read? cannot resolve — models a
 # session file vanishing between listing and reading (the prune race guard).
 private class PhantomFS < AgentApropos::Filesystem
@@ -56,7 +60,7 @@ describe AgentApropos::SessionState do
     it "reads back a persisted injected set" do
       fs = InMemoryFS.new
       state = AgentApropos::SessionState.new
-      state.add("docs/conventions/a.md")
+      state.add("docs/conventions/a.md", cause)
       state.save(ROOT, fs, "s", NOW)
 
       loaded = AgentApropos::SessionState.load(ROOT, fs, "s")
@@ -65,6 +69,12 @@ describe AgentApropos::SessionState do
 
     it "treats a corrupt session file as empty (fail open)" do
       fs = InMemoryFS.new({session_path("s") => "{broken"})
+      AgentApropos::SessionState.load(ROOT, fs, "s").injected.should be_empty
+    end
+
+    it "treats an old flat-string-array session file as empty (fail open)" do
+      old_format = %({"updated_at":#{NOW.to_unix},"injected":["a.md"],"notified":false})
+      fs = InMemoryFS.new({session_path("s") => old_format})
       AgentApropos::SessionState.load(ROOT, fs, "s").injected.should be_empty
     end
 
@@ -92,15 +102,54 @@ describe AgentApropos::SessionState do
   end
 
   describe "#save" do
-    it "writes a byte-stable, timestamped, sorted document" do
+    it "writes a pretty-printed, timestamped, sorted document" do
       fs = InMemoryFS.new
       state = AgentApropos::SessionState.new
-      state.add("z.md")
-      state.add("a.md")
+      state.add("z.md", cause(file: "src/z.cr", patterns: ["src/z.cr"]))
+      state.add("a.md", cause(file: "src/a.cr", patterns: ["src/*.cr"]))
       state.save(ROOT, fs, "s", NOW)
 
       written = fs.files[session_path("s")]
-      written.should eq(%({"updated_at":#{NOW.to_unix},"injected":["a.md","z.md"],"notified":false}) + "\n")
+      written.should eq(<<-JSON)
+        {
+          "updated_at": #{NOW.to_unix},
+          "injected": [
+            {
+              "path": "a.md",
+              "cause": {
+                "layer": 2,
+                "event": "PreToolUse",
+                "file": "src/a.cr",
+                "matched_patterns": [
+                  "src/*.cr"
+                ]
+              }
+            },
+            {
+              "path": "z.md",
+              "cause": {
+                "layer": 2,
+                "event": "PreToolUse",
+                "file": "src/z.cr",
+                "matched_patterns": [
+                  "src/z.cr"
+                ]
+              }
+            }
+          ],
+          "notified": false
+        }\n
+        JSON
+    end
+
+    it "keeps the first cause when the same rule is added twice" do
+      fs = InMemoryFS.new
+      state = AgentApropos::SessionState.new
+      state.add("a.md", cause(file: "src/first.cr"))
+      state.add("a.md", cause(file: "src/second.cr"))
+      state.save(ROOT, fs, "s", NOW)
+
+      fs.files[session_path("s")].should contain(%("file": "src/first.cr"))
     end
 
     it "is a no-op without a session id" do
@@ -112,8 +161,9 @@ describe AgentApropos::SessionState do
 
   describe ".prune" do
     it "removes session files older than the max age and keeps fresh ones" do
-      old = AgentApropos::SessionState::Document.new((NOW - 8.days).to_unix, ["a.md"])
-      fresh = AgentApropos::SessionState::Document.new((NOW - 1.day).to_unix, ["b.md"])
+      injection = AgentApropos::SessionState::Injection.new("a.md", cause)
+      old = AgentApropos::SessionState::Document.new((NOW - 8.days).to_unix, [injection])
+      fresh = AgentApropos::SessionState::Document.new((NOW - 1.day).to_unix, [injection])
       fs = InMemoryFS.new({
         session_path("old")   => old.to_json,
         session_path("fresh") => fresh.to_json,
@@ -123,6 +173,15 @@ describe AgentApropos::SessionState do
 
       fs.removed.should eq([session_path("old")])
       fs.files.has_key?(session_path("fresh")).should be_true
+    end
+
+    it "ages out an old-format (flat string array) session file on schedule" do
+      legacy = %({"updated_at":#{(NOW - 8.days).to_unix},"injected":["a.md"],"notified":false})
+      fs = InMemoryFS.new({session_path("legacy") => legacy})
+
+      AgentApropos::SessionState.prune(ROOT, fs, NOW)
+
+      fs.removed.should eq([session_path("legacy")])
     end
 
     it "skips a session file that cannot be read (listing race)" do

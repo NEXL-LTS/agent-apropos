@@ -26,6 +26,12 @@ module AgentApropos
       patterns.any? { |pattern| path_match?(pattern, path) }
     end
 
+    # Which of `patterns` match `path`? Used where the caller needs to record
+    # *which* glob fired (e.g. hook debugging state), not just whether one did.
+    def matching_paths(patterns : Enumerable(String), path : String) : Array(String)
+      patterns.select { |pattern| path_match?(pattern, path) }
+    end
+
     # Does `content` contain a match for the regex `source`?
     def content_match?(source : String, content : String) : Bool
       compile(source).matches?(content)
@@ -34,6 +40,12 @@ module AgentApropos
     # Does `content` match any of the regex `sources`?
     def any_content_match?(sources : Enumerable(String), content : String) : Bool
       sources.any? { |source| content_match?(source, content) }
+    end
+
+    # Which of `sources` match `content`? Used where the caller needs to
+    # record *which* regex fired, not just whether one did.
+    def matching_contents(sources : Enumerable(String), content : String) : Array(String)
+      sources.select { |source| content_match?(source, content) }
     end
 
     # Is `pattern` a syntactically valid path glob? Surfaced by lint.
