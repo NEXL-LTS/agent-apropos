@@ -144,6 +144,17 @@ describe AgentApropos::Agents::Gemini do
       merged.should_not contain(%("command": "agent-apropos hook post",))
     end
 
+    it "leaves a stray agent-apropos-prefixed command that is neither pre nor post untouched" do
+      seed = %({"hooks":{"AfterTool":[{"matcher":"write_file|replace","hooks":) +
+             %([{"type":"command","command":"agent-apropos hook frobnicate","timeout":10000}]}]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      merged = fs.files[SETTINGS_PATH]
+
+      merged.should contain(%("command": "agent-apropos hook frobnicate"))
+      merged.should contain(%("agent-apropos hook pre --tool gemini"))
+    end
+
     it "does not duplicate the read_file group on a second run" do
       fs = InMemoryFS.new
       run_scaffold(fs)

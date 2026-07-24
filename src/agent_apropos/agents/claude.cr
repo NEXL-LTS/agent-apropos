@@ -152,8 +152,11 @@ module AgentApropos
       # vice versa. `nil` for anything that isn't ours at all.
       private def upgrade_target(command : String, commands : Array(String)) : String?
         return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
-        sub = command.starts_with?("agent-apropos hook pre") ? "agent-apropos hook pre" : "agent-apropos hook post"
-        commands.find(&.starts_with?(sub))
+        if command.starts_with?("agent-apropos hook pre")
+          commands.find(&.starts_with?("agent-apropos hook pre"))
+        elsif command.starts_with?("agent-apropos hook post")
+          commands.find(&.starts_with?("agent-apropos hook post"))
+        end
       end
 
       private def append_hooks(group : JSON::Any, commands : Array(String), timeout : Int64) : JSON::Any

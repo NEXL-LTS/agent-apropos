@@ -202,6 +202,17 @@ describe AgentApropos::Agents::Claude do
       merged.should_not contain(%("command": "agent-apropos hook post",))
     end
 
+    it "leaves a stray agent-apropos-prefixed command that is neither pre nor post untouched" do
+      seed = %({"hooks":{"PreToolUse":[{"matcher":"Edit|Write","hooks":) +
+             %([{"type":"command","command":"agent-apropos hook frobnicate","timeout":10}]}]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      merged = fs.files[SETTINGS_PATH]
+
+      merged.should contain(%("command": "agent-apropos hook frobnicate"))
+      merged.should contain(%("agent-apropos hook pre --tool claude"))
+    end
+
     it "budgets Claude Code's hook timeout in seconds" do
       fs = InMemoryFS.new
       run_scaffold(fs)

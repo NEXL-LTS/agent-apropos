@@ -3,9 +3,11 @@ require "./filesystem"
 
 module AgentApropos
   # Per-session dedup store: the set of (file, rule) pairs already
-  # injected during a Claude Code session, so a rule is delivered at most once
-  # per file per session — a rule shown for one file is still delivered fresh
-  # to a different file that also matches it. Persisted as pretty-printed JSON at
+  # injected during a session — shared by every wired CLI agent (Claude Code,
+  # OpenCode, Gemini CLI, GitHub Copilot CLI), not Claude-specific — so a rule
+  # is delivered at most once per file per session, while a rule shown for
+  # one file is still delivered fresh to a different file that also matches
+  # it. Persisted as pretty-printed JSON at
   # `.cache/agent-apropos/sessions/<session_id>.json` with an `updated_at` stamp
   # used to prune stale files opportunistically.
   #

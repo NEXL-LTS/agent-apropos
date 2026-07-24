@@ -197,8 +197,11 @@ module AgentApropos
       # vice versa. `nil` for anything that isn't ours at all.
       private def upgrade_target(command : String, desired : Array(String)) : String?
         return nil unless command.starts_with?("agent-apropos hook")
-        sub = command.starts_with?("agent-apropos hook pre") ? "agent-apropos hook pre" : "agent-apropos hook post"
-        desired.find(&.starts_with?(sub))
+        if command.starts_with?("agent-apropos hook pre")
+          desired.find(&.starts_with?("agent-apropos hook pre"))
+        elsif command.starts_with?("agent-apropos hook post")
+          desired.find(&.starts_with?("agent-apropos hook post"))
+        end
       end
 
       # A second, independent group matched on `read_file` alone, carrying
