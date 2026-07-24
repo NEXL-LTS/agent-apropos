@@ -175,6 +175,15 @@ describe AgentApropos::SessionState do
       fs.files.has_key?(session_path("fresh")).should be_true
     end
 
+    it "ages out an old-format (flat string array) session file on schedule" do
+      legacy = %({"updated_at":#{(NOW - 8.days).to_unix},"injected":["a.md"],"notified":false})
+      fs = InMemoryFS.new({session_path("legacy") => legacy})
+
+      AgentApropos::SessionState.prune(ROOT, fs, NOW)
+
+      fs.removed.should eq([session_path("legacy")])
+    end
+
     it "skips a session file that cannot be read (listing race)" do
       AgentApropos::SessionState.prune(ROOT, PhantomFS.new([session_path("gone")]), NOW)
     end

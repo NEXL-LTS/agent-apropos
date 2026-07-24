@@ -47,12 +47,26 @@ module AgentApropos
       end
     end
 
+    # Just enough of the on-disk shape to decide staleness, independent of how
+    # `injected` is shaped. `.prune` parses this instead of the full
+    # `Document` so a schema change to `injected` (e.g. the string-array ->
+    # object-array upgrade) still ages the file out on schedule instead of
+    # leaving it stuck forever as "unparseable".
+    private struct Timestamp
+      include JSON::Serializable
+
+      @[JSON::Field(key: "updated_at")]
+      getter updated_at : Int64
+    end
+
     # The on-disk shape. Kept minimal beyond `cause` so a lost concurrent
     # update costs at most one duplicate injection. `notified` defaults to
     # false so session files written before that field existed still parse.
     # A schema change here (e.g. the string-array -> object-array upgrade for
     # `injected`) is not migrated: an old-format file simply fails to parse and
     # is treated as empty state, same as any other corrupt file (see `.load`).
+    # It still ages out on schedule, since `.prune` doesn't depend on this
+    # schema (see `Timestamp`).
     struct Document
       include JSON::Serializable
 
@@ -100,14 +114,14 @@ module AgentApropos
       fs.glob(repo_root.join(DIR), "*.json").each do |file|
         json = fs.read?(file)
         next unless json
-        document = parse(json)
-        next unless document
-        fs.remove(file) if document.updated_at < cutoff
+        timestamp = parse(json)
+        next unless timestamp
+        fs.remove(file) if timestamp.updated_at < cutoff
       end
     end
 
-    private def self.parse(json : String) : Document?
-      Document.from_json(json)
+    private def self.parse(json : String) : Timestamp?
+      Timestamp.from_json(json)
     rescue JSON::ParseException
       nil
     end
