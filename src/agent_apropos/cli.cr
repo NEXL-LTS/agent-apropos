@@ -238,31 +238,42 @@ module AgentApropos
       Doctor.run(root, Filesystem::Real.new, Environment::Real.new, @stdout, @stderr)
     end
 
-    # `agent-apropos hook pre|post [--repo-root DIR]`. The wired CLI agent (Claude
-    # Code and Gemini CLI natively; OpenCode via its generated plugin) invokes
-    # these with the payload on stdin. The whole family fails *open*: an
-    # unknown subcommand or a bad `--repo-root` yields exit 0 with no output
-    # rather than ever blocking an edit. All work lives in `Hook`.
+    # `agent-apropos hook pre|post [--repo-root DIR] [--tool NAME]`. The wired
+    # CLI agent (Claude Code, Gemini CLI, and Copilot CLI natively; OpenCode
+    # via its generated plugin) invokes these with the payload on stdin,
+    # passing its own `--tool <name>` (see `Agents.names`) so `Hook` knows
+    # which dialect it's talking to without guessing. The whole family fails
+    # *open*: an unknown subcommand, a bad `--repo-root`, or a missing/unknown
+    # `--tool` yields exit 0 (or falls back to auto-detection) rather than
+    # ever blocking an edit. All work lives in `Hook`.
     private def handle_hook(args : Array(String)) : Int32
       event = args.first?
       return 0 unless event == "pre" || event == "post"
 
-      override = repo_root_override(args[1..])
+      rest = args[1..]
+      override = flag_value(rest, "--repo-root")
+      tool = flag_value(rest, "--tool")
       verbose = {"1", "true"}.includes?(ENV["AGENT_APROPOS_VERBOSE"]?)
       fs = Filesystem::Real.new
       now = Time.utc
       if event == "pre"
-        Hook.pre(@stdin, @stdout, fs, now, override, verbose)
+        Hook.pre(@stdin, @stdout, fs, now, override, verbose, tool)
       else
-        Hook.post(@stdin, @stdout, fs, now, override, verbose)
+        Hook.post(@stdin, @stdout, fs, now, override, verbose, tool)
       end
     end
 
-    # Extract a `--repo-root DIR` override from hook args, ignoring anything else
-    # (fail open — a stray flag must not break the hook path).
-    private def repo_root_override(args : Array(String)) : String?
-      index = args.index("--repo-root")
-      index ? args[index + 1]? : nil
+    # Extract a `--flag VALUE` pair from hook args, ignoring anything else
+    # (fail open — a stray flag must not break the hook path). A missing
+    # value, or one that looks like another flag (the caller omitted this
+    # flag's value), is treated as absent rather than consuming the next
+    # flag as this one's value.
+    private def flag_value(args : Array(String), flag : String) : String?
+      index = args.index(flag)
+      return nil unless index
+      value = args[index + 1]?
+      return nil if value.nil? || value.starts_with?("--")
+      value
     end
 
     # Mutable holder for parsed `match` options, so the parse loop and the

@@ -6,12 +6,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-apropos hook pre",
+            "command": "agent-apropos hook pre --tool gemini",
             "timeout": 10000
           },
           {
             "type": "command",
-            "command": "agent-apropos hook post",
+            "command": "agent-apropos hook post --tool gemini",
             "timeout": 10000
           }
         ]
@@ -21,7 +21,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-apropos hook pre",
+            "command": "agent-apropos hook pre --tool gemini",
             "timeout": 10000
           }
         ]

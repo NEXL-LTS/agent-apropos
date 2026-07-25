@@ -69,6 +69,11 @@ describe AgentApropos::Hook::Payload do
       parse(json).session_id.should eq("abc123")
     end
 
+    it "reads toolName (camelCase) as tool_name" do
+      json = %({"toolName":"view","toolArgs":"{\\"path\\":\\"/repo/a.cr\\"}"})
+      parse(json).tool_name.should eq("view")
+    end
+
     it "reads path out of toolArgs's JSON-encoded string as file_path" do
       json = %({"toolName":"view","toolArgs":"{\\"path\\":\\"/repo/a.cr\\"}"})
       parse(json).file_path.should eq("/repo/a.cr")

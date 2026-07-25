@@ -23,9 +23,21 @@ module AgentApropos
       @[JSON::Field(key: "sessionId")]
       getter session_id_camel : String?
 
-      getter tool_name : String?
+      @[JSON::Field(key: "tool_name")]
+      getter tool_name_snake : String?
+
+      # GitHub Copilot CLI's own key for the same field.
+      @[JSON::Field(key: "toolName")]
+      getter tool_name_camel : String?
+
       getter cwd : String?
       getter tool_input : ToolInput?
+
+      # Gemini CLI's own marker for its single `AfterTool` event, present on
+      # every payload it sends regardless of tool — used only to auto-detect
+      # which `Agents::Agent` dialect a payload came from when `--tool` was
+      # not passed on the command line.
+      getter hook_event_name : String?
 
       # Copilot CLI's own tool-argument field: a JSON-encoded STRING (not a
       # nested object), parsed lazily by `copilot_args` below.
@@ -74,6 +86,12 @@ module AgentApropos
       # there are two wire formats.
       def session_id : String?
         session_id_snake || session_id_camel
+      end
+
+      # `tool_name` merges both dialects the same way `session_id` does —
+      # nothing downstream needs to know Copilot spells it `toolName`.
+      def tool_name : String?
+        tool_name_snake || tool_name_camel
       end
 
       # Whether this payload arrived in Copilot CLI's own dialect. Detected by

@@ -33,7 +33,24 @@ private def check_named(checks : Array(AgentApropos::Check), name : String) : Ag
   checks.find! { |check| check.name == name }
 end
 
+private def payload(tool_name : String) : AgentApropos::Hook::Payload
+  json = %({"tool_name":"#{tool_name}"})
+  AgentApropos::Hook::Payload.parse(json) || raise "expected #{json.inspect} to parse"
+end
+
 describe AgentApropos::Agents::OpenCode do
+  describe "#read?" do
+    it "is true for OpenCode's read tool" do
+      AgentApropos::Agents::OpenCode.new.read?(payload("read")).should be_true
+    end
+
+    it "is false for OpenCode's edit/write/apply_patch tools" do
+      AgentApropos::Agents::OpenCode.new.read?(payload("edit")).should be_false
+      AgentApropos::Agents::OpenCode.new.read?(payload("write")).should be_false
+      AgentApropos::Agents::OpenCode.new.read?(payload("apply_patch")).should be_false
+    end
+  end
+
   describe "#scaffold" do
     it "writes the Bun plugin bridging tool.execute.before/after into agent-apropos hook pre/post" do
       fs = InMemoryFS.new
@@ -42,7 +59,7 @@ describe AgentApropos::Agents::OpenCode do
       plugin.should contain("tool.execute.before")
       plugin.should contain("tool.execute.after")
       plugin.should contain("noReply: true")
-      plugin.should contain(%(["agent-apropos", "hook", sub]))
+      plugin.should contain(%(["agent-apropos", "hook", sub, "--tool", "opencode"]))
       # OpenCode delivers tool args in the second callback parameter; the plugin
       # must read from there (falling back to input) or Layer 2 never fires.
       plugin.should contain("async (input, output)")

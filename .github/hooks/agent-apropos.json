@@ -5,19 +5,19 @@
       {
         "type": "command",
         "matcher": "view",
-        "command": "agent-apropos hook pre",
+        "command": "agent-apropos hook pre --tool copilot",
         "timeoutSec": 10
       },
       {
         "type": "command",
         "matcher": "create|edit",
-        "command": "agent-apropos hook pre",
+        "command": "agent-apropos hook pre --tool copilot",
         "timeoutSec": 10
       },
       {
         "type": "command",
         "matcher": "create|edit",
-        "command": "agent-apropos hook post",
+        "command": "agent-apropos hook post --tool copilot",
         "timeoutSec": 10
       }
     ]

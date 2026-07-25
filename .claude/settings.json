@@ -11,7 +11,7 @@
           },
           {
             "type": "command",
-            "command": "agent-apropos hook post",
+            "command": "agent-apropos hook post --tool claude",
             "timeout": 10
           }
         ]
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-apropos hook pre",
+            "command": "agent-apropos hook pre --tool claude",
             "timeout": 10
           }
         ]
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "agent-apropos hook pre",
+            "command": "agent-apropos hook pre --tool claude",
             "timeout": 10
           }
         ]

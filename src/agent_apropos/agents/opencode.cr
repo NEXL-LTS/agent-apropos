@@ -12,6 +12,10 @@ module AgentApropos
         "opencode"
       end
 
+      def read?(payload : Hook::Payload) : Bool
+        payload.tool_name == "read"
+      end
+
       # Write (or update) the OpenCode Bun plugin. Uses `Init.sync` so a
       # re-run is a no-op when the content is identical.
       def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
@@ -73,7 +77,7 @@ module AgentApropos
 
           async function callHook(sub, payload) {
             try {
-              const proc = Bun.spawn(["agent-apropos", "hook", sub], {
+              const proc = Bun.spawn(["agent-apropos", "hook", sub, "--tool", "opencode"], {
                 stdin: new Blob([JSON.stringify(payload)]),
                 stdout: "pipe",
                 cwd: worktree,

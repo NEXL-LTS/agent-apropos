@@ -2,9 +2,12 @@ require "json"
 require "./filesystem"
 
 module AgentApropos
-  # Per-session dedup store: the set of rule-file paths already
-  # injected during a Claude Code session, so a rule is delivered at most once
-  # per session. Persisted as pretty-printed JSON at
+  # Per-session dedup store: the set of (file, rule) pairs already
+  # injected during a session — shared by every wired CLI agent (Claude Code,
+  # OpenCode, Gemini CLI, GitHub Copilot CLI), not Claude-specific — so a rule
+  # is delivered at most once per file per session, while a rule shown for
+  # one file is still delivered fresh to a different file that also matches
+  # it. Persisted as pretty-printed JSON at
   # `.cache/agent-apropos/sessions/<session_id>.json` with an `updated_at` stamp
   # used to prune stale files opportunistically.
   #
@@ -23,16 +26,20 @@ module AgentApropos
 
     # Why a rule was injected: which layer matched, the hook event that fired,
     # the file that triggered the match, and the specific frontmatter
-    # glob/regex pattern(s) that made it fire.
+    # glob/regex pattern(s) that made it fire. `layer` is normally `2`/`3`,
+    # but becomes the string `"agent"` when the wired agent's own dialect
+    # identifies the triggering event as a genuine *read* rather than an
+    # edit/write — a debugging label only (see `Agents::Agent#read?`), never
+    # something match/dedup logic branches on.
     struct Cause
       include JSON::Serializable
 
-      getter layer : Int32
+      getter layer : Int32 | String
       getter event : String
       getter file : String
       getter matched_patterns : Array(String)
 
-      def initialize(@layer : Int32, @event : String, @file : String, @matched_patterns : Array(String))
+      def initialize(@layer : Int32 | String, @event : String, @file : String, @matched_patterns : Array(String))
       end
     end
 
@@ -90,7 +97,12 @@ module AgentApropos
 
     getter? notified : Bool
 
-    def initialize(@injected : Hash(String, Injection) = {} of String => Injection, @notified : Bool = false)
+    # Keyed by {triggering file, rule path} so a rule already shown for one
+    # file is still delivered fresh to another — dedup is scoped per file,
+    # not global across the whole session.
+    alias Key = {String, String}
+
+    def initialize(@injected : Hash(Key, Injection) = {} of Key => Injection, @notified : Bool = false)
     end
 
     # Load the state for `session_id`. A missing or unparseable file is treated
@@ -101,7 +113,7 @@ module AgentApropos
       json = fs.read?(file_for(repo_root, session_id).to_s)
       return new unless json
       document = Document.from_json(json)
-      injected = document.injected.to_h { |entry| {entry.path, entry} }
+      injected = document.injected.to_h { |entry| { {entry.cause.file, entry.path}, entry } }
       new(injected, document.notified?)
     rescue JSON::ParseException
       new
@@ -126,20 +138,24 @@ module AgentApropos
       nil
     end
 
-    # Has `rule_path` already been injected this session?
-    def injected?(rule_path : String) : Bool
-      @injected.has_key?(rule_path)
+    # Has `rule_path` already been injected for `file` this session?
+    def injected?(file : String, rule_path : String) : Bool
+      @injected.has_key?({file, rule_path})
     end
 
-    # The injected rule paths, for inspection (order unspecified).
+    # The injected rule paths, for inspection (order unspecified, may repeat
+    # across files).
     def injected : Array(String)
-      @injected.keys
+      @injected.values.map(&.path)
     end
 
-    # Record `rule_path` as injected, with the cause that triggered it. A
-    # rule already recorded keeps its original cause (first injection wins).
+    # Record `rule_path` as injected for the file named in `cause.file`, with
+    # the cause that triggered it. The same rule already recorded for that
+    # same file keeps its original cause (first injection wins); a different
+    # file gets its own independent record.
     def add(rule_path : String, cause : Cause) : Nil
-      @injected[rule_path] ||= Injection.new(rule_path, cause)
+      key = {cause.file, rule_path}
+      @injected[key] ||= Injection.new(rule_path, cause)
     end
 
     # Mark the one-time session-start notice as delivered.
@@ -153,7 +169,7 @@ module AgentApropos
     # no-op.
     def save(repo_root : Path, fs : Filesystem, session_id : String?, now : Time) : Nil
       return unless session_id
-      entries = @injected.values.sort_by!(&.path)
+      entries = @injected.values.sort_by! { |entry| {entry.path, entry.cause.file} }
       document = Document.new(now.to_unix, entries, @notified)
       fs.write(SessionState.file_for(repo_root, session_id).to_s, document.to_document)
     end

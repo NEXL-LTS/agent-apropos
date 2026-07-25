@@ -16,7 +16,7 @@ export const AgentAproposPlugin = async ({ worktree, client }) => {
 
   async function callHook(sub, payload) {
     try {
-      const proc = Bun.spawn(["agent-apropos", "hook", sub], {
+      const proc = Bun.spawn(["agent-apropos", "hook", sub, "--tool", "opencode"], {
         stdin: new Blob([JSON.stringify(payload)]),
         stdout: "pipe",
         cwd: worktree,

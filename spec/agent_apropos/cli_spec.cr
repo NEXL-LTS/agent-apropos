@@ -208,8 +208,33 @@ describe AgentApropos::CLI do
         code, out, err = run(["hook", "pre", "--repo-root", dir], payload)
         code.should eq(0)
         err.should be_empty
-        out.should contain("No need to search for coding conventions")
+        out.should contain("agent-apropos is connected and running")
         out.should contain("Convention (docs/conventions/a.md):")
+      end
+    end
+
+    it "ignores --repo-root when its value is omitted and the next token is itself a flag" do
+      with_fixture_repo(git: true) do |dir|
+        payload = {session_id: "s", tool_name: "Edit", cwd: dir,
+                   tool_input: {file_path: "src/x.cr"}}.to_json
+        # --repo-root's value is missing; the next token is another flag, not
+        # a directory. Treating it as the value would make root resolution
+        # fail (no such directory), losing injection entirely.
+        code, out, _ = run(["hook", "pre", "--repo-root", "--tool", "claude"], payload)
+        code.should eq(0)
+        out.should contain("Convention (docs/conventions/a.md):")
+      end
+    end
+
+    it "parses --tool and threads it through to label the recorded cause" do
+      with_fixture_repo do |dir|
+        payload = {session_id: "s", tool_name: "Read", cwd: dir,
+                   tool_input: {file_path: File.join(dir, "src/x.cr")}}.to_json
+        code, _, err = run(["hook", "pre", "--repo-root", dir, "--tool", "claude"], payload)
+        code.should eq(0)
+        err.should be_empty
+        session_file = File.join(dir, ".cache/agent-apropos/sessions/s.json")
+        File.read(session_file).should contain(%("layer": "agent"))
       end
     end
 

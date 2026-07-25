@@ -8,6 +8,7 @@ require "./filesystem"
 require "./repo_root"
 require "./rendering"
 require "./hooks/payload"
+require "./agents"
 
 module AgentApropos
   # The hook runtime shared by every wired CLI agent. `pre` delivers Layer 2
@@ -16,13 +17,16 @@ module AgentApropos
   # match against it, dedup per session, render the matched rule bodies under
   # a character cap, and emit the `additionalContext` envelope.
   #
-  # `pre`/`post` name Claude Code's PreToolUse/PostToolUse events, but the
-  # logic is tool-agnostic: neither method gates on `tool_name`, so the same
+  # `pre`/`post` name Claude Code's PreToolUse/PostToolUse events, but
+  # matching is tool-agnostic: it never gates on `tool_name`, so the same
   # code runs unchanged for OpenCode's plugin bridge and for Gemini CLI, whose
   # `write_file`/`replace` tools happen to use the exact `file_path`/`content`/
   # `old_string`/`new_string` argument names Claude's do. Gemini wires both
   # `pre` and `post` onto its single `AfterTool` event (see `init.cr`) since
-  # its `BeforeTool` output schema cannot inject context.
+  # its `BeforeTool` output schema cannot inject context. The `tool` argument
+  # (from `--tool <name>` — see `Agents::Agent#read?`) is a separate,
+  # non-gating concern: it only labels a recorded `SessionState::Cause` for
+  # debugging, never whether a rule matches or is delivered.
   #
   # `pre` is also wired onto each agent's *read* tool (Claude's Read matcher;
   # Gemini's AfterTool `read_file` matcher; OpenCode's "read" in the
@@ -47,36 +51,41 @@ module AgentApropos
     LOG_RELATIVE   = Path[".cache", "agent-apropos", "log"]
 
     # Delivered once per session, on whichever of `pre`/`post` fires
-    # first — regardless of whether that particular edit matches any rule —
-    # so the agent stops proactively exploring docs/conventions/ on its own
-    # (which would make the with/without-agent-apropos contrast meaningless: a
-    # model that reads the docs directly gets the same content whether or
-    # not agent-apropos's hooks are actually wired). See docs/conventions/README.md
-    # for the layer model this refers to.
-    SESSION_NOTICE = "No need to search for coding conventions, rules, or " \
-                     "guidelines — agent-apropos automatically injects the " \
-                     "relevant ones into your context via hooks as you " \
-                     "read and edit files."
+    # first — regardless of whether that particular edit matches any rule.
+    # Purely descriptive: it states that agent-apropos is running and what it
+    # does, without instructing the agent to act (or not act) any particular
+    # way — instructional framing here would make the with/without-agent-apropos
+    # contrast meaningless, since a model told what to do behaves the same
+    # regardless of whether agent-apropos's hooks are actually wired. See
+    # docs/conventions/README.md for the layer model this refers to.
+    SESSION_NOTICE = "agent-apropos is connected and running. It compiles " \
+                     "this repo's coding conventions into a trigger index " \
+                     "and automatically injects the ones relevant to " \
+                     "whatever file or construct you're touching into your " \
+                     "context, as you read and edit files."
 
     # PreToolUse handler: match the target *path* against Layer 2 rules and
-    # inject them before the write happens.
+    # inject them before the write happens. `tool` is the `--tool <name>`
+    # value from the wiring that invoked this (`nil` when absent, e.g. an
+    # older wiring or a manual invocation), used only to label the
+    # `SessionState::Cause` recorded for any match — see `execute`.
     def pre(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-            override_root : String? = nil, verbose : Bool = false) : Int32
-      deliver(:pre, io_in, stdout, fs, now, override_root, verbose)
+            override_root : String? = nil, verbose : Bool = false, tool : String? = nil) : Int32
+      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool)
     end
 
     # PostToolUse handler: match the *written content* against Layer 3 rules
     # (honoring `paths:` AND-scoping) and inject them after the write.
     def post(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-             override_root : String? = nil, verbose : Bool = false) : Int32
-      deliver(:post, io_in, stdout, fs, now, override_root, verbose)
+             override_root : String? = nil, verbose : Bool = false, tool : String? = nil) : Int32
+      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool)
     end
 
     private def deliver(event : Symbol, io_in : IO, stdout : IO, fs : Filesystem,
-                        now : Time, override_root : String?, verbose : Bool) : Int32
+                        now : Time, override_root : String?, verbose : Bool, tool : String?) : Int32
       payload = Payload.parse(io_in.gets_to_end)
       root = resolve_root(override_root, payload)
-      execute(event, payload, root, stdout, fs, now) if payload && root
+      execute(event, payload, root, stdout, fs, now, tool) if payload && root
       0
     rescue ex
       log_failure(fs, override_root, verbose, ex)
@@ -84,7 +93,7 @@ module AgentApropos
     end
 
     private def execute(event : Symbol, payload : Payload, root : Path,
-                        stdout : IO, fs : Filesystem, now : Time) : Nil
+                        stdout : IO, fs : Filesystem, now : Time, tool : String?) : Nil
       file_path = payload.file_path
       return unless file_path
       relative = relativize(root, file_path)
@@ -94,13 +103,14 @@ module AgentApropos
 
       SessionState.prune(root, fs, now)
       state = SessionState.load(root, fs, payload.session_id)
-      fresh = matches.reject { |match| state.injected?(match.entry.path) }
+      fresh = matches.reject { |match| state.injected?(relative, match.entry.path) }
 
       notice = session_notice(state, payload.session_id)
       combined = combine(notice, build_context(root, fs, fresh.map(&.entry)))
       return if combined.empty?
 
-      layer = event == :pre ? 2 : 3
+      agent = Agents.find(tool) || Agents.detect(payload)
+      layer = agent.read?(payload) ? "agent" : (event == :pre ? 2 : 3)
       name = event_name(event)
       fresh.each do |match|
         cause = SessionState::Cause.new(layer, name, relative, match.patterns)
