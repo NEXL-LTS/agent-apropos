@@ -1,0 +1,21 @@
+{
+  "name": "agent-apropos-docs",
+  "private": true,
+  "description": "Node tooling for linting agent-apropos's markdown documentation (not part of the Crystal build).",
+  "scripts": {
+    "lint:docs": "remark README.md AGENTS.md docs e2e/README.md e2e/conventions --quiet --frail"
+  },
+  "devDependencies": {
+    "remark-cli": "12.0.1",
+    "remark-frontmatter": "5.0.0",
+    "remark-gfm": "4.0.1",
+    "remark-validate-links": "13.1.0"
+  },
+  "remarkConfig": {
+    "plugins": [
+      "remark-frontmatter",
+      "remark-gfm",
+      "remark-validate-links"
+    ]
+  }
+}
