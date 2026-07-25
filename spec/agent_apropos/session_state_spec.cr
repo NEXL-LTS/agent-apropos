@@ -64,7 +64,7 @@ describe AgentApropos::SessionState do
       state.save(ROOT, fs, "s", NOW)
 
       loaded = AgentApropos::SessionState.load(ROOT, fs, "s")
-      loaded.injected?("src/app.cr", "docs/conventions/a.md").should be_true
+      loaded.injected?("docs/conventions/a.md").should be_true
     end
 
     it "treats a corrupt session file as empty (fail open)" do
@@ -154,7 +154,7 @@ describe AgentApropos::SessionState do
       written.should_not contain(%("second"))
     end
 
-    it "records the same rule independently per file, rather than globally" do
+    it "records the same rule only once per session, regardless of which file triggered it" do
       fs = InMemoryFS.new
       state = AgentApropos::SessionState.new
       state.add("a.md", cause(file: "src/first.cr"))
@@ -162,9 +162,12 @@ describe AgentApropos::SessionState do
       state.save(ROOT, fs, "s", NOW)
 
       loaded = AgentApropos::SessionState.load(ROOT, fs, "s")
-      loaded.injected?("src/first.cr", "a.md").should be_true
-      loaded.injected?("src/second.cr", "a.md").should be_true
-      loaded.injected?("src/other.cr", "a.md").should be_false
+      loaded.injected?("a.md").should be_true
+      loaded.injected.size.should eq(1)
+
+      written = fs.files[session_path("s")]
+      written.should contain(%("file": "src/first.cr"))
+      written.should_not contain(%("file": "src/second.cr"))
     end
 
     it "is a no-op without a session id" do
