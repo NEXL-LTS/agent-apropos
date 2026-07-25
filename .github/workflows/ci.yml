@@ -77,6 +77,31 @@ jobs:
           ./bin/agent-apropos generate --check
           ./bin/agent-apropos lint
 
+  # Validates that markdown links and heading anchors across the committed docs
+  # (README.md, AGENTS.md, docs/, e2e/README.md, e2e/conventions/) actually resolve.
+  # Uses remark-validate-links via the pinned devDependencies in package.json —
+  # separate from the Crystal toolchain above, so it gets its own job rather than
+  # bolting Node onto the `test` job.
+  docs-links:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate documentation links
+        run: npm run lint:docs
+
   # Build the devcontainer image so a change to .devcontainer/Dockerfile (e.g.
   # the crystal/kcov/bats toolchain) can't break the dev environment unnoticed.
   # The image is loaded and smoke-checked to confirm the tools it installs are
