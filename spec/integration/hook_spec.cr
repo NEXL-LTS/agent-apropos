@@ -177,4 +177,51 @@ describe "agent-apropos hook (binary)" do
       FileUtils.rm_rf(dir)
     end
   end
+
+  # Codex CLI calls `agent-apropos hook pre`/`post` directly, matched on its
+  # apply_patch tool (see agents/codex.cr). Unlike Gemini/Copilot, this one
+  # genuinely needs Codex-specific code: a single apply_patch call's
+  # tool_input is a patch envelope that can bundle several files' Add/Update
+  # sections together (see Payload#file_edits/ApplyPatch) — these fixtures are
+  # real captures of that shape (spec/fixtures/hook_payloads/), proving the
+  # binary matches and injects for *every* file such a payload touches, not
+  # just the first.
+  it "handles a Codex CLI apply_patch PreToolUse payload bundling two files (Layer 2 on each)" do
+    dir = File.tempname("agent-apropos-hook-repo")
+    begin
+      Dir.mkdir_p(File.join(dir, "docs/conventions"))
+      File.write(File.join(dir, "docs/conventions/lib.md"),
+        "---\npaths: [\"lib/**\"]\n---\n# Lib\n\nKeep lib modules pure.\n")
+      File.write(File.join(dir, "docs/conventions/jobs.md"),
+        "---\npaths: [\"app/jobs/**\"]\n---\n# Jobs\n\nKeep jobs idempotent.\n")
+
+      payload = File.read("spec/fixtures/hook_payloads/codex_pre_tool_use_apply_patch.json")
+        .gsub("/repo", dir)
+
+      code, output = run_hook(binary, ["hook", "pre", "--repo-root", dir], payload)
+      code.should eq(0)
+      output.should contain("Keep lib modules pure.")
+      output.should contain("Keep jobs idempotent.")
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
+
+  it "handles a Codex CLI apply_patch PostToolUse payload, matching Layer 3 on the Update section's added line" do
+    dir = File.tempname("agent-apropos-hook-repo")
+    begin
+      Dir.mkdir_p(File.join(dir, "docs/conventions"))
+      File.write(File.join(dir, "docs/conventions/comments.md"),
+        "---\ncontents: ['\\bsum\\b']\n---\n# Comments\n\nExplain why, not what.\n")
+
+      payload = File.read("spec/fixtures/hook_payloads/codex_post_tool_use_apply_patch.json")
+        .gsub("/repo", dir)
+
+      code, output = run_hook(binary, ["hook", "post", "--repo-root", dir], payload)
+      code.should eq(0)
+      output.should contain("Explain why, not what.")
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
 end

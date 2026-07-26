@@ -113,4 +113,85 @@ describe AgentApropos::Hook::Payload do
       parse(%({"tool_name":"Edit"})).copilot?.should be_false
     end
   end
+
+  # Codex CLI's own `apply_patch` tool: `tool_input.command` is a whole patch
+  # envelope, not a single file_path/content pair — confirmed against a real
+  # captured Codex hook payload, not upstream docs.
+  describe "#file_edits" do
+    it "returns a single-element edit for a Claude-style Edit payload" do
+      json = %({"tool_name":"Edit","tool_input":{"file_path":"a.cr","new_string":"b"}})
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("a.cr")
+      edits[0].written_contents.should eq(["b"])
+    end
+
+    it "is empty for a payload with no file_path (e.g. Codex's Bash tool)" do
+      json = %({"tool_name":"Bash","tool_input":{"command":"echo hi"}})
+      parse(json).file_edits.should be_empty
+    end
+
+    it "parses a single Add File section" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Add File: a.py\n+line one\n+line two\n*** End Patch\n"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("a.py")
+      edits[0].written_contents.should eq(["line one", "line two"])
+    end
+
+    it "parses a single Update File section, keeping only the added lines" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Update File: a.py\n@@\n def add(a, b):\n+    \"\"\"docstring\"\"\"\n     return a + b\n*** End Patch\n"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("a.py")
+      edits[0].written_contents.should eq(["    \"\"\"docstring\"\"\""])
+    end
+
+    it "parses several Add/Update sections bundled into one apply_patch call" do
+      command = "*** Begin Patch\n" \
+                "*** Add File: lib/hello.py\n" \
+                "+def add(a, b):\n" \
+                "+    return a + b\n" \
+                "*** Update File: app/existing.py\n" \
+                "@@\n" \
+                " def add(a, b):\n" \
+                "+    \"\"\"docstring\"\"\"\n" \
+                "     return a + b\n" \
+                "*** End Patch\n"
+      json = {tool_name: "apply_patch", tool_input: {command: command}}.to_json
+      edits = parse(json).file_edits
+      edits.map(&.path).should eq(["lib/hello.py", "app/existing.py"])
+      edits[0].written_contents.should eq(["def add(a, b):", "    return a + b"])
+      edits[1].written_contents.should eq(["    \"\"\"docstring\"\"\""])
+    end
+
+    it "skips a Delete File section entirely — no content to match Layer 3 against" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Delete File: gone.py\n*** End Patch\n"},
+      }.to_json
+      parse(json).file_edits.should be_empty
+    end
+
+    it "honors a Move to line as the file's final path" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Update File: old_name.py\n*** Move to: new_name.py\n@@\n context\n+added\n*** End Patch\n"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("new_name.py")
+      edits[0].written_contents.should eq(["added"])
+    end
+
+    it "is empty for a nil or blank patch command" do
+      parse(%({"tool_name":"apply_patch","tool_input":{}})).file_edits.should be_empty
+    end
+  end
 end

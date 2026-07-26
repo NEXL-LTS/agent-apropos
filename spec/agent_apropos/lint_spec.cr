@@ -19,8 +19,8 @@ private def doc(name : String) : String
 end
 
 # The correct on-disk wrappers for a skill doc across every generated root
-# (`.claude/skills`, `.gemini/skills`), so drift tests can install a
-# byte-accurate baseline via the real generator.
+# (`.claude/skills`, `.gemini/skills`, `.codex/skills`), so drift tests can
+# install a byte-accurate baseline via the real generator.
 private def wrapper_for(name : String, text : String) : {Hash(String, String), String}
   convention = AgentApropos::Convention.parse("docs/conventions/#{name}", text)
   slug, content = AgentApropos::Skills.wrappers([convention]).first
@@ -150,6 +150,13 @@ describe AgentApropos::Lint do
       code, stdout = run_lint(fs)
       code.should eq(1)
       stdout.should contain(".gemini/skills/ghost/SKILL.md: orphaned generated wrapper")
+    end
+
+    it "errors on an orphaned wrapper in the codex skills root too" do
+      fs = InMemoryFS.new({"/repo/.codex/skills/ghost/SKILL.md" => "orphan\n"})
+      code, stdout = run_lint(fs)
+      code.should eq(1)
+      stdout.should contain(".codex/skills/ghost/SKILL.md: orphaned generated wrapper")
     end
 
     it "errors on an orphaned wrapper with no source doc" do

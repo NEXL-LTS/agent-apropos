@@ -28,4 +28,24 @@ describe "hook payload fixtures" do
     payload = parse_fixture("post_multiedit.json")
     payload.written_contents.should eq(["b", "User.update_all(active: true)"])
   end
+
+  it "parses a Codex PreToolUse apply_patch capture bundling an Add and an Update" do
+    payload = parse_fixture("codex_pre_tool_use_apply_patch.json")
+    payload.tool_name.should eq("apply_patch")
+    edits = payload.file_edits
+    edits.map(&.path).should eq(["/repo/lib/hello.cr", "/repo/app/jobs/mailer_job.cr"])
+    edits[0].written_contents.should eq(["def add(a, b)", "  a + b", "end"])
+    edits[1].written_contents.should eq(["  # sum two numbers"])
+  end
+
+  it "parses a Codex PostToolUse apply_patch capture the same way as its PreToolUse pair" do
+    payload = parse_fixture("codex_post_tool_use_apply_patch.json")
+    payload.file_edits.map(&.path).should eq(["/repo/lib/hello.cr", "/repo/app/jobs/mailer_job.cr"])
+  end
+
+  it "has no file_edits for a Codex Bash capture (no file_path in a shell command)" do
+    payload = parse_fixture("codex_pre_tool_use_bash.json")
+    payload.tool_name.should eq("Bash")
+    payload.file_edits.should be_empty
+  end
 end

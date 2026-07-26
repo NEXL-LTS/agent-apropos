@@ -96,6 +96,33 @@ describe "agent-apropos init/lint/doctor/help (binary)" do
     end
   end
 
+  it "bootstraps a repo with --tool codex and doctor shows the codex line" do
+    dir = File.tempname("agent-apropos-lifecycle-codex")
+    begin
+      Dir.mkdir_p(dir)
+
+      code, stdout = run_agent_apropos(binary, ["init", "--tool", "codex", "--repo-root", dir])
+      code.should eq(0)
+      stdout.should contain(".codex/hooks.json")
+      File.exists?(File.join(dir, ".codex/hooks.json")).should be_true
+      File.exists?(File.join(dir, ".claude/settings.json")).should be_false
+
+      hooks = File.read(File.join(dir, ".codex/hooks.json"))
+      hooks.should contain("PreToolUse")
+      hooks.should contain("PostToolUse")
+      hooks.should contain(%("command": "agent-apropos hook pre --tool codex"))
+      hooks.should contain(%("command": "agent-apropos hook post --tool codex"))
+
+      # `codex` is genuinely on PATH in this devcontainer (npm-installed), so
+      # doctor's advisory check actually runs rather than skipping — confirming
+      # the wiring `init` just wrote is itself well-formed.
+      _, stdout = run_agent_apropos(binary, ["doctor", "--repo-root", dir])
+      stdout.should contain("codex:")
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
+
   it "bootstraps a repo and lints it clean" do
     dir = File.tempname("agent-apropos-lifecycle-repo")
     begin

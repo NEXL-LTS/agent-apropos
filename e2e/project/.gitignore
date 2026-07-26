@@ -9,4 +9,5 @@ __pycache__/
 /.opencode/
 /.gemini/
 /.github/hooks/
+/.codex/
 /CLAUDE.md

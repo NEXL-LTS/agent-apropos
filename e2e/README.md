@@ -1,12 +1,12 @@
 # agent-apropos end-to-end test
 
 A [bats-core](https://github.com/bats-core/bats-core) suite that runs agent-apropos
-against live Claude Code, OpenCode, and GitHub Copilot CLI by default (Gemini
-CLI is supported but opt-in — see [Options](#options) — since even a healthy
-call has been observed taking 30-60s, and a real edit-task prompt over 180s)
-and asserts what the model actually writes. It is organized **by layer**;
-each layer runs the same with-agent-apropos / without-agent-apropos contrast for
-every enabled CLI.
+against live Claude Code, OpenCode, GitHub Copilot CLI, and Codex CLI by
+default (Gemini CLI is supported but opt-in — see [Options](#options) — since
+even a healthy call has been observed taking 30-60s, and a real edit-task
+prompt over 180s) and asserts what the model actually writes. It is organized
+**by layer**; each layer runs the same with-agent-apropos / without-agent-apropos
+contrast for every enabled CLI.
 
 ## Structure
 
@@ -105,7 +105,9 @@ run. This is why the e2e is not wired into `make check` or CI — it is a
 local, opt-in confidence check.
 
 In the devcontainer, Claude's credentials arrive via the `${HOME}/.claude.json`
-bind mount. OpenCode's credential lives in a named volume (`opencode-data`), so
+bind mount. Codex CLI keeps its credential under `~/.codex` (bind-mounted as
+the `codex-data` volume) — run `codex login` once and it persists across
+rebuilds. OpenCode's credential lives in a named volume (`opencode-data`), so
 authenticate once per container:
 
 ```sh
@@ -139,6 +141,24 @@ present but the target module removed, Copilot cited the skill's guidance
 verbatim; with the skill file removed but the module left in place, it used
 neither. So the "Layer 4 ... (Copilot)" pair is a genuine proof, same as
 every other agent's.
+
+**Codex CLI caveat:** unlike Gemini/Copilot, its `PreToolUse` event *can*
+inject context, so Layer 2 lands before the write, same as Claude — but its
+own file-editing tool, `apply_patch`, can bundle several files' Add/Update
+sections into a single call (a real capture of this shape lives at
+`spec/fixtures/hook_payloads/codex_*_apply_patch.json`); `Hook::Payload`
+parses it and matches/dedups per file (see `agents/codex.cr`). `run_codex`
+passes `--dangerously-bypass-hook-trust` because every test stands up a
+fresh git repo with a `.codex/hooks.json` Codex has never reviewed before —
+without it Codex silently refuses to run the hook rather than prompting, so
+agent-apropos would never fire and "with" would look identical to "without".
+Layer 4 (skills) needed its own root, unlike Copilot: Codex does **not**
+discover `.claude/skills/` the way Copilot does (confirmed live — the "with"
+test failed against a repo carrying only `.claude/skills/`), but it *does*
+discover a repo-local `.codex/skills/` (confirmed live the same way, by
+placing the identical wrapper there and re-running) — a separate root from
+its default global `~/.codex/skills`. `agent-apropos generate` now writes
+both.
 
 ## Options
 
