@@ -143,5 +143,6 @@ zero copies of the conventions; one source serves authoring, editing, and review
 
 > Delivery note: this repo self-hosts. Rules here are compiled and injected by
 > `agent-apropos` itself — Layer 2 on PreToolUse, Layer 3 on PostToolUse — via the hook
-> entries in `.claude/settings.json`. Run `make install` so the `agent-apropos hook pre`/
-> `agent-apropos hook post` commands resolve on PATH; `agent-apropos doctor` checks the wiring.
+> entries in `.claude/settings.json` and `.codex/hooks.json`. Run `make install` so the
+> `agent-apropos hook pre`/`agent-apropos hook post` commands resolve on PATH;
+> `agent-apropos doctor` checks the wiring.
