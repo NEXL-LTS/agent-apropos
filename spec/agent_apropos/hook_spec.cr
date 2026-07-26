@@ -102,7 +102,7 @@ describe AgentApropos::Hook do
       fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_true
     end
 
-    it "injects a rule at most once per file per session" do
+    it "injects a rule at most once per session" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, pre_json("src/app.cr"), fs)[1]
         .should contain("Convention (docs/conventions/a.md):")
@@ -112,14 +112,23 @@ describe AgentApropos::Hook do
       stdout.should be_empty
     end
 
-    it "delivers the same rule fresh to a different file that also matches it" do
+    it "does not repeat a rule for a different file that also matches it (dedup is global per session, not per file)" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, pre_json("src/app.cr"), fs)[1]
         .should contain("Convention (docs/conventions/a.md):")
 
       code, stdout = invoke(:pre, pre_json("src/other.cr"), fs)
       code.should eq(0)
-      stdout.should contain("Convention (docs/conventions/a.md):")
+      stdout.should be_empty
+    end
+
+    it "appends a scope note stating a path-scoped rule applies to every matching file" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      _, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
+      stdout.should contain(
+        "Scope: this convention applies to every file whose path matches `src/**` " \
+        "— not only the file that triggered it just now."
+      )
     end
 
     it "emits nothing when no Layer 2 rule matches the path" do
@@ -250,6 +259,14 @@ describe AgentApropos::Hook do
       stdout.should contain("Convention (docs/conventions/db.md):")
     end
 
+    it "appends a scope note naming the content pattern for a construct-scoped rule" do
+      fs = InMemoryFS.new({DB_PATH => DB_DOC})
+      _, stdout = invoke(:post, write_json("lib/x.cr", "db.transaction do"), fs)
+      stdout.should contain(
+        "Scope: this convention applies to every file where new code matches `\\\\btransaction\\\\b`"
+      )
+    end
+
     it "injects a path-scoped Layer 3 rule only when path and content both match" do
       fs = InMemoryFS.new({MODELS_PATH => MODELS_DOC})
       invoke(:post, write_json("app/models/u.cr", "User.update_all(x: 1)"), fs)[1]
@@ -259,6 +276,15 @@ describe AgentApropos::Hook do
       code, stdout = invoke(:post, write_json("scripts/one_off.cr", "User.update_all(x: 1)", nil), other)
       code.should eq(0)
       stdout.should be_empty
+    end
+
+    it "appends a scope note combining path and content for a path+content rule" do
+      fs = InMemoryFS.new({MODELS_PATH => MODELS_DOC})
+      _, stdout = invoke(:post, write_json("app/models/u.cr", "User.update_all(x: 1)"), fs)
+      stdout.should contain(
+        "Scope: this convention applies to every file whose path matches `app/**` " \
+        "and where new code matches `\\\\bupdate_all\\\\b`"
+      )
     end
 
     it "emits nothing when no Layer 3 content matches" do
@@ -428,6 +454,26 @@ describe AgentApropos::Hook do
       stdout.should contain(%("hookSpecificOutput"))
       JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s
         .should contain("Convention (docs/conventions/a.md):")
+    end
+  end
+
+  # A CLI agent's own bookkeeping (e.g. Copilot's ~/.copilot/session-state/)
+  # can live entirely outside the project — conventions are scoped to the
+  # repo, so a match there would be meaningless noise at best and a leak of
+  # repo-specific guidance into an unrelated file at worst.
+  describe "files outside the repo root" do
+    it "emits nothing for a pathless Layer 3 rule matching a write outside the repo root" do
+      fs = InMemoryFS.new({DB_PATH => DB_DOC})
+      input = write_json("/home/user/.copilot/session-state/x/plan.md", "start a transaction")
+      code, stdout = invoke(:post, input, fs)
+      code.should eq(0)
+      stdout.should be_empty
+    end
+
+    it "emits nothing for a Layer 2 rule matching a read outside the repo root" do
+      code, stdout = invoke(:pre, pre_json("/etc/passwd"), InMemoryFS.new)
+      code.should eq(0)
+      stdout.should be_empty
     end
   end
 end

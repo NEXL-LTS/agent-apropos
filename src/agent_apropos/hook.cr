@@ -97,13 +97,14 @@ module AgentApropos
       file_path = payload.file_path
       return unless file_path
       relative = relativize(root, file_path)
+      return if outside_root?(relative)
 
       index = load_or_build_index(root, fs)
       matches = matches_for(event, index, payload, root, fs, relative)
 
       SessionState.prune(root, fs, now)
       state = SessionState.load(root, fs, payload.session_id)
-      fresh = matches.reject { |match| state.injected?(relative, match.entry.path) }
+      fresh = matches.reject { |match| state.injected?(match.entry.path) }
 
       notice = session_notice(state, payload.session_id)
       combined = combine(notice, build_context(root, fs, fresh.map(&.entry)))
@@ -213,15 +214,37 @@ module AgentApropos
     end
 
     # Read each matched rule's body (frontmatter stripped) and render them under
-    # `Convention (path):` headers, applying the shared cap strategy.
+    # `Convention (path):` headers, applying the shared cap strategy. Each
+    # body gets a scope note appended (see `scope_note`) since dedup is now
+    # global-per-session (`SessionState`): a rule is only ever injected once,
+    # so the agent needs to be told explicitly, up front, that it still
+    # applies to every other matching file it touches afterward.
     private def build_context(root : Path, fs : Filesystem, entries : Array(Index::Entry)) : String
       docs = entries.compact_map do |entry|
         text = fs.read?(root.join(entry.path).to_s)
         next unless text
         _, body = Frontmatter.split(text)
-        {entry.path, body.strip}
+        {entry.path, body.strip + scope_note(entry)}
       end
       Rendering.context(docs)
+    end
+
+    # A trailing note stating which files this rule covers — every path
+    # matching its `paths:` globs and/or every file whose written content
+    # matches its `contents:` patterns — so the agent applies it to other
+    # matching files later in the session without needing it shown again.
+    private def scope_note(entry : Index::Entry) : String
+      parts = [] of String
+      parts << "whose path matches #{quoted(entry.paths)}" unless entry.paths.empty?
+      parts << "where new code matches #{quoted(entry.contents)}" unless entry.contents.empty?
+      return "" if parts.empty?
+      "\n\n_Scope: this convention applies to every file #{parts.join(" and ")} " \
+      "— not only the file that triggered it just now. Apply it to any other " \
+      "matching file you touch this session; it will not be shown again._"
+    end
+
+    private def quoted(patterns : Array(String)) : String
+      patterns.map { |pattern| "`#{pattern}`" }.join(" or ")
     end
 
     # GitHub Copilot CLI's `postToolUse` output schema has no envelope — just
@@ -263,6 +286,17 @@ module AgentApropos
     private def relativize(root : Path, file_path : String) : String
       path = Path[file_path]
       path.absolute? ? path.relative_to(root).to_posix.to_s : path.to_posix.to_s
+    end
+
+    # `relativize` computes a relative path unconditionally, even when
+    # `file_path` isn't actually inside `root` — it just comes out prefixed
+    # with `..` segments (e.g. a CLI agent writing to its own state dir
+    # outside the project, like Copilot's `~/.copilot/session-state/`).
+    # Conventions are scoped to the repo; nothing outside it should ever
+    # match, so callers must skip entirely rather than match against a path
+    # that only superficially looks repo-relative.
+    private def outside_root?(relative : String) : Bool
+      relative == ".." || relative.starts_with?("../")
     end
 
     # Best-effort `--verbose` diagnostics. Silent unless verbose, and
