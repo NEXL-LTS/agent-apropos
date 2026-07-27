@@ -14,11 +14,12 @@ module AgentApropos
   #
   # Per-tool hook wiring (Claude Code's `.claude/settings.json`, OpenCode's
   # generated plugin, Gemini CLI's `.gemini/settings.json`, GitHub Copilot
-  # CLI's `.github/hooks/*.json`) is tool-agnostic: pass `--tool claude` /
-  # `--tool opencode` / `--tool gemini` / `--tool copilot` (repeatable) to
-  # wire specific agents explicitly, or omit `--tool` entirely to auto-detect
-  # by probing PATH for each supported agent. This keeps init easy to extend as
-  # more agents (Codex, ...) land.
+  # CLI's `.github/hooks/*.json`, Codex CLI's `.codex/hooks.json`) is
+  # tool-agnostic: pass `--tool claude` / `--tool opencode` / `--tool gemini`
+  # / `--tool copilot` / `--tool codex` (repeatable) to wire specific agents
+  # explicitly, or omit `--tool` entirely to auto-detect by probing PATH for
+  # each supported agent. This keeps init easy to extend as more agents
+  # (Cursor CLI, ...) land.
   #
   # Gemini CLI's hook system has no pre-edit context-injection event (its
   # `BeforeTool` output schema only supports overriding tool arguments or
@@ -42,7 +43,7 @@ module AgentApropos
 
     # CLI agents init knows how to wire hooks for, delegated to
     # `Agents::ALL` (one `Agents::Agent` subclass each). Extend that array,
-    # not this set, as more emitters land (Codex, Cursor CLI, ...).
+    # not this set, as more emitters land (Cursor CLI, ...).
     KNOWN_TOOLS = Agents.names
 
     # Parsed flags for one `init` invocation. `tools: nil` means auto-detect;
@@ -259,7 +260,10 @@ module AgentApropos
       `BeforeTool` and Copilot's `preToolUse` can only override arguments or
       block/allow the call), so both Layer 2 and Layer 3 deliver via their
       post-edit hook instead (`AfterTool` for Gemini, `postToolUse` for Copilot)
-      — Layer 2 still fires, just after the edit rather than before it.
+      — Layer 2 still fires, just after the edit rather than before it. Codex
+      CLI's own PreToolUse *can* inject context, so it delivers Layer 2 the same
+      way Claude Code does; its `apply_patch` tool can bundle several files'
+      edits into one call, which agent-apropos matches and injects per file.
       MD
 
     AGENTS_SKELETON = <<-MD

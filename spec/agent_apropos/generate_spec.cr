@@ -38,11 +38,13 @@ describe AgentApropos::Generate do
       stdout.should contain("index: rebuilt (2 docs)")
       stdout.should contain("skill: wrote .claude/skills/foo/SKILL.md")
       stdout.should contain("skill: wrote .gemini/skills/foo/SKILL.md")
+      stdout.should contain("skill: wrote .codex/skills/foo/SKILL.md")
 
       fs.files[INDEX_PATH].should contain("\"schema_version\": 1")
       expected = AgentApropos::Skills.wrappers([AgentApropos::Convention.parse("docs/conventions/workflows/foo.md", doc)])["foo"]
       fs.files["/repo/.claude/skills/foo/SKILL.md"].should eq(expected)
       fs.files["/repo/.gemini/skills/foo/SKILL.md"].should eq(expected)
+      fs.files["/repo/.codex/skills/foo/SKILL.md"].should eq(expected)
     end
 
     it "leaves a fresh index untouched but still ensures wrappers" do
@@ -78,15 +80,19 @@ describe AgentApropos::Generate do
         path                                 => doc,
         "/repo/.claude/skills/gone/SKILL.md" => "stale wrapper\n",
         "/repo/.gemini/skills/gone/SKILL.md" => "stale wrapper\n",
+        "/repo/.codex/skills/gone/SKILL.md"  => "stale wrapper\n",
       })
 
       code.should eq(0)
       stdout.should contain("skill: removed orphan .claude/skills/gone/SKILL.md")
       stdout.should contain("skill: removed orphan .gemini/skills/gone/SKILL.md")
+      stdout.should contain("skill: removed orphan .codex/skills/gone/SKILL.md")
       fs.removed.should contain("/repo/.claude/skills/gone")
       fs.removed.should contain("/repo/.gemini/skills/gone")
+      fs.removed.should contain("/repo/.codex/skills/gone")
       fs.files.has_key?("/repo/.claude/skills/gone/SKILL.md").should be_false
       fs.files.has_key?("/repo/.gemini/skills/gone/SKILL.md").should be_false
+      fs.files.has_key?("/repo/.codex/skills/gone/SKILL.md").should be_false
     end
 
     it "fails closed on a slug collision" do
@@ -119,6 +125,7 @@ describe AgentApropos::Generate do
       stdout.should contain("drift detected")
       stdout.should contain("missing: .claude/skills/foo/SKILL.md")
       stdout.should contain("missing: .gemini/skills/foo/SKILL.md")
+      stdout.should contain("missing: .codex/skills/foo/SKILL.md")
     end
 
     it "reports a hand-edited (stale) wrapper and exits 1" do

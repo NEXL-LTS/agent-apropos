@@ -26,10 +26,16 @@
 # response; with the skill file removed but lib/registry.py left in place, it
 # used neither — proving the skill file, not tree exploration, is what
 # Copilot actually reads.
+#
+# Codex CLI needed its own root instead: a repo carrying only .claude/skills/
+# did NOT get the skill's guidance (its live Layer 4 "with" test failed), but
+# placing the identical wrapper under .codex/skills/ did — confirmed live
+# before wiring generate to write there (see skills.cr's ROOTS).
 E2E_AGENTS=(
   "Claude|require_live_claude|run_claude"
   "OpenCode|require_live_opencode|run_opencode"
   "Copilot|require_live_copilot|run_copilot"
+  "Codex|require_live_codex|run_codex"
 )
 
 # Gemini CLI is opt-in, not part of the default matrix: even when healthy it
@@ -142,6 +148,8 @@ new_sample() {
     printf '{"hooks":{}}\n' > "$WORK/.gemini/settings.json"
     rm -rf "$WORK/.gemini/skills"
     rm -f "$WORK/.github/hooks/agent-apropos.json"
+    rm -f "$WORK/.codex/hooks.json"
+    rm -rf "$WORK/.codex/skills"
     # Also remove the supporting module each rule points to (the decorator,
     # exception, registry, and audit wrapper). Each is a realistic project
     # convention rather than an arbitrary token, so it's a real, discoverable
@@ -392,5 +400,68 @@ run_copilot() {  # arg: prompt
   if [ "$rc" -ne 0 ]; then
     touch "$BATS_RUN_TMPDIR/copilot_unusable"
     skip "copilot exited $rc"
+  fi
+}
+
+# --- live codex runner --------------------------------------------------------
+#
+# `--dangerously-bypass-approvals-and-sandbox` is Codex CLI's own documented
+# full-auto flag — skips both its command-approval prompts and its bubblewrap/
+# seatbelt sandbox, the same non-interactive-automation role Claude's
+# `--permission-mode auto` and Gemini's `--approval-mode auto_edit` play here.
+# Without it a headless run either blocks on an approval prompt that never
+# arrives, or (observed in a sandboxed devcontainer) fails outright because
+# Codex's own sandbox helper (bubblewrap) cannot initialize a nested sandbox.
+#
+# `--dangerously-bypass-hook-trust` is Codex's separate trust gate *specifically
+# for hook definitions* (distinct from command approval): every test stands up
+# a brand-new git repo under a fresh temp dir with a `.codex/hooks.json` Codex
+# has never seen before, and without this flag Codex refuses to run an
+# unreviewed hook rather than prompting (there is no interactive prompt to
+# answer headlessly, unlike its approval/sandbox gate above) — so agent-apropos's
+# hooks would simply never fire and every "with" test would look identical to
+# "without". Confirmed by capturing a real hook payload with and without this
+# flag while building Codex support (see agents/codex.cr).
+
+codex_ready() { command -v codex >/dev/null 2>&1; }
+
+# Skip unless a real, authenticated codex is available. Uses a run-wide
+# unusable flag so that once codex is found unusable, later live tests skip
+# immediately instead of each paying for a failed call.
+require_live_codex() {
+  codex_ready || skip "codex not on PATH"
+  [ -f "$BATS_RUN_TMPDIR/codex_unusable" ] && skip "codex unusable (detected earlier)"
+  if [ ! -f "$BATS_RUN_TMPDIR/codex_auth_ok" ]; then
+    local rc=0
+    echo_cmd "timeout 60 codex exec --dangerously-bypass-approvals-and-sandbox \"reply with the single word READY\""
+    timeout 60 codex exec --dangerously-bypass-approvals-and-sandbox "reply with the single word READY" \
+      >/dev/null 2>/dev/null || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      touch "$BATS_RUN_TMPDIR/codex_unusable"
+      skip "codex not authenticated (exit $rc)"
+    fi
+    touch "$BATS_RUN_TMPDIR/codex_auth_ok"
+  fi
+  return 0
+}
+
+# Run codex non-interactively in $WORK. .codex/hooks.json's PreToolUse/
+# PostToolUse hooks (matched on Codex's apply_patch tool) call `agent-apropos
+# hook pre`/`agent-apropos hook post` directly — no bridge script, since
+# Payload/Hook understand Codex's dialect natively; agent-apropos must be on
+# PATH. Stdout is written to $WORK/_cx_out.txt; a nonzero exit skips the test,
+# same convention as run_opencode/run_gemini/run_copilot.
+run_codex() {  # arg: prompt
+  local model_args=()
+  [ -n "${E2E_MODEL:-}" ] && model_args=(--model "$E2E_MODEL")
+  local rc=0
+  echo_cmd "cd $WORK && codex exec --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust \"$1\" ${model_args[*]}"
+  (
+    cd "$WORK" && codex exec --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust \
+      "$1" "${model_args[@]}"
+  ) >"$WORK/_cx_out.txt" 2>"$WORK/_cx_err.txt" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    touch "$BATS_RUN_TMPDIR/codex_unusable"
+    skip "codex exited $rc"
   fi
 }

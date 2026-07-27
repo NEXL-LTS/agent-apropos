@@ -40,6 +40,12 @@ module AgentApropos
   # write-only — it matches the *written* content, which doesn't exist yet
   # on a mere read.
   #
+  # Every dialect's edit tool is one file per call — except Codex CLI's
+  # `apply_patch`, whose patch envelope can bundle several files' worth of
+  # Add/Update sections into a single call (see `Hook::Payload#file_edits`).
+  # `execute` matches and dedups across every file such a payload touches, so
+  # a rule that any of them satisfies is still injected exactly once.
+  #
   # Everything here fails **open**: any internal error exits 0 and
   # emits nothing, so a conventions tool can never block or break an edit. All
   # I/O is injected (filesystem, stdin/stdout IO, clock) so every path is
@@ -94,13 +100,18 @@ module AgentApropos
 
     private def execute(event : Symbol, payload : Payload, root : Path,
                         stdout : IO, fs : Filesystem, now : Time, tool : String?) : Nil
-      file_path = payload.file_path
-      return unless file_path
-      relative = relativize(root, file_path)
-      return if outside_root?(relative)
+      # Every dialect but Codex's `apply_patch` yields exactly one edit here,
+      # so this is unchanged behavior for them. `relative_edit` drops any
+      # edit outside the repo root; when that leaves nothing (the common
+      # single-edit case for an outside-root path), bail out entirely with no
+      # side effects — same as the old single-`file_path` early return —
+      # rather than still emitting a session notice for a call that touched
+      # nothing inside the repo.
+      in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
+      return if in_root.empty?
 
       index = load_or_build_index(root, fs)
-      matches = matches_for(event, index, payload, root, fs, relative)
+      matches = dedup_by_entry(in_root.flat_map { |relative, edit| matches_for(event, index, root, fs, relative, edit) })
 
       SessionState.prune(root, fs, now)
       state = SessionState.load(root, fs, payload.session_id)
@@ -114,7 +125,7 @@ module AgentApropos
       layer = agent.read?(payload) ? "agent" : (event == :pre ? 2 : 3)
       name = event_name(event)
       fresh.each do |match|
-        cause = SessionState::Cause.new(layer, name, relative, match.patterns)
+        cause = SessionState::Cause.new(layer, name, match.relative, match.patterns)
         state.add(match.entry.path, cause)
       end
       state.notify! if notice
@@ -122,10 +133,34 @@ module AgentApropos
       emit(stdout, name, combined, payload.copilot?)
     end
 
+    # `edit`'s path, relativized to `root` — or nil when it resolves outside
+    # the repo (see `outside_root?`), so the caller can filter it out while
+    # still processing any other edit from the same payload.
+    private def relative_edit(root : Path, edit : Payload::FileEdit) : {String, Payload::FileEdit}?
+      relative = relativize(root, edit.path)
+      return nil if outside_root?(relative)
+      {relative, edit}
+    end
+
     # A matched rule together with the specific glob/regex pattern(s) from its
-    # frontmatter that fired, kept alongside the entry so the cause can be
-    # recorded without re-matching.
-    private record Match, entry : Index::Entry, patterns : Array(String)
+    # frontmatter that fired and the file that fired it, kept alongside the
+    # entry so the cause can be recorded without re-matching.
+    private record Match, entry : Index::Entry, patterns : Array(String), relative : String
+
+    # Drop every `Match` after the first seen for a given rule (`entry.path`)
+    # — a single `apply_patch` call can touch several files, and more than
+    # one of them can match the same rule, but it must still only ever be
+    # injected (and recorded) once. Same one-injection-per-rule guarantee
+    # `SessionState` already gives *across* hook calls; this is the
+    # equivalent guarantee *within* one.
+    private def dedup_by_entry(matches : Array(Match)) : Array(Match)
+      seen = Set(String).new
+      matches.select do |match|
+        next false if seen.includes?(match.entry.path)
+        seen << match.entry.path
+        true
+      end
+    end
 
     # The one-time notice, or nil once already delivered this session. A nil
     # `session_id` means there is no key to remember "already notified"
@@ -142,13 +177,13 @@ module AgentApropos
       "#{notice}\n\n#{context}"
     end
 
-    private def matches_for(event : Symbol, index : Index, payload : Payload,
-                            root : Path, fs : Filesystem, relative : String) : Array(Match)
+    private def matches_for(event : Symbol, index : Index, root : Path, fs : Filesystem,
+                            relative : String, edit : Payload::FileEdit) : Array(Match)
       case event
       when :pre
         match_pre(index, relative)
       else
-        match_post(index, payload, root, fs, relative)
+        match_post(index, root, fs, relative, edit)
       end
     end
 
@@ -158,16 +193,19 @@ module AgentApropos
         next unless entry.layer2?
         patterns = Matcher.matching_paths(entry.paths, relative)
         next if patterns.empty?
-        Match.new(entry, patterns)
+        Match.new(entry, patterns, relative)
       end
     end
 
     # Layer 3: any content-scoped rule whose regex matches the written content;
-    # when the rule also declares `paths`, the path must match too (AND). The
+    # when the rule also declares `paths`, the path must match too (AND). Both
+    # sides are checked against this one edit's own path/content — never
+    # pooled across a multi-file `apply_patch` call's other edits, or the AND
+    # could fire from two different files satisfying one side each. The
     # recorded cause combines whichever pattern(s) fired on each side.
-    private def match_post(index : Index, payload : Payload, root : Path,
-                           fs : Filesystem, relative : String) : Array(Match)
-      content = post_content(payload, root, fs, relative)
+    private def match_post(index : Index, root : Path, fs : Filesystem,
+                           relative : String, edit : Payload::FileEdit) : Array(Match)
+      content = post_content(edit, root, fs, relative)
       return [] of Match unless content
 
       index.docs.compact_map do |entry|
@@ -178,16 +216,16 @@ module AgentApropos
         path_patterns = entry.paths.empty? ? [] of String : Matcher.matching_paths(entry.paths, relative)
         next if !entry.paths.empty? && path_patterns.empty?
 
-        Match.new(entry, content_patterns + path_patterns)
+        Match.new(entry, content_patterns + path_patterns, relative)
       end
     end
 
-    # The content to match Layer 3 against: the payload's written pieces joined,
-    # or — when the payload carries no content field — the file read from disk
+    # The content to match Layer 3 against: this edit's own written pieces
+    # joined, or — when it carries no content field — the file read from disk
     # (the drift-tolerant fallback).
-    private def post_content(payload : Payload, root : Path, fs : Filesystem,
+    private def post_content(edit : Payload::FileEdit, root : Path, fs : Filesystem,
                              relative : String) : String?
-      pieces = payload.written_contents
+      pieces = edit.written_contents
       return pieces.join('\n') unless pieces.empty?
       fs.read?(root.join(relative).to_s)
     end

@@ -33,7 +33,20 @@ macOS binary.
   generated `.github/hooks/agent-apropos.json`; `AGENTS.md` is read automatically. Repo-level hooks
   require a trusted folder, and non-interactive `copilot -p` runs need
   `GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS=true` set for hooks to fire at all.
-- **Codex** and **Cursor CLI** — coming soon.
+- **Codex CLI** — PreToolUse/PostToolUse hooks (its schema supports
+  `additionalContext` on both, so Layer 2 lands before the write, same as
+  Claude), `AGENTS.md` read automatically, calling `agent-apropos hook
+  pre`/`post` directly via a generated `.codex/hooks.json` — no bridge
+  script. Its own file-editing tool, `apply_patch`, can bundle several
+  files' Add/Update sections into a single call (unlike every other wired
+  agent's one-file-per-call edit tool); the binary parses that patch
+  envelope and matches/injects per file. Non-interactive `codex exec` runs
+  need `--dangerously-bypass-hook-trust` for a repo's hooks to fire at all
+  (a one-time trust review Codex otherwise requires per hook definition).
+  Layer 4 skill wrappers go in a generated `.codex/skills/` — a repo-local
+  root distinct from its default `~/.codex/skills`, confirmed live: Codex
+  does not pick up `.claude/skills/` on its own the way Copilot does.
+- **Cursor CLI** — coming soon.
 
 ## Install
 
@@ -90,10 +103,14 @@ as well); if `gemini` is on PATH it wires both `agent-apropos hook pre` and
 `.github/hooks/agent-apropos.json`'s `postToolUse` event, for the identical
 reason Gemini's does (Copilot's `preToolUse` event can't inject context
 either) — no bridge script, since the binary speaks Copilot's own wire
-dialect natively. Pass `--tool claude` / `--tool opencode` / `--tool gemini` /
-`--tool copilot` (repeatable) to wire specific agents explicitly regardless of
-PATH. You never run the hooks themselves by hand — the agent calls them, and
-they inject the matching conventions as context.
+dialect natively; if `codex` is on PATH it wires both commands into
+`.codex/hooks.json`'s `PreToolUse`/`PostToolUse` events, matched on Codex's
+`apply_patch` tool — Codex's `PreToolUse` *can* inject context, so Layer 2
+lands before the write here, same as Claude. Pass `--tool claude` /
+`--tool opencode` / `--tool gemini` / `--tool copilot` / `--tool codex`
+(repeatable) to wire specific agents explicitly regardless of PATH. You never
+run the hooks themselves by hand — the agent calls them, and they inject the
+matching conventions as context.
 
 Run `agent-apropos help` for the full mental model (also `agent-apropos help --format json` for
 the machine-readable form, or `agent-apropos help <command>`).

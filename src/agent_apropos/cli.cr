@@ -131,7 +131,7 @@ module AgentApropos
     end
 
     # `agent-apropos init [--force] [--example] [--claude-symlink] [--dry-run]
-    # [--tool claude|opencode|gemini|copilot] [--repo-root DIR]`. An authoring command:
+    # [--tool claude|opencode|gemini|copilot|codex] [--repo-root DIR]`. An authoring command:
     # fails *closed*. `--tool` is repeatable; omit it entirely to auto-detect.
     private def handle_init(args : Array(String)) : Int32
       opts = InitArgs.new

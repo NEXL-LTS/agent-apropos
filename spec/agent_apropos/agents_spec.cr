@@ -7,7 +7,7 @@ end
 describe AgentApropos::Agents do
   describe ".names" do
     it "lists every registered agent's name" do
-      AgentApropos::Agents.names.should eq(Set{"claude", "opencode", "gemini", "copilot"})
+      AgentApropos::Agents.names.should eq(Set{"claude", "opencode", "gemini", "copilot", "codex"})
     end
   end
 
@@ -43,6 +43,11 @@ describe AgentApropos::Agents do
 
     it "defaults to Claude for an OpenCode-shaped payload (shape-identical, cosmetic-only impact)" do
       payload = parse(%({"tool_name":"read","tool_input":{"file_path":"a.cr"}}))
+      AgentApropos::Agents.detect(payload).should be_a(AgentApropos::Agents::Claude)
+    end
+
+    it "defaults to Claude for a Codex-shaped payload (shape-identical, cosmetic-only impact)" do
+      payload = parse(%({"hook_event_name":"PreToolUse","tool_name":"apply_patch","tool_input":{"command":"*** Begin Patch\\n*** End Patch\\n"}}))
       AgentApropos::Agents.detect(payload).should be_a(AgentApropos::Agents::Claude)
     end
 

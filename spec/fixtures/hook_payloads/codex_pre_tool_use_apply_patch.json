@@ -1,0 +1,14 @@
+{
+  "session_id": "abc123",
+  "turn_id": "turn456",
+  "transcript_path": "/home/u/.codex/sessions/2026/07/26/rollout-abc123.jsonl",
+  "cwd": "/repo",
+  "hook_event_name": "PreToolUse",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Add File: /repo/lib/hello.cr\n+def add(a, b)\n+  a + b\n+end\n*** Update File: /repo/app/jobs/mailer_job.cr\n@@\n def add(a, b)\n+  # sum two numbers\n   a + b\n*** End Patch\n"
+  },
+  "tool_use_id": "call_abc123"
+}

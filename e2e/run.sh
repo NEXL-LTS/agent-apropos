@@ -32,19 +32,20 @@ if ! command -v bats >/dev/null 2>&1; then
   exit 127
 fi
 
-# e2e/project/.claude, .opencode, .gemini, .github/hooks, and CLAUDE.md are
-# generated, not committed (see its .gitignore) — regenerate them here so the
-# fixture is always wired for every agent before bats copies it per test,
-# regardless of whether this machine has claude/opencode/gemini/copilot
-# installed (helpers.bash's require_live_<x> is what decides whether the
-# *live* tests run; the wiring itself must exist either way). `--tool` is
-# used explicitly rather than left to auto-detect for exactly that reason.
-# `--claude-symlink` matters here: unlike OpenCode, Gemini, and Copilot CLI,
-# Claude Code does not fall back to AGENTS.md when no CLAUDE.md is reachable
-# anywhere in the directory hierarchy, so without the symlink the live Claude
-# tests would run with zero Layer 1 context. All commands are idempotent.
+# e2e/project/.claude, .opencode, .gemini, .github/hooks, .codex, and
+# CLAUDE.md are generated, not committed (see its .gitignore) — regenerate
+# them here so the fixture is always wired for every agent before bats copies
+# it per test, regardless of whether this machine has
+# claude/opencode/gemini/copilot/codex installed (helpers.bash's
+# require_live_<x> is what decides whether the *live* tests run; the wiring
+# itself must exist either way). `--tool` is used explicitly rather than left
+# to auto-detect for exactly that reason. `--claude-symlink` matters here:
+# unlike OpenCode, Gemini, Copilot CLI, and Codex CLI, Claude Code does not
+# fall back to AGENTS.md when no CLAUDE.md is reachable anywhere in the
+# directory hierarchy, so without the symlink the live Claude tests would run
+# with zero Layer 1 context. All commands are idempotent.
 [ -x "$AGENT_APROPOS_BIN" ] || ( cd "$REPO_ROOT" && make release >/dev/null )
-"$AGENT_APROPOS_BIN" init --tool claude --tool opencode --tool gemini --tool copilot --claude-symlink --repo-root "$E2E_DIR/project" >/dev/null
+"$AGENT_APROPOS_BIN" init --tool claude --tool opencode --tool gemini --tool copilot --tool codex --claude-symlink --repo-root "$E2E_DIR/project" >/dev/null
 "$AGENT_APROPOS_BIN" generate --repo-root "$E2E_DIR/project" >/dev/null
 
 exec bats "$@" "$E2E_DIR/tests"

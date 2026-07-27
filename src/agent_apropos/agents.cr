@@ -3,18 +3,20 @@ require "./agents/claude"
 require "./agents/opencode"
 require "./agents/gemini"
 require "./agents/copilot"
+require "./agents/codex"
 
 module AgentApropos
   module Agents
     # Every CLI agent `agent-apropos` knows how to wire hooks for, in a
     # stable order (auto-detect and `doctor` reporting both iterate this).
-    # Extend this array as more agents (Codex, Cursor CLI, ...) land — no
+    # Extend this array as more agents (Cursor CLI, ...) land — no
     # other file needs a new per-agent branch.
     ALL = [
       Claude.new,
       OpenCode.new,
       Gemini.new,
       Copilot.new,
+      Codex.new,
     ] of Agent
 
     # The `--tool <name>` values `Init`/`Doctor` know how to wire, for
@@ -33,10 +35,13 @@ module AgentApropos
     # Best-effort fallback when `hook pre`/`hook post` ran without `--tool`
     # (an older wiring, or a manual invocation) — identify the dialect from
     # the payload's own shape. Copilot and Gemini each carry a distinguishing
-    # marker (`toolArgs`, `hook_event_name`); Claude and OpenCode are
-    # payload-shape-identical by design (see `Hook`'s doc comment), so this
-    # defaults to Claude for both — a wrong guess here only costs `read?`'s
-    # debugging label, never match/injection correctness.
+    # marker (`toolArgs`, `hook_event_name` of `"AfterTool"`); Claude,
+    # OpenCode, and Codex are payload-shape-identical by design (Codex's own
+    # `hook_event_name` is `"PreToolUse"`/`"PostToolUse"`, same literal
+    # values as the event name itself, so it never matches Gemini's marker
+    # either — see `Hook`'s doc comment), so this defaults to Claude for all
+    # three — a wrong guess here only costs `read?`'s debugging label, never
+    # match/injection correctness.
     def self.detect(payload : Hook::Payload) : Agent
       return find("copilot") || Claude.new if payload.copilot?
       return find("gemini") || Claude.new if payload.hook_event_name == "AfterTool"
