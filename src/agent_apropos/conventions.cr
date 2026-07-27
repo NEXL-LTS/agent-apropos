@@ -88,8 +88,8 @@ module AgentApropos
   module Conventions
     extend self
 
-    def walk(repo_root : Path, fs : Filesystem = Filesystem::Real.new) : Array(Convention)
-      base = Config.conventions_dir(repo_root, fs)
+    def walk(repo_root : Path, fs : Filesystem = Filesystem::Real.new, allow_outside : Bool = false) : Array(Convention)
+      base = Config.conventions_dir(repo_root, fs, allow_outside)
       fs.glob(base, "**/*.md").sort.map do |absolute|
         Convention.parse(relativize(repo_root, absolute), fs.read(absolute))
       end

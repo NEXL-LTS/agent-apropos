@@ -32,11 +32,12 @@ module AgentApropos
       # `--tool copilot` tells the binary which dialect wired the invocation,
       # so `Hook` can label a Cause's layer as read-triggered without parsing
       # `tool_name` itself. The `view` matcher and the `create|edit` matcher
-      # share the identical `HOOK_PRE` command — the read/write distinction
+      # share the identical hook-pre command — the read/write distinction
       # comes from `Copilot#read?` inspecting the payload at run time, not
-      # from which matcher fired.
-      HOOK_PRE  = "agent-apropos hook pre --tool copilot"
-      HOOK_POST = "agent-apropos hook post --tool copilot"
+      # from which matcher fired. `_BASE` because `Agent#hook_command` may
+      # append `--allow-outside-repo` to each (see `hooks_json`).
+      HOOK_PRE_BASE  = "agent-apropos hook pre --tool copilot"
+      HOOK_POST_BASE = "agent-apropos hook post --tool copilot"
 
       def name : String
         "copilot"
@@ -49,7 +50,7 @@ module AgentApropos
       def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
         path = repo_root.join(HOOKS_RELATIVE).to_s
         existing = fs.read?(path)
-        Init.sync(fs, options, stdout, path, HOOKS_JSON, existing, ".github/hooks/agent-apropos.json")
+        Init.sync(fs, options, stdout, path, hooks_json(options), existing, ".github/hooks/agent-apropos.json")
       end
 
       # Check for the Copilot CLI binary and that the `create|edit`-matched
@@ -100,36 +101,40 @@ module AgentApropos
           .select { |entry| entry["matcher"]?.try(&.as_s?) == "create|edit" }
           .compact_map { |entry| entry["command"]?.try(&.as_s?) }
 
-        commands.includes?(HOOK_PRE) && commands.includes?(HOOK_POST)
+        commands.any?(&.starts_with?(HOOK_PRE_BASE)) && commands.any?(&.starts_with?(HOOK_POST_BASE))
       end
 
-      HOOKS_JSON = <<-JSON
-        {
-          "version": 1,
-          "hooks": {
-            "postToolUse": [
-              {
-                "type": "command",
-                "matcher": "view",
-                "command": "#{HOOK_PRE}",
-                "timeoutSec": #{HOOK_TIMEOUT}
-              },
-              {
-                "type": "command",
-                "matcher": "create|edit",
-                "command": "#{HOOK_PRE}",
-                "timeoutSec": #{HOOK_TIMEOUT}
-              },
-              {
-                "type": "command",
-                "matcher": "create|edit",
-                "command": "#{HOOK_POST}",
-                "timeoutSec": #{HOOK_TIMEOUT}
-              }
-            ]
+      private def hooks_json(options : Init::Options) : String
+        hook_pre = hook_command(HOOK_PRE_BASE, options)
+        hook_post = hook_command(HOOK_POST_BASE, options)
+        <<-JSON
+          {
+            "version": 1,
+            "hooks": {
+              "postToolUse": [
+                {
+                  "type": "command",
+                  "matcher": "view",
+                  "command": "#{hook_pre}",
+                  "timeoutSec": #{HOOK_TIMEOUT}
+                },
+                {
+                  "type": "command",
+                  "matcher": "create|edit",
+                  "command": "#{hook_pre}",
+                  "timeoutSec": #{HOOK_TIMEOUT}
+                },
+                {
+                  "type": "command",
+                  "matcher": "create|edit",
+                  "command": "#{hook_post}",
+                  "timeoutSec": #{HOOK_TIMEOUT}
+                }
+              ]
+            }
           }
-        }
-        JSON
+          JSON
+      end
     end
   end
 end

@@ -51,8 +51,9 @@ module AgentApropos
     # replaces the on-disk content for the (single) path so a proposed patch can
     # be tested.
     def match(repo_root : Path, fs : Filesystem, paths : Array(String),
-              format : String, stdin_content : String?, stdout : IO, stderr : IO) : Int32
-      conventions = load_conventions(repo_root, fs)
+              format : String, stdin_content : String?, stdout : IO, stderr : IO,
+              allow_outside : Bool = false) : Int32
+      conventions = load_conventions(repo_root, fs, allow_outside)
       files = paths.map do |given|
         resolve_path(repo_root, fs, conventions, given, stdin_content)
       end
@@ -67,8 +68,8 @@ module AgentApropos
     # merge-base with the default branch), then matches each changed file's path
     # and added lines.
     def run(repo_root : Path, fs : Filesystem, git : Git, range : String?,
-            format : String, stdout : IO, stderr : IO) : Int32
-      conventions = load_conventions(repo_root, fs)
+            format : String, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
+      conventions = load_conventions(repo_root, fs, allow_outside)
       resolved = range || default_range(git, repo_root)
       files = parse_diff(git.diff(repo_root, resolved)).map do |(path, added)|
         FileMatches.new(path, rules_for(conventions, path, added))
@@ -83,8 +84,8 @@ module AgentApropos
     # Walk the docs (the fresh source of truth) and opportunistically rebuild the
     # index when missing or stale. Matching uses the walked
     # conventions directly, so a failed index write is non-fatal.
-    private def load_conventions(repo_root : Path, fs : Filesystem) : Array(Convention)
-      list = Conventions.walk(repo_root, fs)
+    private def load_conventions(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Array(Convention)
+      list = Conventions.walk(repo_root, fs, allow_outside)
       refresh_index(repo_root, fs, list)
       list
     end

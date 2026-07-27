@@ -234,6 +234,16 @@ the source resolves outside the repo — a model can't be relied on to follow a
 pointer to a path outside its own workspace tree, so the wrapper carries the
 content directly instead.
 
+A `conventions_dir` that resolves outside the repo root — an absolute path,
+or enough `../` to walk out of the tree — is refused unless you pass
+`--allow-outside-repo` to that command. This isn't just an authoring
+convenience gate: `agent-apropos.yml` ships inside the repo, so without it, a
+repo you've just cloned (and not yet reviewed) could steer `init`'s scaffold
+writes to a path of its own choosing outside your project. Pass the flag once
+you've confirmed the setting is legitimate; `init` remembers it by baking it
+into the hook commands it wires, so you don't need to pass it again for that
+repo's hooks to keep working.
+
 ## Commands
 
 | Command | Purpose |

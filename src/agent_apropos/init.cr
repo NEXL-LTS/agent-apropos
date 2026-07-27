@@ -53,7 +53,8 @@ module AgentApropos
       example : Bool = false,
       claude_symlink : Bool = false,
       dry_run : Bool = false,
-      tools : Set(String)? = nil
+      tools : Set(String)? = nil,
+      allow_outside_repo : Bool = false
 
     CACHE_IGNORE_ENTRY = ".cache/agent-apropos/"
 
@@ -70,7 +71,8 @@ module AgentApropos
       tools = resolve_tools(env, options.tools)
       report_tools(stdout, options.tools, tools)
       scaffold(repo_root, fs, options, stdout)
-      Agents::ALL.each { |agent| agent.scaffold(repo_root, fs, options, stdout) if tools.includes?(agent.name) }
+      agent_options = with_hook_flag(repo_root, fs, options)
+      Agents::ALL.each { |agent| agent.scaffold(repo_root, fs, agent_options, stdout) if tools.includes?(agent.name) }
       merge_gitignore(repo_root, fs, options, stdout)
       write_examples(repo_root, fs, options, stdout) if options.example
       link_claude(repo_root, fs, options, stdout) if options.claude_symlink
@@ -100,8 +102,26 @@ module AgentApropos
       end
     end
 
+    # The options each `Agent#scaffold` sees: identical to `options`, except
+    # `allow_outside_repo` is recomputed from whether `agent-apropos.yml`'s
+    # conventions_dir *actually* escapes `repo_root` right now — not merely
+    # whether the flag was passed. By the time this runs, `scaffold` above
+    # has already enforced that an escaping config can't get here without the
+    # flag, so this can only narrow a passed-but-unneeded flag back to
+    # `false`, never widen a missing one to `true`. That keeps
+    # `--allow-outside-repo` out of generated hook commands for the ordinary
+    # in-tree case (even if a caller passes it defensively), so a repo isn't
+    # left with a standing "allow escaping" consent it never needed.
+    private def with_hook_flag(repo_root : Path, fs : Filesystem, options : Options) : Options
+      return options unless options.allow_outside_repo
+      Options.new(
+        force: options.force, example: options.example,
+        claude_symlink: options.claude_symlink, dry_run: options.dry_run,
+        tools: options.tools, allow_outside_repo: Config.outside_repo?(repo_root, fs))
+    end
+
     private def scaffold(repo_root : Path, fs : Filesystem, options : Options, stdout : IO) : Nil
-      conventions = conventions_relative(repo_root, fs)
+      conventions = conventions_relative(repo_root, fs, options)
       create(repo_root, fs, options, stdout, "#{conventions}/README.md", CONVENTIONS_README)
       create(repo_root, fs, options, stdout, "#{conventions}/workflows/.gitkeep", "")
       create(repo_root, fs, options, stdout, ".claude/skills/.gitkeep", SKILLS_GITKEEP)
@@ -111,7 +131,7 @@ module AgentApropos
     end
 
     private def write_examples(repo_root : Path, fs : Filesystem, options : Options, stdout : IO) : Nil
-      conventions = conventions_relative(repo_root, fs)
+      conventions = conventions_relative(repo_root, fs, options)
       create(repo_root, fs, options, stdout, "#{conventions}/example-path-rule.md", EXAMPLE_L2)
       create(repo_root, fs, options, stdout, "#{conventions}/example-content-rule.md", EXAMPLE_L3)
       create(repo_root, fs, options, stdout, "#{conventions}/workflows/example-skill.md", EXAMPLE_SKILL)
@@ -122,8 +142,14 @@ module AgentApropos
     # parameter needs this rather than the resolved absolute `Path` `Config`
     # returns, since it both derives the write location (joined back onto
     # `repo_root`) and the printed display string from the same value.
-    private def conventions_relative(repo_root : Path, fs : Filesystem) : String
-      Config.conventions_dir(repo_root, fs).relative_to(repo_root).to_posix.to_s
+    #
+    # `Config.conventions_dir` raises unless the result stays under
+    # `repo_root` or `options.allow_outside_repo` was explicitly passed — a
+    # repo-controlled `agent-apropos.yml` (e.g. one just cloned, not yet
+    # reviewed) must never be able to steer scaffold writes to an
+    # attacker-chosen path outside the tree without that explicit opt-in.
+    private def conventions_relative(repo_root : Path, fs : Filesystem, options : Options) : String
+      Config.conventions_dir(repo_root, fs, options.allow_outside_repo).relative_to(repo_root).to_posix.to_s
     end
 
     # Write a scaffold file when absent (or when `--force` and `force_allowed`),

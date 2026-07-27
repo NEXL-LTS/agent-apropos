@@ -43,9 +43,17 @@ fi
 # unlike OpenCode, Gemini, Copilot CLI, and Codex CLI, Claude Code does not
 # fall back to AGENTS.md when no CLAUDE.md is reachable anywhere in the
 # directory hierarchy, so without the symlink the live Claude tests would run
-# with zero Layer 1 context. All commands are idempotent.
+# with zero Layer 1 context. `--allow-outside-repo` is required because
+# `project/agent-apropos.yml` deliberately points `conventions_dir` at
+# `../conventions`, outside the sample repo (see e2e/README.md) — `Config`
+# refuses to resolve an escaping conventions_dir without it (see
+# docs/conventions/ for why), and passing it to `init` also bakes it into the
+# hook commands `init` wires into `project/.claude` etc., so the live
+# hook invocations below can keep resolving that same out-of-tree directory.
+# All commands are idempotent.
 [ -x "$AGENT_APROPOS_BIN" ] || ( cd "$REPO_ROOT" && make release >/dev/null )
-"$AGENT_APROPOS_BIN" init --tool claude --tool opencode --tool gemini --tool copilot --tool codex --claude-symlink --repo-root "$E2E_DIR/project" >/dev/null
-"$AGENT_APROPOS_BIN" generate --repo-root "$E2E_DIR/project" >/dev/null
+"$AGENT_APROPOS_BIN" init --tool claude --tool opencode --tool gemini --tool copilot --tool codex \
+  --claude-symlink --allow-outside-repo --repo-root "$E2E_DIR/project" >/dev/null
+"$AGENT_APROPOS_BIN" generate --allow-outside-repo --repo-root "$E2E_DIR/project" >/dev/null
 
 exec bats "$@" "$E2E_DIR/tests"

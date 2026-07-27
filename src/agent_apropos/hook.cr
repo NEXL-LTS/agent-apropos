@@ -76,22 +76,25 @@ module AgentApropos
     # older wiring or a manual invocation), used only to label the
     # `SessionState::Cause` recorded for any match — see `execute`.
     def pre(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-            override_root : String? = nil, verbose : Bool = false, tool : String? = nil) : Int32
-      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool)
+            override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
+            allow_outside : Bool = false) : Int32
+      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside)
     end
 
     # PostToolUse handler: match the *written content* against Layer 3 rules
     # (honoring `paths:` AND-scoping) and inject them after the write.
     def post(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-             override_root : String? = nil, verbose : Bool = false, tool : String? = nil) : Int32
-      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool)
+             override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
+             allow_outside : Bool = false) : Int32
+      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside)
     end
 
     private def deliver(event : Symbol, io_in : IO, stdout : IO, fs : Filesystem,
-                        now : Time, override_root : String?, verbose : Bool, tool : String?) : Int32
+                        now : Time, override_root : String?, verbose : Bool, tool : String?,
+                        allow_outside : Bool) : Int32
       payload = Payload.parse(io_in.gets_to_end)
       root = resolve_root(override_root, payload)
-      execute(event, payload, root, stdout, fs, now, tool) if payload && root
+      execute(event, payload, root, stdout, fs, now, tool, allow_outside) if payload && root
       0
     rescue ex
       log_failure(fs, override_root, verbose, ex)
@@ -99,7 +102,7 @@ module AgentApropos
     end
 
     private def execute(event : Symbol, payload : Payload, root : Path,
-                        stdout : IO, fs : Filesystem, now : Time, tool : String?) : Nil
+                        stdout : IO, fs : Filesystem, now : Time, tool : String?, allow_outside : Bool) : Nil
       # Every dialect but Codex's `apply_patch` yields exactly one edit here,
       # so this is unchanged behavior for them. `relative_edit` drops any
       # edit outside the repo root; when that leaves nothing (the common
@@ -110,7 +113,7 @@ module AgentApropos
       in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
       return if in_root.empty?
 
-      index = load_or_build_index(root, fs)
+      index = load_or_build_index(root, fs, allow_outside)
       matches = dedup_by_entry(in_root.flat_map { |relative, edit| matches_for(event, index, root, fs, relative, edit) })
 
       SessionState.prune(root, fs, now)
@@ -234,12 +237,12 @@ module AgentApropos
     # absent, corrupt, or a stale schema version. Freshness against changed docs
     # is *not* checked here — that would re-walk every doc and blow the warm
     # latency budget; `generate` owns keeping the index current.
-    private def load_or_build_index(root : Path, fs : Filesystem) : Index
+    private def load_or_build_index(root : Path, fs : Filesystem, allow_outside : Bool) : Index
       json = fs.read?(root.join(INDEX_RELATIVE).to_s)
       if json && (index = Index.load(json))
         return index
       end
-      index = Index.build(Conventions.walk(root, fs))
+      index = Index.build(Conventions.walk(root, fs, allow_outside))
       persist_index(root, fs, index)
       index
     end

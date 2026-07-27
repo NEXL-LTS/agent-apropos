@@ -23,6 +23,48 @@ private def with_fixture_repo(git : Bool = false, &)
   end
 end
 
+# A repo whose `agent-apropos.yml` points `conventions_dir` at a sibling
+# directory outside the repo itself (mirroring agent-apropos's own e2e
+# fixture) — yields the repo dir.
+private def with_outside_fixture_repo(&)
+  parent = File.tempname("agent-apropos-cli-outside")
+  dir = File.join(parent, "repo")
+  begin
+    Dir.mkdir_p(dir)
+    Dir.mkdir_p(File.join(parent, "conventions"))
+    File.write(File.join(dir, "agent-apropos.yml"), "conventions_dir: ../conventions\n")
+    File.write(File.join(parent, "conventions/a.md"), "---\npaths: [\"src/**\"]\n---\nA\n")
+    yield dir
+  ensure
+    FileUtils.rm_rf(parent)
+  end
+end
+
+# Same as `with_git_repo`, but the doc lives outside the repo, pointed at via
+# `agent-apropos.yml`'s `conventions_dir` (see `with_outside_fixture_repo`).
+private def with_outside_git_repo(&)
+  parent = File.tempname("agent-apropos-cli-outside-review")
+  dir = File.join(parent, "repo")
+  begin
+    Dir.mkdir_p(dir)
+    Dir.mkdir_p(File.join(dir, "src"))
+    Dir.mkdir_p(File.join(parent, "conventions"))
+    File.write(File.join(dir, "agent-apropos.yml"), "conventions_dir: ../conventions\n")
+    File.write(File.join(parent, "conventions/a.md"), "---\npaths: [\"src/**\"]\n---\nA\n")
+    File.write(File.join(dir, "src/x.cr"), "one\n")
+    git_cmd(dir, ["init", "-b", "main"])
+    git_cmd(dir, ["add", "-A"])
+    git_cmd(dir, ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"])
+    git_cmd(dir, ["checkout", "-b", "feature"])
+    File.write(File.join(dir, "src/x.cr"), "one\ntwo\n")
+    git_cmd(dir, ["add", "-A"])
+    git_cmd(dir, ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "change"])
+    yield dir
+  ensure
+    FileUtils.rm_rf(parent)
+  end
+end
+
 private def in_dir(dir : String, &)
   original = Dir.current
   Dir.cd(dir)
@@ -166,6 +208,23 @@ describe AgentApropos::CLI do
       code, _, err = run(["generate", "--bogus"])
       code.should eq(1)
       err.should contain("unknown option '--bogus'")
+    end
+
+    it "fails closed when conventions_dir escapes repo_root without --allow-outside-repo" do
+      with_outside_fixture_repo do |dir|
+        code, _, err = run(["generate", "--repo-root", dir])
+        code.should eq(1)
+        err.should contain("resolves outside the repo root")
+      end
+    end
+
+    it "walks an escaping conventions_dir given --allow-outside-repo" do
+      with_outside_fixture_repo do |dir|
+        code, out, err = run(["generate", "--repo-root", dir, "--allow-outside-repo"])
+        code.should eq(0)
+        err.should be_empty
+        out.should contain("index: rebuilt (1 docs)")
+      end
     end
   end
 
@@ -316,6 +375,23 @@ describe AgentApropos::CLI do
         err.should contain("no repository root found")
       end
     end
+
+    it "fails closed when conventions_dir escapes repo_root without --allow-outside-repo" do
+      with_outside_fixture_repo do |dir|
+        code, _, err = run(["match", "--repo-root", dir, "src/x.cr"])
+        code.should eq(1)
+        err.should contain("resolves outside the repo root")
+      end
+    end
+
+    it "matches against an escaping conventions_dir given --allow-outside-repo" do
+      with_outside_fixture_repo do |dir|
+        code, out, err = run(["match", "--repo-root", dir, "--allow-outside-repo", "src/x.cr"])
+        code.should eq(0)
+        err.should be_empty
+        out.should eq("../conventions/a.md\n")
+      end
+    end
   end
 
   describe "review" do
@@ -367,6 +443,23 @@ describe AgentApropos::CLI do
       err.should contain("unknown option '--bogus'")
     end
 
+    it "fails closed when conventions_dir escapes repo_root without --allow-outside-repo" do
+      with_outside_git_repo do |dir|
+        code, _, err = run(["review", "--repo-root", dir, "main...HEAD"])
+        code.should eq(1)
+        err.should contain("resolves outside the repo root")
+      end
+    end
+
+    it "reviews a range against an escaping conventions_dir given --allow-outside-repo" do
+      with_outside_git_repo do |dir|
+        code, out, err = run(["review", "--repo-root", dir, "--allow-outside-repo", "main...HEAD"])
+        code.should eq(0)
+        err.should be_empty
+        out.should contain("../conventions/a.md")
+      end
+    end
+
     it "errors when no repository root can be found" do
       with_fixture_repo do |dir|
         code, _, err = in_dir(dir) { run(["review"]) }
@@ -395,13 +488,44 @@ describe AgentApropos::CLI do
       dir = File.tempname("agent-apropos-cli-init-flags")
       begin
         Dir.mkdir_p(dir)
-        code, out, _ = run(["init", "--force", "--example", "--claude-symlink", "--dry-run", "--repo-root", dir])
+        code, out, _ = run(["init", "--force", "--example", "--claude-symlink", "--dry-run",
+                            "--allow-outside-repo", "--repo-root", dir])
         code.should eq(0)
         out.should contain("would create docs/conventions/example-path-rule.md")
         out.should contain("would link CLAUDE.md -> AGENTS.md")
         Dir.glob(File.join(dir, "**/*")).should be_empty # --dry-run wrote nothing
       ensure
         FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "fails closed when agent-apropos.yml's conventions_dir escapes repo_root without --allow-outside-repo" do
+      parent = File.tempname("agent-apropos-cli-init-outside")
+      dir = File.join(parent, "repo")
+      begin
+        Dir.mkdir_p(dir)
+        File.write(File.join(dir, "agent-apropos.yml"), "conventions_dir: ../shared\n")
+        code, _, err = run(["init", "--repo-root", dir])
+        code.should eq(1)
+        err.should contain("resolves outside the repo root")
+      ensure
+        FileUtils.rm_rf(parent)
+      end
+    end
+
+    it "scaffolds an escaping conventions_dir and bakes --allow-outside-repo into the wired hook given the flag" do
+      parent = File.tempname("agent-apropos-cli-init-outside-allowed")
+      dir = File.join(parent, "repo")
+      begin
+        Dir.mkdir_p(dir)
+        File.write(File.join(dir, "agent-apropos.yml"), "conventions_dir: ../shared\n")
+        code, _, err = run(["init", "--tool", "claude", "--allow-outside-repo", "--repo-root", dir])
+        code.should eq(0)
+        err.should be_empty
+        File.exists?(File.join(parent, "shared/README.md")).should be_true
+        File.read(File.join(dir, ".claude/settings.json")).should contain("agent-apropos hook pre --tool claude --allow-outside-repo")
+      ensure
+        FileUtils.rm_rf(parent)
       end
     end
 
@@ -517,6 +641,23 @@ describe AgentApropos::CLI do
         code, _, err = in_dir(dir) { run(["lint"]) }
         code.should eq(1)
         err.should contain("no repository root found")
+      end
+    end
+
+    it "fails closed when conventions_dir escapes repo_root without --allow-outside-repo" do
+      with_outside_fixture_repo do |dir|
+        code, _, err = run(["lint", "--repo-root", dir])
+        code.should eq(1)
+        err.should contain("resolves outside the repo root")
+      end
+    end
+
+    it "lints an escaping conventions_dir given --allow-outside-repo" do
+      with_outside_fixture_repo do |dir|
+        code, out, err = run(["lint", "--repo-root", dir, "--allow-outside-repo"])
+        code.should eq(0)
+        err.should be_empty
+        out.should contain("lint: clean")
       end
     end
   end

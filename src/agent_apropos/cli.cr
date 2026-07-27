@@ -82,6 +82,7 @@ module AgentApropos
     # injected `Filesystem` so it is unit-testable without a subprocess.
     private def handle_generate(args : Array(String)) : Int32
       check = false
+      allow_outside = false
       override : String? = nil
 
       index = 0
@@ -89,6 +90,8 @@ module AgentApropos
         case arg = args[index]
         when "--check"
           check = true
+        when "--allow-outside-repo"
+          allow_outside = true
         when "--repo-root"
           index += 1
           value = args[index]?
@@ -108,9 +111,9 @@ module AgentApropos
 
       fs = Filesystem::Real.new
       if check
-        Generate.check(root, fs, @stdout, @stderr)
+        Generate.check(root, fs, @stdout, @stderr, allow_outside)
       else
-        Generate.run(root, fs, @stdout, @stderr)
+        Generate.run(root, fs, @stdout, @stderr, allow_outside)
       end
     end
 
@@ -126,13 +129,15 @@ module AgentApropos
       property? example = false
       property? claude_symlink = false
       property? dry_run = false
+      property? allow_outside_repo = false
       property tools : Set(String)? = nil
       property override : String? = nil
     end
 
     # `agent-apropos init [--force] [--example] [--claude-symlink] [--dry-run]
-    # [--tool claude|opencode|gemini|copilot|codex] [--repo-root DIR]`. An authoring command:
-    # fails *closed*. `--tool` is repeatable; omit it entirely to auto-detect.
+    # [--allow-outside-repo] [--tool claude|opencode|gemini|copilot|codex]
+    # [--repo-root DIR]`. An authoring command: fails *closed*. `--tool` is
+    # repeatable; omit it entirely to auto-detect.
     private def handle_init(args : Array(String)) : Int32
       opts = InitArgs.new
       if code = parse_init_args(args, opts)
@@ -145,34 +150,48 @@ module AgentApropos
       options = Init::Options.new(
         force: opts.force?, example: opts.example?,
         claude_symlink: opts.claude_symlink?, dry_run: opts.dry_run?,
-        tools: opts.tools)
+        tools: opts.tools, allow_outside_repo: opts.allow_outside_repo?)
       Init.run(root, Filesystem::Real.new, Environment::Real.new, options, @stdout, @stderr)
     end
 
     private def parse_init_args(args : Array(String), opts : InitArgs) : Int32?
       index = 0
       while index < args.size
-        case arg = args[index]
-        when "--force"          then opts.force = true
-        when "--example"        then opts.example = true
-        when "--claude-symlink" then opts.claude_symlink = true
-        when "--dry-run"        then opts.dry_run = true
-        when "--tool"
-          index += 1
-          if code = parse_init_tool(args[index]?, opts)
-            return code
+        arg = args[index]
+        unless apply_init_flag(arg, opts)
+          case arg
+          when "--tool"
+            index += 1
+            if code = parse_init_tool(args[index]?, opts)
+              return code
+            end
+          when "--repo-root"
+            index += 1
+            value = args[index]?
+            return command_error("init", "--repo-root requires a directory") if value.nil?
+            opts.override = value
+          else
+            return command_error("init", "unknown option '#{arg}'")
           end
-        when "--repo-root"
-          index += 1
-          value = args[index]?
-          return command_error("init", "--repo-root requires a directory") if value.nil?
-          opts.override = value
-        else
-          return command_error("init", "unknown option '#{arg}'")
         end
         index += 1
       end
       nil
+    end
+
+    # The no-argument boolean flags, split out of `parse_init_args` so that
+    # loop's cyclomatic complexity stays under the gate. Returns whether
+    # `arg` was one of them.
+    private def apply_init_flag(arg : String, opts : InitArgs) : Bool
+      case arg
+      when "--force"              then opts.force = true
+      when "--example"            then opts.example = true
+      when "--claude-symlink"     then opts.claude_symlink = true
+      when "--dry-run"            then opts.dry_run = true
+      when "--allow-outside-repo" then opts.allow_outside_repo = true
+      else                             return false
+      end
+      true
     end
 
     # `--tool` validation lives here rather than inline in the parse loop so
@@ -188,16 +207,19 @@ module AgentApropos
       nil
     end
 
-    # `agent-apropos lint [--strict] [--repo-root DIR]`. CI command: fails
-    # *closed*.
+    # `agent-apropos lint [--strict] [--allow-outside-repo] [--repo-root DIR]`.
+    # CI command: fails *closed*.
     private def handle_lint(args : Array(String)) : Int32
       strict = false
+      allow_outside = false
       override : String? = nil
       index = 0
       while index < args.size
         case arg = args[index]
         when "--strict"
           strict = true
+        when "--allow-outside-repo"
+          allow_outside = true
         when "--repo-root"
           index += 1
           value = args[index]?
@@ -212,7 +234,7 @@ module AgentApropos
       root = resolve_repo_root(override)
       return repo_root_error("lint") if root.nil?
 
-      Lint.run(root, Filesystem::Real.new, strict, @stdout, @stderr)
+      Lint.run(root, Filesystem::Real.new, strict, @stdout, @stderr, allow_outside)
     end
 
     # `agent-apropos doctor [--repo-root DIR]`.
@@ -253,13 +275,14 @@ module AgentApropos
       rest = args[1..]
       override = flag_value(rest, "--repo-root")
       tool = flag_value(rest, "--tool")
+      allow_outside = rest.includes?("--allow-outside-repo")
       verbose = {"1", "true"}.includes?(ENV["AGENT_APROPOS_VERBOSE"]?)
       fs = Filesystem::Real.new
       now = Time.utc
       if event == "pre"
-        Hook.pre(@stdin, @stdout, fs, now, override, verbose, tool)
+        Hook.pre(@stdin, @stdout, fs, now, override, verbose, tool, allow_outside)
       else
-        Hook.post(@stdin, @stdout, fs, now, override, verbose, tool)
+        Hook.post(@stdin, @stdout, fs, now, override, verbose, tool, allow_outside)
       end
     end
 
@@ -281,13 +304,14 @@ module AgentApropos
     private class MatchArgs
       property format = "paths"
       property? stdin_content = false
+      property? allow_outside_repo = false
       property override : String? = nil
       getter paths = [] of String
     end
 
-    # `agent-apropos match [--format paths|json|full] [--stdin-content] <path> [...]`
-    # . A review/CI command: fails *closed* on a bad option or a
-    # malformed doc.
+    # `agent-apropos match [--format paths|json|full] [--stdin-content]
+    # [--allow-outside-repo] <path> [...]`. A review/CI command: fails
+    # *closed* on a bad option or a malformed doc.
     private def handle_match(args : Array(String)) : Int32
       opts = MatchArgs.new
       if code = parse_match_args(args, opts)
@@ -301,7 +325,7 @@ module AgentApropos
       return repo_root_error("match") if root.nil?
 
       content = opts.stdin_content? ? @stdin.gets_to_end : nil
-      Review.match(root, Filesystem::Real.new, opts.paths, opts.format, content, @stdout, @stderr)
+      Review.match(root, Filesystem::Real.new, opts.paths, opts.format, content, @stdout, @stderr, opts.allow_outside_repo?)
     end
 
     # Parse `match` args into `opts`; returns a non-nil exit code on a bad option.
@@ -316,6 +340,8 @@ module AgentApropos
           opts.format = value
         when "--stdin-content"
           opts.stdin_content = true
+        when "--allow-outside-repo"
+          opts.allow_outside_repo = true
         when "--repo-root"
           index += 1
           value = args[index]?
@@ -341,9 +367,11 @@ module AgentApropos
       nil
     end
 
-    # `agent-apropos review [--format md|json] [<git-range>]`. Fails *closed*.
+    # `agent-apropos review [--format md|json] [--allow-outside-repo]
+    # [<git-range>]`. Fails *closed*.
     private def handle_review(args : Array(String)) : Int32
       format = "md"
+      allow_outside = false
       override : String? = nil
       range : String? = nil
 
@@ -355,6 +383,8 @@ module AgentApropos
           value = args[index]?
           return review_error("--format requires a value") if value.nil?
           format = value
+        when "--allow-outside-repo"
+          allow_outside = true
         when "--repo-root"
           index += 1
           value = args[index]?
@@ -373,7 +403,7 @@ module AgentApropos
       root = resolve_repo_root(override)
       return repo_root_error("review") if root.nil?
 
-      Review.run(root, Filesystem::Real.new, Git::Real.new, range, format, @stdout, @stderr)
+      Review.run(root, Filesystem::Real.new, Git::Real.new, range, format, @stdout, @stderr, allow_outside)
     end
 
     MATCH_FORMATS  = {"paths", "json", "full"}
