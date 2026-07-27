@@ -28,6 +28,9 @@ The docs in this directory demonstrate one convention per layer, plus one
 combined path+content example:
 
 - `src-rule.md` — Layer 2, fires on edits under `src/**`.
+- `api-auth-rule.md` / `api-throttle-rule.md` — two Layer 2 rules that both
+  fire on edits under `api/**`, demonstrating that more than one path-scoped
+  rule can apply to the same file at once.
 - `stub-rule.md` — Layer 3, fires when written code raises `NotImplementedError`.
 - `db-audit-rule.md` — Layer 3 (path + content, AND), fires only inside
   `db/**` when the written code calls `conn.execute(`.

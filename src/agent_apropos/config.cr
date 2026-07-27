@@ -17,6 +17,19 @@ module AgentApropos
   # `review` (which already propagate `AgentApropos::Error` and fail closed) need
   # no changes to handle it, and `hook`'s existing blanket rescue makes it
   # fail open there for free.
+  #
+  # `FALLBACK_RELATIVE` (`.cache/agent-apropos.yml`) is checked only when the
+  # root-level file is absent. It is deliberately undocumented in the public
+  # README — real users configure `conventions_dir` via the root file, per
+  # the published "Configuration" section. This fallback exists solely for
+  # agent-apropos's own e2e/manual-test rig: a root-level `agent-apropos.yml`
+  # is a plain, ordinary-looking file a curious agent's own exploration
+  # readily finds and reads (observed live), which hands it the exact
+  # location of the sample's hidden convention docs. `.cache/` already reads
+  # as machine-generated, disposable output (it holds the trigger index and
+  # session state), so a config file living there draws far less of that
+  # same curiosity, without changing the documented root-file behavior real
+  # users depend on.
   module Config
     extend self
 
@@ -24,6 +37,7 @@ module AgentApropos
     end
 
     FILENAME                = "agent-apropos.yml"
+    FALLBACK_RELATIVE       = Path[".cache", "agent-apropos.yml"]
     DEFAULT_CONVENTIONS_DIR = "docs/conventions"
 
     # The resolved conventions directory for `repo_root`: whatever
@@ -38,22 +52,37 @@ module AgentApropos
       path.absolute? ? path : repo_root.join(path)
     end
 
+    # Reads the root-level file first; falls back to `FALLBACK_RELATIVE` only
+    # when the root-level file is absent, so an explicit root file always
+    # wins over the undocumented fallback. Error messages name whichever of
+    # the two was actually read, not always `FILENAME`, so a malformed
+    # fallback file doesn't point the reader at the wrong path.
     private def conventions_dir_setting(repo_root : Path, fs : Filesystem) : String?
-      text = fs.read?(repo_root.join(FILENAME).to_s)
+      name, text = config_source(repo_root, fs)
       return nil unless text
 
       parsed =
         begin
           YAML.parse(text)
         rescue ex : YAML::ParseException
-          raise Error.new("#{FILENAME} is not valid YAML: #{ex.message}")
+          raise Error.new("#{name} is not valid YAML: #{ex.message}")
         end
       hash = parsed.as_h?
-      raise Error.new("#{FILENAME} must be a YAML mapping") unless hash
+      raise Error.new("#{name} must be a YAML mapping") unless hash
 
       value = parsed["conventions_dir"]?
       return nil unless value
-      value.as_s? || raise Error.new("#{FILENAME}: conventions_dir must be a string")
+      value.as_s? || raise Error.new("#{name}: conventions_dir must be a string")
+    end
+
+    # The name and contents of whichever of `FILENAME` / `FALLBACK_RELATIVE`
+    # exists, root file first — `text` is nil when neither is present.
+    private def config_source(repo_root : Path, fs : Filesystem) : {String, String?}
+      if text = fs.read?(repo_root.join(FILENAME).to_s)
+        {FILENAME, text}
+      else
+        {FALLBACK_RELATIVE.to_s, fs.read?(repo_root.join(FALLBACK_RELATIVE).to_s)}
+      end
     end
   end
 end

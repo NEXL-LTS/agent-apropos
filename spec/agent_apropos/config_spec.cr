@@ -43,5 +43,25 @@ describe AgentApropos::Config do
         AgentApropos::Config.conventions_dir(ROOT, fs)
       end
     end
+
+    it "falls back to .cache/agent-apropos.yml when agent-apropos.yml is absent" do
+      fs = InMemoryFS.new({"/repo/.cache/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n"})
+      AgentApropos::Config.conventions_dir(ROOT, fs).should eq(Path["/repo/../shared-conventions"])
+    end
+
+    it "prefers agent-apropos.yml over .cache/agent-apropos.yml when both are present" do
+      fs = InMemoryFS.new({
+        "/repo/agent-apropos.yml"        => "conventions_dir: ../root-conventions\n",
+        "/repo/.cache/agent-apropos.yml" => "conventions_dir: ../fallback-conventions\n",
+      })
+      AgentApropos::Config.conventions_dir(ROOT, fs).should eq(Path["/repo/../root-conventions"])
+    end
+
+    it "raises Config::Error on malformed YAML in the .cache/agent-apropos.yml fallback" do
+      fs = InMemoryFS.new({"/repo/.cache/agent-apropos.yml" => "key: [unterminated\n"})
+      expect_raises(AgentApropos::Config::Error, /not valid YAML/) do
+        AgentApropos::Config.conventions_dir(ROOT, fs)
+      end
+    end
   end
 end

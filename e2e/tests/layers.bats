@@ -19,7 +19,8 @@
 # than an arbitrary token. A model can't produce it by chance — it names a
 # module/symbol that only exists because the rule said so — but it also isn't
 # inert text, so a pass proves the convention's *behavior* landed, not just
-# that a string got copied.
+# that a string got copied. The "two rules, one file" Layer 2 case has two
+# expected artifacts (one per rule) — see assert_contains_all in helpers.bash.
 
 bats_load_library bats-support
 bats_load_library bats-assert
@@ -37,6 +38,25 @@ setup() { ensure_agent_apropos; }
 export EXPECT_L2="@trace_call"
 export PROMPT_L2="Add a function shout_twice(text) to src/util.py that returns text uppercased and repeated twice."
 register_live_tests "Layer 2" EXPECT_L2 PROMPT_L2 src/util.py
+
+# --- Layer 2 (two rules, one file) — auth + throttle on api/** ---------------
+# Two independent path-scoped rules, api-auth-rule.md and api-throttle-rule.md,
+# both declare paths: ["api/**"], so both fire on the same edit — proving more
+# than one Layer 2 rule can land on a single file, not just one per path.
+#
+# Convention: every new handler under api/ must be wrapped in BOTH
+# @require_auth (api/auth.py) and @rate_limited (api/throttle.py) — and
+# @rate_limited must be the outermost decorator (listed above @require_auth),
+# so an unauthenticated flood is rejected by the cheap rate limiter before it
+# ever reaches the auth check. That ordering is the counter-intuitive part: it
+# reverses the "auth gates first" instinct, and only reading both rule docs
+# (not exploring ping(), which predates either requirement) reveals it.
+# EXPECT_L2B lists both required decorators (assert_contains_all, helpers.bash)
+# — presence of both is asserted; the specific stacking order is documented in
+# the rule docs but not separately checked here.
+export EXPECT_L2B=$'@rate_limited\n@require_auth'
+export PROMPT_L2B="Add a function get_status() to api/handlers.py that returns a handler status dict."
+register_live_tests "Layer 2 (two rules)" EXPECT_L2B PROMPT_L2B api/handlers.py
 
 # --- Layer 3 — construct-scoped rule (NotImplementedError) -------------------
 # Claude Code delivers via PostToolUse; OpenCode delivers via tool.execute.after
