@@ -691,5 +691,22 @@ describe AgentApropos::CLI do
         err.should contain("no repository root found")
       end
     end
+
+    it "warns to pass --allow-outside-repo when conventions_dir escapes repo_root" do
+      with_outside_fixture_repo do |dir|
+        run(["generate", "--repo-root", dir, "--allow-outside-repo"])
+        _, out, _ = run(["doctor", "--repo-root", dir])
+        out.should contain("cannot evaluate freshness")
+        out.should contain("--allow-outside-repo")
+      end
+    end
+
+    it "evaluates index freshness against an escaping conventions_dir given --allow-outside-repo" do
+      with_outside_fixture_repo do |dir|
+        run(["generate", "--repo-root", dir, "--allow-outside-repo"])
+        _, out, _ = run(["doctor", "--repo-root", dir, "--allow-outside-repo"])
+        out.should contain("index: fresh")
+      end
+    end
   end
 end

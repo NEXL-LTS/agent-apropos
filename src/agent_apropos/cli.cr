@@ -237,12 +237,15 @@ module AgentApropos
       Lint.run(root, Filesystem::Real.new, strict, @stdout, @stderr, allow_outside)
     end
 
-    # `agent-apropos doctor [--repo-root DIR]`.
+    # `agent-apropos doctor [--allow-outside-repo] [--repo-root DIR]`.
     private def handle_doctor(args : Array(String)) : Int32
+      allow_outside = false
       override : String? = nil
       index = 0
       while index < args.size
         case arg = args[index]
+        when "--allow-outside-repo"
+          allow_outside = true
         when "--repo-root"
           index += 1
           value = args[index]?
@@ -257,7 +260,7 @@ module AgentApropos
       root = resolve_repo_root(override)
       return repo_root_error("doctor") if root.nil?
 
-      Doctor.run(root, Filesystem::Real.new, Environment::Real.new, @stdout, @stderr)
+      Doctor.run(root, Filesystem::Real.new, Environment::Real.new, @stdout, @stderr, allow_outside)
     end
 
     # `agent-apropos hook pre|post [--repo-root DIR] [--tool NAME]`. The wired

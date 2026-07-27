@@ -44,9 +44,12 @@ module AgentApropos
       resolved = resolve(repo_root, fs)
       return resolved if allow_outside || within_repo?(repo_root, resolved)
 
+      # Normalized for display, same as the `within_repo?` check itself —
+      # otherwise a relative escape prints as e.g. `/repo/../shared-conventions`,
+      # which reads as "under /repo" at a glance instead of the escape it is.
       raise Error.new(
-        "#{FILENAME}: conventions_dir (#{resolved}) resolves outside the repo root (#{repo_root}); " \
-        "pass --allow-outside-repo if this is intentional")
+        "#{FILENAME}: conventions_dir (#{resolved.normalize}) resolves outside the repo root " \
+        "(#{repo_root.normalize}); pass --allow-outside-repo if this is intentional")
     end
 
     # Whether `agent-apropos.yml`'s configured conventions_dir (or the default,

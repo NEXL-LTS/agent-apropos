@@ -36,10 +36,11 @@ private def index_for(text : String) : String
   AgentApropos::Index.build([AgentApropos::Convention.parse("docs/conventions/a.md", text)]).to_document
 end
 
-private def run_doctor(fs : AgentApropos::Filesystem, env : AgentApropos::Environment) : {Int32, String}
+private def run_doctor(fs : AgentApropos::Filesystem, env : AgentApropos::Environment,
+                       allow_outside : Bool = false) : {Int32, String}
   stdout = IO::Memory.new
   stderr = IO::Memory.new
-  code = AgentApropos::Doctor.run(ROOT, fs, env, stdout, stderr)
+  code = AgentApropos::Doctor.run(ROOT, fs, env, stdout, stderr, allow_outside)
   {code, stdout.to_s}
 end
 
@@ -102,6 +103,29 @@ describe AgentApropos::Doctor do
       })
       _, stdout = run_doctor(fs, FakeEnv.new)
       stdout.should contain("index: stale")
+    end
+
+    it "warns to pass --allow-outside-repo when conventions_dir escapes repo_root" do
+      fs = InMemoryFS.new({
+        "/repo/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n",
+        INDEX_PATH                => index_for(DOC_TEXT),
+      })
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("cannot evaluate freshness")
+      stdout.should contain("--allow-outside-repo")
+    end
+
+    it "evaluates freshness against an escaping conventions_dir given allow_outside" do
+      outside_index = AgentApropos::Index.build(
+        [AgentApropos::Convention.parse("../shared-conventions/a.md", DOC_TEXT)]
+      ).to_document
+      fs = InMemoryFS.new({
+        "/repo/agent-apropos.yml"          => "conventions_dir: ../shared-conventions\n",
+        "/repo/../shared-conventions/a.md" => DOC_TEXT,
+        INDEX_PATH                         => outside_index,
+      })
+      _, stdout = run_doctor(fs, FakeEnv.new, allow_outside: true)
+      stdout.should contain("index: fresh")
     end
   end
 

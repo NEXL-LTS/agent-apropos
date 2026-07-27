@@ -227,7 +227,7 @@ conventions_dir: ../shared-conventions   # relative to repo root, or absolute
 ```
 
 Every command that reads conventions (`generate`, `hook`, `lint`, `match`,
-`review`) and `init`'s own scaffolding follow this. Layer 2/3 hook delivery
+`review`, `doctor`) and `init`'s own scaffolding follow this. Layer 2/3 hook delivery
 works identically regardless of where the docs live. Layer 4 skill wrappers
 inline the doc's full body instead of the usual lightweight pointer whenever
 the source resolves outside the repo — a model can't be relied on to follow a
