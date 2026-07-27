@@ -215,8 +215,15 @@ module AgentApropos
           edits
         end
 
+        # `nil` both when `line` doesn't start with `marker` and when it does
+        # but carries no path after it (e.g. a malformed "*** Add File: " with
+        # nothing following) — an empty string is truthy in the `if path =
+        # ...` checks below, and would otherwise produce a `FileEdit` with
+        # `path == ""` that later relativizes to the repo root itself.
         private def prefix(line : String, marker : String) : String?
-          line.starts_with?(marker) ? line[marker.size..].strip : nil
+          return nil unless line.starts_with?(marker)
+          value = line[marker.size..].strip
+          value.empty? ? nil : value
         end
 
         private def section_marker?(line : String) : Bool

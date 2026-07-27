@@ -110,6 +110,16 @@ describe AgentApropos::Agents::Codex do
       check_named(run_checks(fs, env), "codex").detail.should contain("hooks absent")
     end
 
+    it "warns when both commands are present but wired onto the wrong matcher (miswired, not actually firing)" do
+      env = FakeEnv.new(Set{"codex"})
+      wrong_matcher = %({"hooks":{) +
+                      %("PreToolUse":[{"matcher":"Bash","hooks":[{"command":"agent-apropos hook pre --tool codex"}]}],) +
+                      %("PostToolUse":[{"matcher":"Bash","hooks":[{"command":"agent-apropos hook post --tool codex"}]}]) +
+                      %(}})
+      fs = InMemoryFS.new({HOOKS_PATH => wrong_matcher})
+      check_named(run_checks(fs, env), "codex").detail.should contain("hooks absent")
+    end
+
     it "is ok when codex is on PATH and both hooks are wired" do
       env = FakeEnv.new(Set{"codex"})
       fs = InMemoryFS.new

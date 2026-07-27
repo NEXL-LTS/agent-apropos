@@ -193,5 +193,24 @@ describe AgentApropos::Hook::Payload do
     it "is empty for a nil or blank patch command" do
       parse(%({"tool_name":"apply_patch","tool_input":{}})).file_edits.should be_empty
     end
+
+    it "skips a malformed Add File marker with no path, rather than producing a root-path edit" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Add File: \n+stray content\n*** End Patch\n"},
+      }.to_json
+      parse(json).file_edits.should be_empty
+    end
+
+    it "ignores a malformed Move to line with no path, keeping the section's original path" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Update File: keep.py\n*** Move to: \n@@\n context\n+added\n*** End Patch\n"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("keep.py")
+      edits[0].written_contents.should eq(["added"])
+    end
   end
 end

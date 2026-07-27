@@ -43,6 +43,13 @@ module AgentApropos
       # — confirmed against a real captured run, not upstream docs.
       HOOK_TIMEOUT = 10
 
+      # The one matcher agent-apropos wires both events onto (see the class
+      # comment — Codex has no separate read tool to match). `#wired?` checks
+      # this exact matcher, not merely whether the command exists under the
+      # event at all, so a miswired repo (e.g. the command present under some
+      # other matcher) is correctly reported as not wired.
+      MATCHER = "apply_patch"
+
       def name : String
         "codex"
       end
@@ -103,11 +110,13 @@ module AgentApropos
       private def command_present?(parsed : JSON::Any, event : String, command : String) : Bool
         groups = parsed.as_h?.try(&.["hooks"]?).try(&.as_h?).try(&.[event]?).try(&.as_a?)
         return false unless groups
-        groups.compact_map(&.as_h?).any? do |group|
-          (group["hooks"]?.try(&.as_a?) || [] of JSON::Any)
-            .compact_map { |hook| hook.as_h?.try(&.["command"]?).try(&.as_s?) }
-            .includes?(command)
-        end
+        groups.compact_map(&.as_h?)
+          .select { |group| group["matcher"]?.try(&.as_s?) == MATCHER }
+          .any? do |group|
+            (group["hooks"]?.try(&.as_a?) || [] of JSON::Any)
+              .compact_map { |hook| hook.as_h?.try(&.["command"]?).try(&.as_s?) }
+              .includes?(command)
+          end
       end
 
       HOOKS_JSON = <<-JSON
@@ -115,7 +124,7 @@ module AgentApropos
           "hooks": {
             "PreToolUse": [
               {
-                "matcher": "apply_patch",
+                "matcher": "#{MATCHER}",
                 "hooks": [
                   {
                     "type": "command",
@@ -127,7 +136,7 @@ module AgentApropos
             ],
             "PostToolUse": [
               {
-                "matcher": "apply_patch",
+                "matcher": "#{MATCHER}",
                 "hooks": [
                   {
                     "type": "command",
