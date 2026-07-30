@@ -492,5 +492,16 @@ describe AgentApropos::Hook do
       code.should eq(0)
       stdout.should be_empty
     end
+
+    # `src/**` matches this string literally (`File.match?` doesn't collapse
+    # `..` either), so a naive "does the relativized path start with `../`"
+    # check would miss the embedded traversal and let a Layer 2 rule fire for
+    # a path that actually resolves to /etc/passwd, well outside the repo.
+    it "emits nothing for a Layer 2 rule matching a path with an embedded traversal" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      code, stdout = invoke(:pre, pre_json("src/../../../../etc/passwd"), fs)
+      code.should eq(0)
+      stdout.should be_empty
+    end
   end
 end
