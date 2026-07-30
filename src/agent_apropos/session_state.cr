@@ -26,9 +26,9 @@ module AgentApropos
     # Session files untouched for longer than this are pruned on any hook run.
     MAX_AGE = 7.days
 
-    # Ids longer than this can't fit a filesystem's ~255-byte name limit once
-    # the ".json" suffix and any encoding overhead are added.
-    MAX_ID_BYTES = 250
+    # Ids longer than this may exceed a filesystem's ~255-byte name limit once
+    # the ".json" suffix and the atomic-write temp suffix (".<name>.<pid>.tmp") are added.
+    MAX_ID_BYTES = 230
 
     # Rejected as an id's first character: `.` (what makes `.` and `..`
     # dangerous) and `-` (a filename that reads as a flag when passed around).
