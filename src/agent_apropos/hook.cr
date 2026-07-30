@@ -245,12 +245,19 @@ module AgentApropos
     # absent, corrupt, or a stale schema version. Freshness against changed docs
     # is *not* checked here — that would re-walk every doc and blow the warm
     # latency budget; `generate` owns keeping the index current.
+    #
+    # `tolerant: true` on this rebuild: a single malformed doc (e.g. right
+    # after authoring it, before the index is regenerated) must not blank out
+    # delivery of every *other* rule for this call — only its own rule is
+    # unavailable until it's fixed (see `agent-apropos lint`/`doctor`, which
+    # already report it). Once the index is warm again this path isn't hit at
+    # all, so the cost of an in-memory rebuild here is a cold-cache-only concern.
     private def load_or_build_index(root : Path, fs : Filesystem, allow_outside : Bool) : Index
       json = fs.read?(root.join(INDEX_RELATIVE).to_s)
       if json && (index = Index.load(json))
         return index
       end
-      index = Index.build(Conventions.walk(root, fs, allow_outside))
+      index = Index.build(Conventions.walk(root, fs, allow_outside, tolerant: true))
       persist_index(root, fs, index)
       index
     end
