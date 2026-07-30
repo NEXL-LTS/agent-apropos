@@ -26,6 +26,14 @@ module AgentApropos
     # Session files untouched for longer than this are pruned on any hook run.
     MAX_AGE = 7.days
 
+    # Ids longer than this can't fit a filesystem's ~255-byte name limit once
+    # the ".json" suffix and any encoding overhead are added.
+    MAX_ID_BYTES = 250
+
+    # Rejected as an id's first character: `.` (what makes `.` and `..`
+    # dangerous) and `-` (a filename that reads as a flag when passed around).
+    LEADING_REJECT = {'.', '-'}
+
     # Why a rule was injected: which layer matched, the hook event that fired,
     # the file that triggered the match, and the specific frontmatter
     # glob/regex pattern(s) that made it fire. `layer` is normally `2`/`3`,
@@ -104,11 +112,40 @@ module AgentApropos
     def initialize(@injected : Hash(String, Injection) = {} of String => Injection, @notified : Bool = false)
     end
 
+    # The session id, if it is usable as a single filename inside `DIR`; nil
+    # otherwise. Session ids arrive from an untrusted hook payload and are the
+    # only caller-controlled component of the session-file path built by
+    # `file_for`, so an id that is not a plain one-line filename is discarded
+    # rather than sanitized — `load`/`save` then behave exactly as they do for
+    # an absent session id: no dedup, no persistence, no notice (see
+    # `Hook#execute`, which resolves this once and reuses it for all three).
+    # Deliberately permissive about *characters* — spaces and non-ASCII pass,
+    # as does every id shape a wired agent actually issues — and rejects only
+    # shapes that would escape `DIR`, nest below it (`.prune`'s glob is not
+    # recursive, so a nested file would never age out), or break the write.
+    def self.key?(session_id : String?) : String?
+      return nil unless session_id
+      return nil if session_id.empty? || session_id.bytesize > MAX_ID_BYTES
+      return nil if LEADING_REJECT.includes?(session_id[0])
+      return nil if session_id.each_char.any?(&.control?)
+      return nil unless single_component?(session_id)
+      session_id
+    end
+
+    # `Path.windows`, even on POSIX: it is the superset parser — it treats
+    # both `/` and `\` as separators and understands drive (`C:`) and UNC
+    # (`\\srv\share`) anchors — so this one structural check covers every
+    # platform's escapes instead of a hand-maintained character denylist.
+    private def self.single_component?(session_id : String) : Bool
+      path = Path.windows(session_id)
+      path.parts == [session_id] && path.anchor.nil?
+    end
+
     # Load the state for `session_id`. A missing or unparseable file is treated
-    # as an empty state (fail open). A nil `session_id` means dedup is
-    # unavailable, so every rule is considered new.
+    # as an empty state (fail open). A nil or unsafe (see `.key?`) `session_id`
+    # means dedup is unavailable, so every rule is considered new.
     def self.load(repo_root : Path, fs : Filesystem, session_id : String?) : SessionState
-      return new unless session_id
+      return new unless session_id = key?(session_id)
       json = fs.read?(file_for(repo_root, session_id).to_s)
       return new unless json
       document = Document.from_json(json)
@@ -161,15 +198,18 @@ module AgentApropos
 
     # Persist the state for `session_id`, stamping `now`. Entries are sorted by
     # path and the document is pretty-printed so the file is byte-stable for a
-    # given set and easy to scan by hand for debugging. A nil `session_id` is a
-    # no-op.
+    # given set and easy to scan by hand for debugging. A nil or unsafe (see
+    # `.key?`) `session_id` is a no-op.
     def save(repo_root : Path, fs : Filesystem, session_id : String?, now : Time) : Nil
-      return unless session_id
+      return unless session_id = SessionState.key?(session_id)
       entries = @injected.values.sort_by! { |entry| {entry.path, entry.cause.file} }
       document = Document.new(now.to_unix, entries, @notified)
       fs.write(SessionState.file_for(repo_root, session_id).to_s, document.to_document)
     end
 
+    # Callers (`.load`/`#save`) only ever pass a `session_id` already filtered
+    # through `.key?`, so this is a plain, safe join — never a caller of raw
+    # hook-payload input.
     def self.file_for(repo_root : Path, session_id : String) : Path
       repo_root.join(DIR, "#{session_id}.json")
     end

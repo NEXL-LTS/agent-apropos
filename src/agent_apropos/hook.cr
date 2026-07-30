@@ -116,11 +116,18 @@ module AgentApropos
       index = load_or_build_index(root, fs, allow_outside)
       matches = dedup_by_entry(in_root.flat_map { |relative, edit| matches_for(event, index, root, fs, relative, edit) })
 
+      # Resolved once and reused for load/notice/save below: an unsafe id (see
+      # `SessionState.key?`) must be treated as absent everywhere, not just at
+      # the `save` no-op, or `session_notice` — which only checks for `nil` —
+      # would see a state that can never persist `notified?` and re-fire the
+      # notice on every single call for that id instead of skipping it like a
+      # true nil session does.
+      session_id = SessionState.key?(payload.session_id)
       SessionState.prune(root, fs, now)
-      state = SessionState.load(root, fs, payload.session_id)
+      state = SessionState.load(root, fs, session_id)
       fresh = matches.reject { |match| state.injected?(match.entry.path) }
 
-      notice = session_notice(state, payload.session_id)
+      notice = session_notice(state, session_id)
       combined = combine(notice, build_context(root, fs, fresh.map(&.entry)))
       return if combined.empty?
 
@@ -132,7 +139,7 @@ module AgentApropos
         state.add(match.entry.path, cause)
       end
       state.notify! if notice
-      state.save(root, fs, payload.session_id, now)
+      state.save(root, fs, session_id, now)
       emit(stdout, name, combined, payload.copilot?)
     end
 
@@ -165,10 +172,11 @@ module AgentApropos
       end
     end
 
-    # The one-time notice, or nil once already delivered this session. A nil
-    # `session_id` means there is no key to remember "already notified"
-    # against, so the notice is skipped entirely rather than repeated on
-    # every call.
+    # The one-time notice, or nil once already delivered this session. `nil`
+    # `session_id` — already resolved through `SessionState.key?` by the
+    # caller, so this also covers an unsafe id — means there is no key to
+    # remember "already notified" against, so the notice is skipped entirely
+    # rather than repeated on every call.
     private def session_notice(state : SessionState, session_id : String?) : String?
       return nil if session_id.nil? || state.notified?
       SESSION_NOTICE
