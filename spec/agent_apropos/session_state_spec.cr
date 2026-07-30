@@ -48,6 +48,82 @@ private class PhantomFS < AgentApropos::Filesystem
 end
 
 describe AgentApropos::SessionState do
+  describe ".key?" do
+    it "accepts a plain opaque id" do
+      AgentApropos::SessionState.key?("abc123").should eq("abc123")
+    end
+
+    it "accepts a UUID-shaped id" do
+      id = "550e8400-e29b-41d4-a716-446655440000"
+      AgentApropos::SessionState.key?(id).should eq(id)
+    end
+
+    it "accepts an id with an inner dot, underscore, and dash" do
+      AgentApropos::SessionState.key?("ses_abc-123.4").should eq("ses_abc-123.4")
+    end
+
+    it "accepts an id with a space or non-ASCII character" do
+      AgentApropos::SessionState.key?("a b").should eq("a b")
+      AgentApropos::SessionState.key?("caf\u00e9").should eq("caf\u00e9")
+    end
+
+    it "rejects nil" do
+      AgentApropos::SessionState.key?(nil).should be_nil
+    end
+
+    it "rejects a POSIX path traversal" do
+      AgentApropos::SessionState.key?("../../../../tmp/PWNED").should be_nil
+    end
+
+    it "rejects a path with an inner separator" do
+      AgentApropos::SessionState.key?("a/b").should be_nil
+      AgentApropos::SessionState.key?("a\\b").should be_nil
+    end
+
+    it "rejects a Windows drive-relative id" do
+      AgentApropos::SessionState.key?("C:x").should be_nil
+    end
+
+    it "rejects a Windows absolute id" do
+      AgentApropos::SessionState.key?("C:\\x").should be_nil
+    end
+
+    it "rejects a UNC path" do
+      AgentApropos::SessionState.key?("\\\\srv\\share").should be_nil
+    end
+
+    it "rejects a bare dot or dot-dot" do
+      AgentApropos::SessionState.key?(".").should be_nil
+      AgentApropos::SessionState.key?("..").should be_nil
+    end
+
+    it "rejects an id starting with a dot" do
+      AgentApropos::SessionState.key?(".hidden").should be_nil
+    end
+
+    it "rejects an id starting with a dash" do
+      AgentApropos::SessionState.key?("-flag").should be_nil
+    end
+
+    it "rejects an empty string" do
+      AgentApropos::SessionState.key?("").should be_nil
+    end
+
+    it "rejects an id containing a control character" do
+      AgentApropos::SessionState.key?("a\nb").should be_nil
+      AgentApropos::SessionState.key?("a\u0000b").should be_nil
+    end
+
+    it "rejects an id too long to safely write as a session filename" do
+      AgentApropos::SessionState.key?("a" * 231).should be_nil
+    end
+
+    it "accepts an id right at the length limit" do
+      id = "a" * 230
+      AgentApropos::SessionState.key?(id).should eq(id)
+    end
+  end
+
   describe ".load" do
     it "is empty when there is no session id" do
       AgentApropos::SessionState.load(ROOT, InMemoryFS.new, nil).injected.should be_empty
@@ -55,6 +131,10 @@ describe AgentApropos::SessionState do
 
     it "is empty when the session file is absent" do
       AgentApropos::SessionState.load(ROOT, InMemoryFS.new, "s").injected.should be_empty
+    end
+
+    it "is empty when the session id is unsafe (traversal)" do
+      AgentApropos::SessionState.load(ROOT, InMemoryFS.new, "../../tmp/x").injected.should be_empty
     end
 
     it "reads back a persisted injected set" do
@@ -173,6 +253,12 @@ describe AgentApropos::SessionState do
     it "is a no-op without a session id" do
       fs = InMemoryFS.new
       AgentApropos::SessionState.new.save(ROOT, fs, nil, NOW)
+      fs.files.should be_empty
+    end
+
+    it "is a no-op with an unsafe session id (traversal), writing nothing anywhere" do
+      fs = InMemoryFS.new
+      AgentApropos::SessionState.new.save(ROOT, fs, "../../../../tmp/PWNED", NOW)
       fs.files.should be_empty
     end
   end

@@ -389,6 +389,23 @@ describe AgentApropos::Hook do
       code.should eq(0)
       stdout.should be_empty
     end
+
+    it "is skipped for a path-traversal session id, same as a nil one, and writes nothing outside the sessions dir" do
+      fs = InMemoryFS.new
+      code, stdout = invoke(:pre, pre_json("docs/readme.md", session_id: "../../../../tmp/PWNED"), fs)
+      code.should eq(0)
+      stdout.should be_empty
+      fs.files.keys.each(&.should(start_with("/repo/")))
+    end
+
+    it "stays skipped on a second call with the same traversal session id (never gets stuck re-firing)" do
+      fs = InMemoryFS.new
+      invoke(:pre, pre_json("docs/readme.md", session_id: "../../../../tmp/PWNED"), fs)
+
+      code, stdout = invoke(:pre, pre_json("docs/other.md", session_id: "../../../../tmp/PWNED"), fs)
+      code.should eq(0)
+      stdout.should be_empty
+    end
   end
 
   # Gemini CLI wires both `hook pre` and `hook post` onto its single
