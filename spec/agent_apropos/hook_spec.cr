@@ -102,6 +102,17 @@ describe AgentApropos::Hook do
       fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_true
     end
 
+    it "still injects a valid rule when a sibling doc is malformed and the index cache is cold" do
+      fs = InMemoryFS.new({
+        A_PATH                          => A_DOC,
+        "/repo/docs/conventions/bad.md" => "---\npaths: not-a-list\n---\nBad\n",
+      })
+      code, stdout = invoke(:pre, pre_json("/repo/src/app.cr"), fs)
+
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+    end
+
     it "injects a rule at most once per session" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, pre_json("src/app.cr"), fs)[1]
