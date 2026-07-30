@@ -332,9 +332,17 @@ module AgentApropos
       AgentApropos.find_repo_root(Path[start])
     end
 
+    # Absolutizes and normalizes before relativizing, so an embedded `..`
+    # segment anywhere in `file_path` (e.g. `docs/../../../etc/passwd`) is
+    # collapsed just like a leading one — `Path#expand` resolves `.`/`..`
+    # lexically, with no filesystem access (no symlink resolution), so this
+    # stays fail-open-safe. Without this, `outside_root?`'s prefix check
+    # would see the uncollapsed string, which still starts with `docs/`, and
+    # wrongly treat the escape as inside the repo.
     private def relativize(root : Path, file_path : String) : String
       path = Path[file_path]
-      path.absolute? ? path.relative_to(root).to_posix.to_s : path.to_posix.to_s
+      absolute = path.absolute? ? path : root.join(path)
+      absolute.expand.relative_to(root).to_posix.to_s
     end
 
     # `relativize` computes a relative path unconditionally, even when
@@ -343,7 +351,8 @@ module AgentApropos
     # outside the project, like Copilot's `~/.copilot/session-state/`).
     # Conventions are scoped to the repo; nothing outside it should ever
     # match, so callers must skip entirely rather than match against a path
-    # that only superficially looks repo-relative.
+    # that only superficially looks repo-relative. Safe to check via prefix
+    # alone because `relativize` already normalized away any embedded `..`.
     private def outside_root?(relative : String) : Bool
       relative == ".." || relative.starts_with?("../")
     end
