@@ -249,9 +249,9 @@ module AgentApropos
     # `tolerant: true` on this rebuild: a single malformed doc (e.g. right
     # after authoring it, before the index is regenerated) must not blank out
     # delivery of every *other* rule for this call — only its own rule is
-    # unavailable until it's fixed (see `agent-apropos lint`/`doctor`, which
-    # already report it). Once the index is warm again this path isn't hit at
-    # all, so the cost of an in-memory rebuild here is a cold-cache-only concern.
+    # unavailable until it's fixed and the index is regenerated (see
+    # `agent-apropos lint`/`doctor`, which already report it). Once the index is warm again this path isn't hit at all,
+    # so the cost of an in-memory rebuild here is a cold-cache-only concern.
     private def load_or_build_index(root : Path, fs : Filesystem, allow_outside : Bool) : Index
       json = fs.read?(root.join(INDEX_RELATIVE).to_s)
       if json && (index = Index.load(json))
