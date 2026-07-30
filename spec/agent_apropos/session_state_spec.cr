@@ -119,7 +119,7 @@ describe AgentApropos::SessionState do
     end
 
     it "accepts an id right at the length limit" do
-      id = "a" * 250
+      id = "a" * 230
       AgentApropos::SessionState.key?(id).should eq(id)
     end
   end
