@@ -114,8 +114,8 @@ describe AgentApropos::SessionState do
       AgentApropos::SessionState.key?("a\u0000b").should be_nil
     end
 
-    it "rejects an id longer than the filesystem name limit" do
-      AgentApropos::SessionState.key?("a" * 251).should be_nil
+    it "rejects an id too long to safely write as a session filename" do
+      AgentApropos::SessionState.key?("a" * 231).should be_nil
     end
 
     it "accepts an id right at the length limit" do
