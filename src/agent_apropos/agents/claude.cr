@@ -19,11 +19,12 @@ module AgentApropos
       # `--tool claude` tells the binary which dialect wired the invocation,
       # so `Hook` can label a Cause's layer as read-triggered without parsing
       # `tool_name` itself. Both matchers below ("Edit|Write" and "Read")
-      # deliberately share the identical `HOOK_PRE` command — the read/write
+      # deliberately share the identical hook-pre command — the read/write
       # distinction comes from `Claude#read?` inspecting the payload at run
-      # time, not from which matcher fired.
-      HOOK_PRE  = "agent-apropos hook pre --tool claude"
-      HOOK_POST = "agent-apropos hook post --tool claude"
+      # time, not from which matcher fired. `_BASE` because `Agent#hook_command`
+      # may append `--allow-outside-repo` to it (see `merged_settings`).
+      HOOK_PRE_BASE  = "agent-apropos hook pre --tool claude"
+      HOOK_POST_BASE = "agent-apropos hook post --tool claude"
 
       # Claude Code's hook `timeout` is seconds.
       CLAUDE_HOOK_TIMEOUT = 10_i64
@@ -43,7 +44,7 @@ module AgentApropos
       def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
         path = repo_root.join(".claude", "settings.json").to_s
         existing = fs.read?(path)
-        Init.sync(fs, options, stdout, path, merged_settings(existing), existing, ".claude/settings.json")
+        Init.sync(fs, options, stdout, path, merged_settings(existing, options), existing, ".claude/settings.json")
       end
 
       def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
@@ -56,17 +57,20 @@ module AgentApropos
       # Layer 2 depends only on the target path, which a read carries exactly
       # like an edit, so the same rule can land as early as the model's first
       # read instead of only once it writes there.
-      private def merged_settings(existing : String?) : String
+      private def merged_settings(existing : String?, options : Init::Options) : String
+        hook_pre = hook_command(HOOK_PRE_BASE, options)
+        hook_post = hook_command(HOOK_POST_BASE, options)
+
         root = Init.settings_root(existing, ".claude/settings.json")
         hooks = (root["hooks"]?.try(&.as_h?)).try(&.dup) || {} of String => JSON::Any
 
         pre_groups = (hooks["PreToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
-        pre_groups = ensure_commands(pre_groups, "Edit|Write", [HOOK_PRE], CLAUDE_HOOK_TIMEOUT)
-        pre_groups = ensure_commands(pre_groups, "Read", [HOOK_PRE], CLAUDE_HOOK_TIMEOUT)
+        pre_groups = ensure_commands(pre_groups, "Edit|Write", [hook_pre], CLAUDE_HOOK_TIMEOUT)
+        pre_groups = ensure_commands(pre_groups, "Read", [hook_pre], CLAUDE_HOOK_TIMEOUT)
         hooks["PreToolUse"] = JSON::Any.new(pre_groups)
 
         post_groups = (hooks["PostToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
-        post_groups = ensure_commands(post_groups, "Edit|Write", [HOOK_POST], CLAUDE_HOOK_TIMEOUT)
+        post_groups = ensure_commands(post_groups, "Edit|Write", [hook_post], CLAUDE_HOOK_TIMEOUT)
         hooks["PostToolUse"] = JSON::Any.new(post_groups)
 
         root["hooks"] = JSON::Any.new(hooks)

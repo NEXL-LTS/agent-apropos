@@ -89,12 +89,40 @@ describe AgentApropos::Init do
       fs.files.should be_empty
     end
 
-    it "scaffolds into agent-apropos.yml's configured conventions_dir instead of the default" do
+    it "scaffolds into agent-apropos.yml's configured conventions_dir instead of the default, given --allow-outside-repo" do
       fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n"})
-      _, stdout, _ = run_init(fs)
+      _, stdout, _ = run_init(fs, AgentApropos::Init::Options.new(allow_outside_repo: true))
       fs.files.has_key?("/repo/../shared-conventions/README.md").should be_true
       fs.files.has_key?("/repo/docs/conventions/README.md").should be_false
       stdout.should contain("created  ../shared-conventions/README.md")
+    end
+
+    it "fails closed when agent-apropos.yml's conventions_dir escapes repo_root without --allow-outside-repo" do
+      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n"})
+      code, _, stderr = run_init(fs)
+      code.should eq(1)
+      stderr.should contain("resolves outside the repo root")
+      fs.files.has_key?("/repo/../shared-conventions/README.md").should be_false
+    end
+
+    it "fails closed for an absolute conventions_dir outside repo_root without --allow-outside-repo" do
+      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: /var/conventions\n"})
+      code, _, stderr = run_init(fs)
+      code.should eq(1)
+      stderr.should contain("resolves outside the repo root")
+    end
+
+    it "bakes --allow-outside-repo into the generated hook commands when the conventions_dir escapes repo_root" do
+      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n"})
+      run_init(fs, AgentApropos::Init::Options.new(allow_outside_repo: true))
+      fs.files[SETTINGS_PATH].should contain("agent-apropos hook pre --tool claude --allow-outside-repo")
+      fs.files[SETTINGS_PATH].should contain("agent-apropos hook post --tool claude --allow-outside-repo")
+    end
+
+    it "does not bake --allow-outside-repo into hook commands when conventions_dir stays under repo_root" do
+      fs = InMemoryFS.new
+      run_init(fs, AgentApropos::Init::Options.new(allow_outside_repo: true))
+      fs.files[SETTINGS_PATH].should_not contain("--allow-outside-repo")
     end
   end
 

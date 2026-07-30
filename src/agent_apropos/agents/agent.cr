@@ -37,6 +37,15 @@ module AgentApropos
       # delivered, so a wrong answer here costs a debugging label, not
       # correctness.
       abstract def read?(payload : Hook::Payload) : Bool
+
+      # Append `--allow-outside-repo` to a generated hook command when `init`
+      # itself was run with that flag — so a wired hook keeps resolving an
+      # intentionally out-of-tree conventions_dir (see `Config.conventions_dir`)
+      # without needing to re-consent on every invocation; hook runs
+      # non-interactively, so there is no later moment to ask again.
+      protected def hook_command(base : String, options : Init::Options) : String
+        options.allow_outside_repo ? "#{base} --allow-outside-repo" : base
+      end
     end
   end
 end

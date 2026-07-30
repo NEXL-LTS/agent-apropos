@@ -35,9 +35,10 @@ module AgentApropos
 
       # `--tool codex` tells the binary which dialect wired the invocation,
       # so `Hook` can label a Cause's layer without parsing `tool_name`
-      # itself.
-      HOOK_PRE  = "agent-apropos hook pre --tool codex"
-      HOOK_POST = "agent-apropos hook post --tool codex"
+      # itself. `_BASE` because `Agent#hook_command` may append
+      # `--allow-outside-repo` to each (see `hooks_json`).
+      HOOK_PRE_BASE  = "agent-apropos hook pre --tool codex"
+      HOOK_POST_BASE = "agent-apropos hook post --tool codex"
 
       # Codex CLI's own hook `timeout` field is seconds, like Claude Code's
       # — confirmed against a real captured run, not upstream docs.
@@ -65,7 +66,7 @@ module AgentApropos
       def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
         path = repo_root.join(HOOKS_RELATIVE).to_s
         existing = fs.read?(path)
-        Init.sync(fs, options, stdout, path, HOOKS_JSON, existing, ".codex/hooks.json")
+        Init.sync(fs, options, stdout, path, hooks_json(options), existing, ".codex/hooks.json")
       end
 
       # Check for the Codex CLI binary and that `.codex/hooks.json` calls
@@ -104,10 +105,11 @@ module AgentApropos
           rescue JSON::ParseException
             return nil
           end
-        command_present?(parsed, "PreToolUse", HOOK_PRE) && command_present?(parsed, "PostToolUse", HOOK_POST)
+        command_prefix_present?(parsed, "PreToolUse", HOOK_PRE_BASE) &&
+          command_prefix_present?(parsed, "PostToolUse", HOOK_POST_BASE)
       end
 
-      private def command_present?(parsed : JSON::Any, event : String, command : String) : Bool
+      private def command_prefix_present?(parsed : JSON::Any, event : String, prefix : String) : Bool
         groups = parsed.as_h?.try(&.["hooks"]?).try(&.as_h?).try(&.[event]?).try(&.as_a?)
         return false unless groups
         groups.compact_map(&.as_h?)
@@ -115,40 +117,44 @@ module AgentApropos
           .any? do |group|
             (group["hooks"]?.try(&.as_a?) || [] of JSON::Any)
               .compact_map { |hook| hook.as_h?.try(&.["command"]?).try(&.as_s?) }
-              .includes?(command)
+              .any?(&.starts_with?(prefix))
           end
       end
 
-      HOOKS_JSON = <<-JSON
-        {
-          "hooks": {
-            "PreToolUse": [
-              {
-                "matcher": "#{MATCHER}",
-                "hooks": [
-                  {
-                    "type": "command",
-                    "command": "#{HOOK_PRE}",
-                    "timeout": #{HOOK_TIMEOUT}
-                  }
-                ]
-              }
-            ],
-            "PostToolUse": [
-              {
-                "matcher": "#{MATCHER}",
-                "hooks": [
-                  {
-                    "type": "command",
-                    "command": "#{HOOK_POST}",
-                    "timeout": #{HOOK_TIMEOUT}
-                  }
-                ]
-              }
-            ]
+      private def hooks_json(options : Init::Options) : String
+        hook_pre = hook_command(HOOK_PRE_BASE, options)
+        hook_post = hook_command(HOOK_POST_BASE, options)
+        <<-JSON
+          {
+            "hooks": {
+              "PreToolUse": [
+                {
+                  "matcher": "#{MATCHER}",
+                  "hooks": [
+                    {
+                      "type": "command",
+                      "command": "#{hook_pre}",
+                      "timeout": #{HOOK_TIMEOUT}
+                    }
+                  ]
+                }
+              ],
+              "PostToolUse": [
+                {
+                  "matcher": "#{MATCHER}",
+                  "hooks": [
+                    {
+                      "type": "command",
+                      "command": "#{hook_post}",
+                      "timeout": #{HOOK_TIMEOUT}
+                    }
+                  ]
+                }
+              ]
+            }
           }
-        }
-        JSON
+          JSON
+      end
     end
   end
 end

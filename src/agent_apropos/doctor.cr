@@ -18,10 +18,11 @@ module AgentApropos
     INDEX_RELATIVE = Path[".cache", "agent-apropos", "index.json"]
     PROBE_RELATIVE = Path[".cache", "agent-apropos", ".doctor-probe"]
 
-    def run(repo_root : Path, fs : Filesystem, env : Environment, stdout : IO, stderr : IO) : Int32
+    def run(repo_root : Path, fs : Filesystem, env : Environment, stdout : IO, stderr : IO,
+            allow_outside : Bool = false) : Int32
       checks = [agent_apropos_check(env)] +
                Agents::ALL.flat_map(&.checks(repo_root, fs, env)) +
-               [index_check(repo_root, fs), cache_check(repo_root, fs)]
+               [index_check(repo_root, fs, allow_outside), cache_check(repo_root, fs)]
       report(checks, stdout)
     end
 
@@ -33,7 +34,7 @@ module AgentApropos
       end
     end
 
-    private def index_check(repo_root : Path, fs : Filesystem) : Check
+    private def index_check(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Check
       json = fs.read?(repo_root.join(INDEX_RELATIVE).to_s)
       return Check.new(:warn, "index", "not built; run `agent-apropos generate`") unless json
 
@@ -42,9 +43,10 @@ module AgentApropos
 
       conventions =
         begin
-          Conventions.walk(repo_root, fs)
+          Conventions.walk(repo_root, fs, allow_outside)
         rescue AgentApropos::Error
-          return Check.new(:warn, "index", "cannot evaluate freshness; run `agent-apropos lint`")
+          return Check.new(:warn, "index", "cannot evaluate freshness; run `agent-apropos lint`, " \
+                                           "or pass --allow-outside-repo if conventions_dir is outside the repo root")
         end
 
       if index.covers?(conventions)
