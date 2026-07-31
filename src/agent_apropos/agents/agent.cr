@@ -33,7 +33,7 @@ module AgentApropos
       # Whether this agent's own init-generated hook file exists in the repo
       # — a bare existence probe, unlike `#checks`, which also inspects
       # content for correctness. `Skills.active_roots` uses this to decide
-      # whether a skill root worth generating into at all, so `generate`
+      # whether a skill root is worth generating into at all, so `generate`
       # doesn't scatter e.g. `.gemini/skills/` into a repo that never ran
       # `init --tool gemini`.
       abstract def configured?(repo_root : Path, fs : Filesystem) : Bool

@@ -53,7 +53,7 @@ module AgentApropos
           end
         end
 
-        (existing_slugs(repo_root, fs, root) - expected.keys).each do |slug|
+        (existing_slugs(repo_root, fs, root) - expected.keys).sort.each do |slug|
           drift << "orphan:  #{wrapper_display(root, slug)}"
         end
       end
