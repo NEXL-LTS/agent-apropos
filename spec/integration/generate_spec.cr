@@ -29,6 +29,14 @@ describe "agent-apropos generate (binary)" do
       File.write(File.join(dir, "docs/conventions/workflows/ship.md"),
         "---\nskill: true\ndescription: \"Use when shipping a feature\"\n---\n\n# Shipping\n\nbody\n")
 
+      # `generate` only writes a skill root whose consumer agent is actually
+      # wired (see `Skills.active_roots`) — mark Claude Code and Gemini CLI
+      # as such so the roots asserted below get generated.
+      Dir.mkdir_p(File.join(dir, ".claude"))
+      File.write(File.join(dir, ".claude/settings.json"), "{}")
+      Dir.mkdir_p(File.join(dir, ".gemini"))
+      File.write(File.join(dir, ".gemini/settings.json"), "{}")
+
       run = Process.run(binary, ["generate", "--repo-root", dir], output: IO::Memory.new)
       run.exit_code.should eq(0)
 

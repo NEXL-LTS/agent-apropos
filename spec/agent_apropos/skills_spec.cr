@@ -5,6 +5,14 @@ private def convention(path : String, frontmatter : String) : AgentApropos::Conv
 end
 
 describe AgentApropos::Skills do
+  describe "ROOTS" do
+    it "is every distinct skill_root across Agents::ALL, in agent order" do
+      AgentApropos::Skills::ROOTS.should eq(
+        [Path[".claude", "skills"], Path[".gemini", "skills"], Path[".codex", "skills"]]
+      )
+    end
+  end
+
   describe ".slug_for" do
     it "is the filename without its .md extension" do
       AgentApropos::Skills.slug_for("docs/conventions/workflows/ship-a-feature.md")
@@ -87,6 +95,47 @@ describe AgentApropos::Skills do
       expect_raises(AgentApropos::Skills::Error, /no `description`/) do
         AgentApropos::Skills.wrappers(conventions)
       end
+    end
+  end
+
+  describe ".active_roots" do
+    it "is empty when no agent's init file exists" do
+      fs = InMemoryFS.new
+      AgentApropos::Skills.active_roots(Path["/repo"], fs).should be_empty
+    end
+
+    it "activates .claude/skills when Claude Code is wired" do
+      fs = InMemoryFS.new({"/repo/.claude/settings.json" => "{}"})
+      AgentApropos::Skills.active_roots(Path["/repo"], fs).should eq(Set{Path[".claude", "skills"]})
+    end
+
+    it "activates .claude/skills when only OpenCode is wired" do
+      fs = InMemoryFS.new({"/repo/.opencode/plugins/agent-apropos.js" => "// js"})
+      AgentApropos::Skills.active_roots(Path["/repo"], fs).should eq(Set{Path[".claude", "skills"]})
+    end
+
+    it "activates .claude/skills when only Copilot is wired" do
+      fs = InMemoryFS.new({"/repo/.github/hooks/agent-apropos.json" => "{}"})
+      AgentApropos::Skills.active_roots(Path["/repo"], fs).should eq(Set{Path[".claude", "skills"]})
+    end
+
+    it "activates .gemini/skills only when Gemini CLI is wired" do
+      fs = InMemoryFS.new({"/repo/.gemini/settings.json" => "{}"})
+      AgentApropos::Skills.active_roots(Path["/repo"], fs).should eq(Set{Path[".gemini", "skills"]})
+    end
+
+    it "activates .codex/skills only when Codex CLI is wired" do
+      fs = InMemoryFS.new({"/repo/.codex/hooks.json" => "{}"})
+      AgentApropos::Skills.active_roots(Path["/repo"], fs).should eq(Set{Path[".codex", "skills"]})
+    end
+
+    it "activates every root when every agent is wired" do
+      fs = InMemoryFS.new({
+        "/repo/.claude/settings.json" => "{}",
+        "/repo/.gemini/settings.json" => "{}",
+        "/repo/.codex/hooks.json"     => "{}",
+      })
+      AgentApropos::Skills.active_roots(Path["/repo"], fs).should eq(AgentApropos::Skills::ROOTS.to_set)
     end
   end
 end

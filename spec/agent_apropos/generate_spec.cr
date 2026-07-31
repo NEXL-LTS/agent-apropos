@@ -3,21 +3,36 @@ require "../spec_helper"
 private ROOT       = Path["/repo"]
 private INDEX_PATH = "/repo/.cache/agent-apropos/index.json"
 
+private CLAUDE_SETTINGS = "/repo/.claude/settings.json"
+private GEMINI_SETTINGS = "/repo/.gemini/settings.json"
+private CODEX_HOOKS     = "/repo/.codex/hooks.json"
+
+# All three skill roots' consumers are "wired" (the init file each of
+# `Skills.active_roots`'s consumer agents probes for exists), matching most
+# specs' intent to exercise wrapper writing/checking itself rather than the
+# gating in front of it. Content is irrelevant — `configured?` is a bare
+# existence probe.
+private WIRED_ALL = {
+  CLAUDE_SETTINGS => "{}",
+  GEMINI_SETTINGS => "{}",
+  CODEX_HOOKS     => "{}",
+}
+
 private def skill_doc(name : String, description : String = "Use when #{name}") : {String, String}
   {"/repo/docs/conventions/workflows/#{name}.md",
    "---\nskill: true\ndescription: \"#{description}\"\n---\nbody\n"}
 end
 
-private def run_generate(files : Hash(String, String)) : {Int32, String, String, InMemoryFS}
-  fs = InMemoryFS.new(files)
+private def run_generate(files : Hash(String, String), wired : Hash(String, String) = WIRED_ALL) : {Int32, String, String, InMemoryFS}
+  fs = InMemoryFS.new(wired.merge(files))
   stdout = IO::Memory.new
   stderr = IO::Memory.new
   code = AgentApropos::Generate.run(ROOT, fs, stdout, stderr)
   {code, stdout.to_s, stderr.to_s, fs}
 end
 
-private def check_generate(files : Hash(String, String)) : {Int32, String, String}
-  fs = InMemoryFS.new(files)
+private def check_generate(files : Hash(String, String), wired : Hash(String, String) = WIRED_ALL) : {Int32, String, String}
+  fs = InMemoryFS.new(wired.merge(files))
   stdout = IO::Memory.new
   stderr = IO::Memory.new
   code = AgentApropos::Generate.check(ROOT, fs, stdout, stderr)
@@ -105,6 +120,58 @@ describe AgentApropos::Generate do
       code.should eq(1)
       stderr.should contain("slug collision on 'dup'")
     end
+
+    describe "root gating" do
+      it "writes only the root whose consumer agent is initialized" do
+        path, doc = skill_doc("foo")
+        code, stdout, _, fs = run_generate({path => doc}, {CLAUDE_SETTINGS => "{}"})
+
+        code.should eq(0)
+        stdout.should contain("skill: wrote .claude/skills/foo/SKILL.md")
+        stdout.should_not contain(".gemini/skills")
+        stdout.should_not contain(".codex/skills")
+        fs.files.has_key?("/repo/.gemini/skills/foo/SKILL.md").should be_false
+        fs.files.has_key?("/repo/.codex/skills/foo/SKILL.md").should be_false
+      end
+
+      it "activates .claude/skills for OpenCode alone, without Claude Code itself wired" do
+        path, doc = skill_doc("foo")
+        code, stdout, _, fs = run_generate({path => doc}, {"/repo/.opencode/plugins/agent-apropos.js" => "// js"})
+
+        code.should eq(0)
+        stdout.should contain("skill: wrote .claude/skills/foo/SKILL.md")
+        fs.files.has_key?("/repo/.claude/skills/foo/SKILL.md").should be_true
+      end
+
+      it "activates .claude/skills for Copilot alone" do
+        path, doc = skill_doc("foo")
+        code, _, _, fs = run_generate({path => doc}, {"/repo/.github/hooks/agent-apropos.json" => "{}"})
+
+        code.should eq(0)
+        fs.files.has_key?("/repo/.claude/skills/foo/SKILL.md").should be_true
+      end
+
+      it "writes no wrappers at all when no agent is initialized" do
+        path, doc = skill_doc("foo")
+        code, stdout, _, fs = run_generate({path => doc}, {} of String => String)
+
+        code.should eq(0)
+        stdout.should_not contain("skill: wrote")
+        fs.files.keys.any?(&.includes?("skills")).should be_false
+      end
+
+      it "prunes a wrapper left behind in a root whose consumer was un-wired" do
+        path, doc = skill_doc("keep")
+        code, stdout, _, fs = run_generate({
+          path                                 => doc,
+          "/repo/.gemini/skills/keep/SKILL.md" => "stale, from before gemini was un-wired\n",
+        }, {CLAUDE_SETTINGS => "{}"})
+
+        code.should eq(0)
+        stdout.should contain("skill: removed orphan .gemini/skills/keep/SKILL.md")
+        fs.files.has_key?("/repo/.gemini/skills/keep/SKILL.md").should be_false
+      end
+    end
   end
 
   describe ".check" do
@@ -154,6 +221,33 @@ describe AgentApropos::Generate do
       })
       code.should eq(1)
       stderr.should contain("agent-apropos generate:")
+    end
+
+    describe "root gating" do
+      it "does not expect a wrapper in an uninitialized root" do
+        path, doc = skill_doc("foo")
+        code, stdout, _ = check_generate({
+          path                                => doc,
+          "/repo/.claude/skills/foo/SKILL.md" => AgentApropos::Skills.wrappers(
+            [AgentApropos::Convention.parse("docs/conventions/workflows/foo.md", doc)]
+          )["foo"],
+        }, {CLAUDE_SETTINGS => "{}"})
+
+        code.should eq(0)
+        stdout.should contain("up to date")
+      end
+
+      it "flags a wrapper in a root whose consumer was un-wired as an orphan, not missing" do
+        path, doc = skill_doc("foo")
+        code, stdout, _ = check_generate({
+          path                                => doc,
+          "/repo/.gemini/skills/foo/SKILL.md" => "stale, from before gemini was un-wired\n",
+        }, {CLAUDE_SETTINGS => "{}"})
+
+        code.should eq(1)
+        stdout.should contain("orphan:  .gemini/skills/foo/SKILL.md")
+        stdout.should_not contain("missing: .gemini")
+      end
     end
   end
 end

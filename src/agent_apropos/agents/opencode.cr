@@ -30,6 +30,16 @@ module AgentApropos
         [plugin_check(repo_root, fs, env)]
       end
 
+      def configured?(repo_root : Path, fs : Filesystem) : Bool
+        fs.exists?(repo_root.join(PLUGIN_RELATIVE).to_s)
+      end
+
+      # OpenCode discovers project skills from Claude Code's directory
+      # natively, so it has no `.opencode/skills/` of its own.
+      def skill_root : Path
+        Path[".claude", "skills"]
+      end
+
       private def plugin_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         unless env.which("opencode")
           return Check.new(:ok, "opencode", "not on PATH; skipped plugin check")

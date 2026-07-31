@@ -8,7 +8,9 @@ module AgentApropos
   # index and the committed skill wrappers, and prune orphaned wrappers. `run`
   # writes; `check` never writes and is the CI drift gate. Both fail *closed* —
   # a malformed doc or slug collision exits non-zero — because generate is an
-  # authoring/CI command, not the fail-open hook path.
+  # authoring/CI command, not the fail-open hook path. Only writes/checks a
+  # `Skills::ROOTS` root whose `Skills.active_roots` includes it — see there
+  # for how that's decided from which `init`-generated hook files exist.
   module Generate
     extend self
 
@@ -20,10 +22,11 @@ module AgentApropos
     def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
       conventions = Conventions.walk(repo_root, fs, allow_outside)
       wrappers = Skills.wrappers(conventions)
+      active = Skills.active_roots(repo_root, fs)
 
       write_index(repo_root, fs, conventions, stdout)
-      write_wrappers(repo_root, fs, wrappers, stdout)
-      prune_orphans(repo_root, fs, wrappers.keys, stdout)
+      write_wrappers(repo_root, fs, wrappers, active, stdout)
+      prune_orphans(repo_root, fs, wrappers.keys, active, stdout)
       0
     rescue ex : AgentApropos::Error
       stderr.puts "agent-apropos generate: #{ex.message}"
@@ -36,10 +39,12 @@ module AgentApropos
     def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
       conventions = Conventions.walk(repo_root, fs, allow_outside)
       wrappers = Skills.wrappers(conventions)
+      active = Skills.active_roots(repo_root, fs)
       drift = [] of String
 
       Skills::ROOTS.each do |root|
-        wrappers.each do |slug, content|
+        expected = active.includes?(root) ? wrappers : {} of String => String
+        expected.each do |slug, content|
           actual = fs.read?(wrapper_path(repo_root, root, slug).to_s)
           if actual.nil?
             drift << "missing: #{wrapper_display(root, slug)}"
@@ -48,7 +53,7 @@ module AgentApropos
           end
         end
 
-        (existing_slugs(repo_root, fs, root) - wrappers.keys).each do |slug|
+        (existing_slugs(repo_root, fs, root) - expected.keys).each do |slug|
           drift << "orphan:  #{wrapper_display(root, slug)}"
         end
       end
@@ -77,9 +82,10 @@ module AgentApropos
       stdout.puts "index: rebuilt (#{conventions.size} docs)"
     end
 
-    private def write_wrappers(repo_root, fs, wrappers, stdout) : Nil
+    private def write_wrappers(repo_root, fs, wrappers, active, stdout) : Nil
       slugs = wrappers.keys.sort!
       Skills::ROOTS.each do |root|
+        next unless active.includes?(root)
         slugs.each do |slug|
           content = wrappers[slug]
           path = wrapper_path(repo_root, root, slug).to_s
@@ -90,9 +96,13 @@ module AgentApropos
       end
     end
 
-    private def prune_orphans(repo_root, fs, keep : Array(String), stdout) : Nil
+    # A root with no wired consumer keeps nothing: `keep` is emptied for it,
+    # so any wrapper left over from before its last consumer was un-wired
+    # gets pruned along with genuine orphans.
+    private def prune_orphans(repo_root, fs, keep : Array(String), active, stdout) : Nil
       Skills::ROOTS.each do |root|
-        (existing_slugs(repo_root, fs, root) - keep).sort.each do |slug|
+        root_keep = active.includes?(root) ? keep : [] of String
+        (existing_slugs(repo_root, fs, root) - root_keep).sort.each do |slug|
           fs.remove(skill_dir(repo_root, root, slug).to_s)
           stdout.puts "skill: removed orphan #{wrapper_display(root, slug)}"
         end
