@@ -56,6 +56,14 @@ describe AgentApropos::Matcher do
         AgentApropos::Matcher.content_match?("(", "anything")
       end
     end
+
+    it "raises an AgentApropos error, not a raw Regex::Error, when PCRE2's match limit is exhausted" do
+      catastrophic = "(a+)+$"
+      content = "a" * 35 + "!"
+      expect_raises(AgentApropos::Matcher::Error, /failed to match/) do
+        AgentApropos::Matcher.content_match?(catastrophic, content)
+      end
+    end
   end
 
   describe ".any_content_match?" do

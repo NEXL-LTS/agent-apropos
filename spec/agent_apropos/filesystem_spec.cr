@@ -44,6 +44,25 @@ describe AgentApropos::Filesystem::Real do
     end
   end
 
+  it "refuses to append through a symlink" do
+    dir = File.tempname("agent-apropos-fs")
+    fs = AgentApropos::Filesystem::Real.new
+    begin
+      Dir.mkdir_p(dir)
+      outside = File.join(dir, "outside.log")
+      link = File.join(dir, "logs/hook.log")
+      Dir.mkdir_p(File.join(dir, "logs"))
+      File.symlink(outside, link)
+
+      expect_raises(AgentApropos::Filesystem::Error, /symlink/) do
+        fs.append(link, "pwned\n")
+      end
+      File.exists?(outside).should be_false
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
+
   it "removes a directory tree and is a no-op when the target is absent" do
     dir = File.tempname("agent-apropos-fs")
     fs = AgentApropos::Filesystem::Real.new

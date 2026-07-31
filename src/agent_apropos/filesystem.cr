@@ -5,6 +5,11 @@ module AgentApropos
   # directly — they receive a `Filesystem`, so error and edge paths are
   # unit-testable with a fake and `Real` is the only code that hits disk.
   abstract class Filesystem
+    # Raised when a filesystem operation refuses to proceed for safety
+    # reasons (e.g. `append` finding a symlink at the destination).
+    class Error < AgentApropos::Error
+    end
+
     # List files under `base` matching a glob `pattern` (results unsorted;
     # callers sort for determinism).
     abstract def glob(base : Path, pattern : String) : Array(String)
@@ -65,6 +70,7 @@ module AgentApropos
 
       def append(path : String, content : String) : Nil
         Dir.mkdir_p(Path[path].dirname)
+        raise Error.new("refusing to append through a symlink: #{path}") if File.symlink?(path)
         File.open(path, "a", &.print(content))
       end
 
