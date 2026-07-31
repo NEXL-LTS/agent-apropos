@@ -53,9 +53,26 @@ fi
 # bats-preprocess) but driven from a loop, so the layer files stay agent-count
 # agnostic.
 #
+# True iff every newline-separated, non-empty line in $2 is present as a
+# literal substring somewhere in file $1. A single-line value (every existing
+# layer's expected artifact) degenerates to a plain single grep -qF, so this
+# is a drop-in replacement; a multi-line value (e.g. two Layer 2 rules
+# landing on one file) requires all of them present at once.
+assert_contains_all() {
+  local file="$1" patterns="$2" line
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    grep -qF -- "$line" "$file" || return 1
+  done <<<"$patterns"
+  return 0
+}
+
 # Args: layer label (e.g. "Layer 2", "Layer 3 (path+content)"), expected-
 # artifact var name, prompt var name, target file (repo-relative, e.g.
-# src/util.py).
+# src/util.py). The expected-artifact var may hold one pattern or several
+# newline-separated patterns (see assert_contains_all) — every one of them
+# must land for the "with" test to pass, and "without" asserts they don't
+# all land together.
 register_live_tests() {
   local layer="$1" expect_var="$2" prompt_var="$3" target="$4"
   # Sanitize to a valid bash identifier fragment — labels (and, below, agent
@@ -73,7 +90,7 @@ register_live_tests() {
       $require_fn
       new_sample with
       $run_fn \"\$$prompt_var\"
-      assert grep -q \"\$$expect_var\" \"\$WORK/$target\"
+      assert assert_contains_all \"\$WORK/$target\" \"\$$expect_var\"
     }"
     bats_test_function --description "$layer with agent-apropos ($name): the expected pattern lands" --tags "" -- "$fn"
 
@@ -82,7 +99,7 @@ register_live_tests() {
       $require_fn
       new_sample without
       $run_fn \"\$$prompt_var\"
-      refute grep -q \"\$$expect_var\" \"\$WORK/$target\"
+      refute assert_contains_all \"\$WORK/$target\" \"\$$expect_var\"
     }"
     bats_test_function --description "$layer without agent-apropos ($name): the expected pattern does not appear" --tags "" -- "$fn"
   done
@@ -156,15 +173,18 @@ new_sample() {
     rm -f "$WORK/.codex/hooks.json"
     rm -rf "$WORK/.codex/skills"
     # Also remove the supporting module each rule points to (the decorator,
-    # exception, registry, and audit wrapper). Each is a realistic project
-    # convention rather than an arbitrary token, so it's a real, discoverable
-    # code artifact in its own right — leaving it in place would let a
-    # sufficiently agentic model (observed with OpenCode's build agent)
-    # adopt it on its own, independent of agent-apropos.
+    # exception, registry, audit wrapper, and the auth/throttle decorator
+    # pair). Each is a realistic project convention rather than an arbitrary
+    # token, so it's a real, discoverable code artifact in its own right —
+    # leaving it in place would let a sufficiently agentic model (observed
+    # with OpenCode's build agent) adopt it on its own, independent of
+    # agent-apropos.
     rm -f "$WORK/src/telemetry.py" \
           "$WORK/scripts/errors.py" \
           "$WORK/lib/registry.py" \
-          "$WORK/db/audit.py"
+          "$WORK/db/audit.py" \
+          "$WORK/api/auth.py" \
+          "$WORK/api/throttle.py"
   fi
   export WORK
 }

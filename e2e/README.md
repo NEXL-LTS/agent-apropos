@@ -30,8 +30,16 @@ decorator, a custom exception, a registry call, an audit wrapper — naming a
 specific module/symbol that only exists because the rule said so. A model
 can't produce it by chance, but unlike an arbitrary marker token it's not
 inert either: a pass proves the convention's *behavior* landed, not just that
-a string got copied. The layers sit on non-overlapping paths so each expected
-artifact is attributable to exactly one convention.
+a string got copied. Layers sit on non-overlapping paths so each expected
+artifact is attributable to exactly one convention — except the "two rules,
+one file" Layer 2 case, which deliberately overlaps `api-auth-rule.md` and
+`api-throttle-rule.md` on the same `api/**` path to prove two path-scoped
+rules can both fire on one edit. That pair is also deliberately
+counter-intuitive: throttling must wrap *outermost*, above auth, so an
+unauthenticated flood is rejected before it reaches the auth check — the
+opposite of the "auth gates first" instinct — which a model can only get
+right by actually reading both rule docs, not by guessing a plausible-looking
+stacking order.
 
 The rule docs themselves live in [`conventions/`](./conventions), a sibling
 of `project/` — outside the sample's own git repo entirely, pointed at via
@@ -53,6 +61,7 @@ by exploring the sample's own tree.
 | Layer | Trigger | Convention | Expected artifact | Target file |
 | --- | --- | --- | --- | --- |
 | 2 Path-scoped | editing `src/**` | new functions wrapped in `@trace_call` | `@trace_call` | `src/util.py` |
+| 2 Two rules, one file | editing `api/**` | new handlers wrapped in both `require_auth` and `rate_limited`, outermost | `require_auth`, `rate_limited` | `api/handlers.py` |
 | 3 Construct-scoped | writing `NotImplementedError` | stubs raise `StubNotImplemented` instead | `StubNotImplemented(` | `scripts/jobs.py` |
 | 3 Path+content (AND) | editing `db/**` AND writing `conn.execute(` | queries go through the audit wrapper | `audited_query(` | `db/queries.py` |
 | 4 Intent skill | "add an arithmetic operation" | new ops register in the dispatch table | `register_operation(` | `lib/calc.py` |
