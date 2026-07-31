@@ -70,9 +70,33 @@ module AgentApropos
 
       def append(path : String, content : String) : Nil
         Dir.mkdir_p(Path[path].dirname)
-        raise Error.new("refusing to append through a symlink: #{path}") if File.symlink?(path)
-        File.open(path, "a", &.print(content))
+        {% if flag?(:unix) %}
+          append_nofollow(path, content)
+        {% else %}
+          raise Error.new("refusing to append through a symlink: #{path}") if File.symlink?(path)
+          File.open(path, "a", &.print(content))
+        {% end %}
       end
+
+      {% if flag?(:unix) %}
+        # Opens with `O_NOFOLLOW` so a symlink swapped in after `mkdir_p` (a
+        # TOCTOU window a plain symlink-then-open check can't close) is
+        # rejected atomically by the kernel instead of silently followed.
+        private def append_nofollow(path : String, content : String) : Nil
+          fd = LibC.open(path, LibC::O_WRONLY | LibC::O_APPEND | LibC::O_CREAT | LibC::O_NOFOLLOW,
+            File::DEFAULT_CREATE_PERMISSIONS.value)
+          if fd == -1
+            raise Error.new("refusing to append through a symlink: #{path}") if Errno.value == Errno::ELOOP
+            raise Error.new("failed to open #{path}: #{Errno.value}")
+          end
+          io = IO::FileDescriptor.new(fd)
+          begin
+            io.print(content)
+          ensure
+            io.close
+          end
+        end
+      {% end %}
 
       def remove(path : String) : Nil
         FileUtils.rm_rf(path)
