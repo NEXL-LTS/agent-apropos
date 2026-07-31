@@ -164,6 +164,11 @@ describe AgentApropos::CLI do
   describe "generate" do
     it "builds the index and wrappers against an explicit --repo-root" do
       with_fixture_repo do |dir|
+        # `generate` only writes a skill root whose consumer agent is
+        # actually wired (see `Skills.active_roots`) — mark Claude Code as
+        # such so `.claude/skills/` gets generated below.
+        Dir.mkdir_p(File.join(dir, ".claude"))
+        File.write(File.join(dir, ".claude/settings.json"), "{}")
         code, out, err = run(["generate", "--repo-root", dir])
         code.should eq(0)
         err.should be_empty

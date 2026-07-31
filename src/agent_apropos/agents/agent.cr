@@ -30,6 +30,23 @@ module AgentApropos
       # wiring and CLI version capability.
       abstract def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
 
+      # Whether this agent's own init-generated hook file exists in the repo
+      # — a bare existence probe, unlike `#checks`, which also inspects
+      # content for correctness. `Skills.active_roots` uses this to decide
+      # whether a skill root is worth generating into at all, so `generate`
+      # doesn't scatter e.g. `.gemini/skills/` into a repo that never ran
+      # `init --tool gemini`.
+      abstract def configured?(repo_root : Path, fs : Filesystem) : Bool
+
+      # The directory this agent discovers generated skill wrappers from.
+      # Not necessarily this agent's *own* directory — OpenCode and Copilot
+      # both read Claude Code's `.claude/skills/` natively, so their
+      # implementations return that same path rather than one of their own.
+      # `Skills::ROOTS`/`Skills.active_roots` are both derived from this
+      # across `Agents::ALL`, so adding a new agent never needs a matching
+      # edit in `Skills`.
+      abstract def skill_root : Path
+
       # Whether this agent's own dialect marks `payload` as having come from
       # a *read* tool rather than an edit/write one. `Hook` calls this only
       # to label a `SessionState::Cause` for debugging (`"agent"` vs the

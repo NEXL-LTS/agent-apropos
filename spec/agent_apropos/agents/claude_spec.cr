@@ -298,4 +298,21 @@ describe AgentApropos::Agents::Claude do
       end
     end
   end
+
+  describe "#configured?" do
+    it "is false when settings.json is absent" do
+      AgentApropos::Agents::Claude.new.configured?(ROOT, InMemoryFS.new).should be_false
+    end
+
+    it "is true when settings.json exists, even if malformed" do
+      fs = InMemoryFS.new({SETTINGS_PATH => "{not json"})
+      AgentApropos::Agents::Claude.new.configured?(ROOT, fs).should be_true
+    end
+  end
+
+  describe "#skill_root" do
+    it "is .claude/skills — its own directory" do
+      AgentApropos::Agents::Claude.new.skill_root.should eq(Path[".claude", "skills"])
+    end
+  end
 end

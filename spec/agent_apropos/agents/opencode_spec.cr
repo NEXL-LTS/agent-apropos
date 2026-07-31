@@ -102,4 +102,21 @@ describe AgentApropos::Agents::OpenCode do
       check_named(run_checks(fs, env), "opencode").detail.should contain("plugin wired")
     end
   end
+
+  describe "#configured?" do
+    it "is false when the plugin file is absent" do
+      AgentApropos::Agents::OpenCode.new.configured?(ROOT, InMemoryFS.new).should be_false
+    end
+
+    it "is true when the plugin file exists" do
+      fs = InMemoryFS.new({PLUGIN_PATH => "// plugin"})
+      AgentApropos::Agents::OpenCode.new.configured?(ROOT, fs).should be_true
+    end
+  end
+
+  describe "#skill_root" do
+    it "is .claude/skills — OpenCode reads Claude Code's directory natively" do
+      AgentApropos::Agents::OpenCode.new.skill_root.should eq(Path[".claude", "skills"])
+    end
+  end
 end

@@ -131,9 +131,11 @@ module AgentApropos
           return [Finding.new(:error, location, ex.message.to_s)]
         end
 
+      active = Skills.active_roots(repo_root, fs)
       findings = [] of Finding
       Skills::ROOTS.each do |root|
-        wrappers.each do |slug, content|
+        expected = active.includes?(root) ? wrappers : {} of String => String
+        expected.each do |slug, content|
           actual = fs.read?(repo_root.join(root, slug, "SKILL.md").to_s)
           if actual.nil?
             findings << Finding.new(:error, wrapper_display(root, slug), "missing generated wrapper (run `agent-apropos generate`)")
@@ -142,7 +144,7 @@ module AgentApropos
           end
         end
 
-        (existing_slugs(repo_root, fs, root) - wrappers.keys).sort.each do |slug|
+        (existing_slugs(repo_root, fs, root) - expected.keys).sort.each do |slug|
           findings << Finding.new(:error, wrapper_display(root, slug), "orphaned generated wrapper (run `agent-apropos generate`)")
         end
       end

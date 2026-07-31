@@ -127,4 +127,21 @@ describe AgentApropos::Agents::Codex do
       check_named(run_checks(fs, env), "codex").detail.should contain("PreToolUse and PostToolUse call agent-apropos")
     end
   end
+
+  describe "#configured?" do
+    it "is false when hooks.json is absent" do
+      AgentApropos::Agents::Codex.new.configured?(ROOT, InMemoryFS.new).should be_false
+    end
+
+    it "is true when hooks.json exists, even if malformed" do
+      fs = InMemoryFS.new({HOOKS_PATH => "{not json"})
+      AgentApropos::Agents::Codex.new.configured?(ROOT, fs).should be_true
+    end
+  end
+
+  describe "#skill_root" do
+    it "is .codex/skills — its own directory" do
+      AgentApropos::Agents::Codex.new.skill_root.should eq(Path[".codex", "skills"])
+    end
+  end
 end

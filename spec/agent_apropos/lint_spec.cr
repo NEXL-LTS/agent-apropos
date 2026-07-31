@@ -18,6 +18,15 @@ private def doc(name : String) : String
   "/repo/docs/conventions/#{name}"
 end
 
+# Marks every skill root's consumer agent as initialized (see
+# `Skills.active_roots`), so a wrapper-drift test exercises the drift check
+# itself rather than the root-gating in front of it.
+private WIRED_ALL = {
+  "/repo/.claude/settings.json" => "{}",
+  "/repo/.gemini/settings.json" => "{}",
+  "/repo/.codex/hooks.json"     => "{}",
+}
+
 # The correct on-disk wrappers for a skill doc across every generated root
 # (`.claude/skills`, `.gemini/skills`, `.codex/skills`), so drift tests can
 # install a byte-accurate baseline via the real generator.
@@ -99,7 +108,7 @@ describe AgentApropos::Lint do
     body = String.build { |io| (AgentApropos::Lint::SKILL_DOC_MAX + 1).times { io << "line\n" } }
     text = "---\nskill: true\ndescription: \"Use when big\"\n---\n#{body}"
     wrappers, _ = wrapper_for("big.md", text)
-    fs = InMemoryFS.new(wrappers.merge({doc("big.md") => text}))
+    fs = InMemoryFS.new(WIRED_ALL.merge(wrappers).merge({doc("big.md") => text}))
     code, stdout = run_lint(fs)
     code.should eq(0)
     stdout.should contain("skill doc is over")
@@ -119,7 +128,7 @@ describe AgentApropos::Lint do
 
   describe "generated wrappers" do
     it "errors on a missing wrapper" do
-      fs = InMemoryFS.new({doc("workflows/w.md") => "---\nskill: true\ndescription: \"Use when w\"\n---\n# W\n\nb\n"})
+      fs = InMemoryFS.new(WIRED_ALL.merge({doc("workflows/w.md") => "---\nskill: true\ndescription: \"Use when w\"\n---\n# W\n\nb\n"}))
       code, stdout = run_lint(fs)
       code.should eq(1)
       stdout.should contain("missing generated wrapper")
@@ -128,7 +137,7 @@ describe AgentApropos::Lint do
     it "errors on a stale wrapper" do
       text = "---\nskill: true\ndescription: \"Use when w\"\n---\n# W\n\nb\n"
       wrappers, _ = wrapper_for("workflows/w.md", text)
-      seed = wrappers.merge({doc("workflows/w.md") => text})
+      seed = WIRED_ALL.merge(wrappers).merge({doc("workflows/w.md") => text})
       seed[wrappers.keys.first] = "hand edited\n"
       fs = InMemoryFS.new(seed)
       code, stdout = run_lint(fs)
@@ -139,7 +148,7 @@ describe AgentApropos::Lint do
     it "accepts an up-to-date wrapper" do
       text = "---\nskill: true\ndescription: \"Use when w\"\n---\n# W\n\nb\n"
       wrappers, _ = wrapper_for("workflows/w.md", text)
-      fs = InMemoryFS.new(wrappers.merge({doc("workflows/w.md") => text}))
+      fs = InMemoryFS.new(WIRED_ALL.merge(wrappers).merge({doc("workflows/w.md") => text}))
       code, stdout = run_lint(fs)
       code.should eq(0)
       stdout.should contain("lint: clean")
@@ -164,6 +173,19 @@ describe AgentApropos::Lint do
       code, stdout = run_lint(fs)
       code.should eq(1)
       stdout.should contain(".claude/skills/ghost/SKILL.md: orphaned generated wrapper")
+    end
+
+    it "does not require a wrapper in a root whose consumer agent is not wired" do
+      fs = InMemoryFS.new(
+        {"/repo/.claude/settings.json" => "{}"}.merge(
+          {doc("workflows/w.md") => "---\nskill: true\ndescription: \"Use when w\"\n---\n# W\n\nb\n"}
+        )
+      )
+      code, stdout = run_lint(fs)
+      code.should eq(1) # still missing .claude/skills/w/SKILL.md — only gemini/codex are exempt
+      stdout.should contain("missing generated wrapper (run `agent-apropos generate`)")
+      stdout.should_not contain(".gemini/skills")
+      stdout.should_not contain(".codex/skills")
     end
 
     it "reports a slug collision as a single error and skips drift" do

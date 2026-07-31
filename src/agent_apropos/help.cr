@@ -66,9 +66,11 @@ module AgentApropos
         "to pick explicitly. Idempotent, so re-running is safe."),
       Command.new("generate", "Compile frontmatter into the index and skill wrappers",
         "Run generate after editing convention docs. It rebuilds the trigger " \
-        "index and the committed skill wrappers (in .claude/skills/, " \
-        ".gemini/skills/, and .codex/skills/); `generate --check` is the CI " \
-        "gate that fails if a wrapper is stale or hand-edited."),
+        "index and the committed skill wrappers, in .claude/skills/, " \
+        ".gemini/skills/, and .codex/skills/ — but only for a root whose " \
+        "consumer agent was actually wired by init; `generate --check` is " \
+        "the CI gate that fails if a wrapper is stale, hand-edited, or " \
+        "orphaned."),
       Command.new("hook", "PreToolUse/PostToolUse handlers (Claude Code, Gemini CLI, Copilot CLI, Codex CLI) or plugin bridge (OpenCode)",
         "You do not run hook by hand. Claude Code invokes `hook pre` at edit " \
         "time (and also on its Read tool, so Layer 2 can land as early as " \

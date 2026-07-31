@@ -291,4 +291,21 @@ describe AgentApropos::Agents::Gemini do
       check_named(run_checks(fs, env), "gemini").detail.should contain("AfterTool hook absent")
     end
   end
+
+  describe "#configured?" do
+    it "is false when settings.json is absent" do
+      AgentApropos::Agents::Gemini.new.configured?(ROOT, InMemoryFS.new).should be_false
+    end
+
+    it "is true when settings.json exists, even if malformed" do
+      fs = InMemoryFS.new({SETTINGS_PATH => "{not json"})
+      AgentApropos::Agents::Gemini.new.configured?(ROOT, fs).should be_true
+    end
+  end
+
+  describe "#skill_root" do
+    it "is .gemini/skills — its own directory" do
+      AgentApropos::Agents::Gemini.new.skill_root.should eq(Path[".gemini", "skills"])
+    end
+  end
 end

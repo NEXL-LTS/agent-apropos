@@ -61,6 +61,16 @@ module AgentApropos
         [hook_check(repo_root, fs, env)]
       end
 
+      def configured?(repo_root : Path, fs : Filesystem) : Bool
+        fs.exists?(repo_root.join(HOOKS_RELATIVE).to_s)
+      end
+
+      # Copilot CLI discovers project skills from Claude Code's directory
+      # natively, so it has no `.github/skills/` of its own.
+      def skill_root : Path
+        Path[".claude", "skills"]
+      end
+
       private def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         unless env.which("copilot")
           return Check.new(:ok, "copilot", "not on PATH; skipped hook check")

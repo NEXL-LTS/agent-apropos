@@ -51,6 +51,14 @@ module AgentApropos
         [settings_check(repo_root, fs), capability_check(env)]
       end
 
+      def configured?(repo_root : Path, fs : Filesystem) : Bool
+        fs.exists?(repo_root.join(SETTINGS_RELATIVE).to_s)
+      end
+
+      def skill_root : Path
+        Path[".claude", "skills"]
+      end
+
       # Merge agent-apropos's PreToolUse/PostToolUse hook groups into an existing
       # (or new) settings object, preserving every other key and hook.
       # `agent-apropos hook pre` is wired onto both "Edit|Write" and "Read" —

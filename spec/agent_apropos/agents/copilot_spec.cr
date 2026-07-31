@@ -141,4 +141,21 @@ describe AgentApropos::Agents::Copilot do
       check_named(run_checks(fs, env), "copilot").detail.should contain("postToolUse hook absent")
     end
   end
+
+  describe "#configured?" do
+    it "is false when agent-apropos.json is absent" do
+      AgentApropos::Agents::Copilot.new.configured?(ROOT, InMemoryFS.new).should be_false
+    end
+
+    it "is true when agent-apropos.json exists, even if malformed" do
+      fs = InMemoryFS.new({HOOKS_PATH => "{not json"})
+      AgentApropos::Agents::Copilot.new.configured?(ROOT, fs).should be_true
+    end
+  end
+
+  describe "#skill_root" do
+    it "is .claude/skills — Copilot CLI reads Claude Code's directory natively" do
+      AgentApropos::Agents::Copilot.new.skill_root.should eq(Path[".claude", "skills"])
+    end
+  end
 end

@@ -67,6 +67,14 @@ module AgentApropos
         [hook_check(repo_root, fs, env)]
       end
 
+      def configured?(repo_root : Path, fs : Filesystem) : Bool
+        fs.exists?(repo_root.join(SETTINGS_RELATIVE).to_s)
+      end
+
+      def skill_root : Path
+        Path[".gemini", "skills"]
+      end
+
       private def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         unless env.which("gemini")
           return Check.new(:ok, "gemini", "not on PATH; skipped hook check")
