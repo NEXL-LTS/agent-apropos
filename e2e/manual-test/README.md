@@ -23,7 +23,7 @@ pick up the change — it wipes and rebuilds each folder from scratch.
 above its own cwd — a sibling a CLI agent's own upward exploration (`ls
 ../..`, `find`, its own auto-included workspace listing) could stumble on
 directly, independent of whether agent-apropos's hooks fired at all. That's
-exactly the ambient-discovery risk `tests/helpers.bash`'s `BATS_TEST_TMPDIR`
+exactly the ambient-discovery risk `e2e/tests/helpers.bash`'s `BATS_TEST_TMPDIR`
 placement (outside the repo) exists to prevent for the live bats suite;
 `/tmp/agent-apropos-manual/` keeps that same isolation here.
 
@@ -57,7 +57,7 @@ the name is only obscure to a human, not to `ls`. `.cache/` already reads as
 machine-generated, disposable output, so a config file there draws far less
 of that curiosity. Both of these are experiments scoped to this manual rig
 only — the live bats suite (`e2e/conventions/`, `e2e/project/`,
-`tests/helpers.bash`) still uses a root-level `agent-apropos.yml` pointing
+`e2e/tests/helpers.bash`) still uses a root-level `agent-apropos.yml` pointing
 outside the repo, unchanged.
 
 `agent-apropos` must resolve on `PATH` as the bare command (the wiring calls
@@ -121,7 +121,7 @@ cat api/handlers.py   # from inside whichever agent's folder you ran
 ## Removing the "with" contrast
 
 To see the control (no agent-apropos wired) for a given folder, mirror what
-`tests/helpers.bash`'s `new_sample("without")` does: point `conventions_dir`
+`e2e/tests/helpers.bash`'s `new_sample("without")` does: point `conventions_dir`
 at a directory that doesn't exist, blank out the hook wiring, and delete the
 supporting modules the rules point to —
 

@@ -5,7 +5,7 @@
 # by hand (interactively, or with its own -p/exec flag) instead of through
 # bats. See README.md in this directory for how to actually run each one.
 #
-# Mirrors what tests/helpers.bash's new_sample("with") + agent-apropos generate
+# Mirrors what e2e/tests/helpers.bash's new_sample("with") + agent-apropos generate
 # do for the live bats suite, but persists the copies under a stable /tmp path
 # instead of a throwaway bats temp dir, so they survive between manual runs.
 #
@@ -35,12 +35,17 @@
 # as machine-generated, disposable output, so a config file there draws far
 # less of that curiosity. This is an experiment scoped to this manual rig
 # only — e2e/conventions/, e2e/project/, and the live bats suite's own
-# with/without logic (tests/helpers.bash) are untouched; they still use a
+# with/without logic (e2e/tests/helpers.bash) are untouched; they still use a
 # root-level agent-apropos.yml pointing outside the repo. Re-run any time
 # e2e/conventions/ or e2e/project/ changes to pick up the edits (this also
 # reshuffles the random folder name).
 
 set -euo pipefail
+
+command -v openssl >/dev/null 2>&1 || {
+  echo "error: openssl is required (used to name the per-run conventions folder) but not found on PATH" >&2
+  exit 1
+}
 
 E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$E2E_DIR/.." && pwd)"
