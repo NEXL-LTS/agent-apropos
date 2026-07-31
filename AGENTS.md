@@ -36,12 +36,6 @@ even where the global Crystal cache is not writable.
 - `generate` output must be byte-stable across runs and platforms (sorted walks, LF endings, no timestamps). Determinism is a prerequisite for the `--check` drift gate.
 - Do not put anything in this file that a linter or formatter can enforce — that belongs in tooling. Formatting is enforced by `crystal tool format`; do not document style here.
 - Write Windows-aware path code (use `Path`, never hardcode `/`), even though the Windows binary ships later.
-- CI has no Windows leg (see `ci.yml`/`release.yml`) and Windows support is unimplemented, so a
-  `{% if flag?(:unix) %}`-style fallback for it would compile but never actually run anywhere —
-  100% coverage can't catch that, since the compiler discards the untaken macro branch for the
-  current target before kcov ever sees it. Prefer code that simply fails to compile on a
-  non-Unix target over an unverified fallback; add real Windows-specific code, backed by a real
-  Windows CI leg, only once that binary is actually being shipped.
 
 ## Pull requests
 
