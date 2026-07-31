@@ -157,7 +157,12 @@ new_sample() {
       && git add -A \
       && git commit -qm sample
   ) >/dev/null
-  agent-apropos generate --repo-root "$WORK" >/dev/null 2>&1
+  # --allow-outside-repo: $WORK's agent-apropos.yml (rewritten above) always
+  # points conventions_dir at an absolute path outside $WORK itself, whether
+  # "with" (the real, shared e2e/conventions/) or "without" (a directory that
+  # doesn't exist) — see the comment above for why. Config refuses to resolve
+  # an escaping conventions_dir without this flag.
+  agent-apropos generate --allow-outside-repo --repo-root "$WORK" >/dev/null 2>&1
   if [ "$mode" = "without" ]; then
     printf '{"hooks":{}}\n' > "$WORK/.claude/settings.json"
     rm -rf "$WORK/.claude/skills"

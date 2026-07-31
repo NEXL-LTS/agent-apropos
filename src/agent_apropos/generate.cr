@@ -17,8 +17,8 @@ module AgentApropos
     # Rebuild the index when stale and (re)write every skill wrapper, pruning
     # orphans. Progress goes to `stdout`; errors to `stderr`. Returns a process
     # exit code.
-    def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO) : Int32
-      conventions = Conventions.walk(repo_root, fs)
+    def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
+      conventions = Conventions.walk(repo_root, fs, allow_outside)
       wrappers = Skills.wrappers(conventions)
 
       write_index(repo_root, fs, conventions, stdout)
@@ -33,8 +33,8 @@ module AgentApropos
     # Verify the committed skill wrappers byte-match what the current docs
     # produce and that no orphaned wrappers linger. Writes nothing.
     # Exit 0 when clean, 1 with a drift summary otherwise.
-    def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO) : Int32
-      conventions = Conventions.walk(repo_root, fs)
+    def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
+      conventions = Conventions.walk(repo_root, fs, allow_outside)
       wrappers = Skills.wrappers(conventions)
       drift = [] of String
 

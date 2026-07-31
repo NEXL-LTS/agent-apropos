@@ -28,27 +28,27 @@ module AgentApropos
     # `Config::Error` (a malformed `agent-apropos.yml`) propagates here uncaught
     # elsewhere in this module — lint is an authoring/CI command, so it fails
     # *closed* on it just like a malformed convention doc.
-    def run(repo_root : Path, fs : Filesystem, strict : Bool, stdout : IO, stderr : IO) : Int32
-      report(collect(repo_root, fs), strict, stdout)
+    def run(repo_root : Path, fs : Filesystem, strict : Bool, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
+      report(collect(repo_root, fs, allow_outside), strict, stdout)
     rescue ex : AgentApropos::Error
       stderr.puts "agent-apropos lint: #{ex.message}"
       1
     end
 
-    private def collect(repo_root : Path, fs : Filesystem) : Array(Finding)
-      conventions, findings = parse_docs(repo_root, fs)
+    private def collect(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Array(Finding)
+      conventions, findings = parse_docs(repo_root, fs, allow_outside)
       conventions.each { |convention| findings.concat(doc_findings(convention)) }
       findings.concat(root_file_findings(repo_root, fs))
-      findings.concat(wrapper_findings(repo_root, fs, conventions))
+      findings.concat(wrapper_findings(repo_root, fs, conventions, allow_outside))
       findings
     end
 
     # Parse every doc, tolerating a malformed one by turning its parse error into
     # a finding so the rest of the suite still runs.
-    private def parse_docs(repo_root : Path, fs : Filesystem) : {Array(Convention), Array(Finding)}
+    private def parse_docs(repo_root : Path, fs : Filesystem, allow_outside : Bool) : {Array(Convention), Array(Finding)}
       conventions = [] of Convention
       findings = [] of Finding
-      fs.glob(Config.conventions_dir(repo_root, fs), "**/*.md").sort.each do |absolute|
+      fs.glob(Config.conventions_dir(repo_root, fs, allow_outside), "**/*.md").sort.each do |absolute|
         relative = Path[absolute].relative_to(repo_root).to_posix.to_s
         begin
           conventions << Convention.parse(relative, fs.read(absolute))
@@ -121,13 +121,13 @@ module AgentApropos
     # description makes the whole wrapper set undecidable, so it is reported as a
     # single error and drift comparison is skipped.
     private def wrapper_findings(repo_root : Path, fs : Filesystem,
-                                 conventions : Array(Convention)) : Array(Finding)
+                                 conventions : Array(Convention), allow_outside : Bool) : Array(Finding)
       skill_docs = conventions.select { |convention| convention.skill? && convention.frontmatter.description }
       wrappers =
         begin
           Skills.wrappers(skill_docs)
         rescue ex : Skills::Error
-          location = Config.conventions_dir(repo_root, fs).relative_to(repo_root).to_posix.to_s
+          location = Config.conventions_dir(repo_root, fs, allow_outside).relative_to(repo_root).to_posix.to_s
           return [Finding.new(:error, location, ex.message.to_s)]
         end
 

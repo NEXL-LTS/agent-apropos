@@ -10,8 +10,9 @@ module AgentApropos
   module Matcher
     extend self
 
-    # Raised when a `contents:` regex source fails to compile (PCRE2). Surfaced
-    # by lint; on the hook path the caller fails open.
+    # Raised when a `contents:` regex source fails to compile, or exhausts
+    # PCRE2's match limit against real content. Surfaced by lint and review;
+    # on the hook path the caller fails open.
     class Error < AgentApropos::Error
     end
 
@@ -35,6 +36,8 @@ module AgentApropos
     # Does `content` contain a match for the regex `source`?
     def content_match?(source : String, content : String) : Bool
       compile(source).matches?(content)
+    rescue ex : Regex::Error
+      raise Error.new("regex #{source.inspect} failed to match #{content.bytesize} bytes: #{ex.message}")
     end
 
     # Does `content` match any of the regex `sources`?

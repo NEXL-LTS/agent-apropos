@@ -102,6 +102,17 @@ describe AgentApropos::Hook do
       fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_true
     end
 
+    it "still injects a valid rule when a sibling doc is malformed and the index cache is cold" do
+      fs = InMemoryFS.new({
+        A_PATH                          => A_DOC,
+        "/repo/docs/conventions/bad.md" => "---\npaths: not-a-list\n---\nBad\n",
+      })
+      code, stdout = invoke(:pre, pre_json("/repo/src/app.cr"), fs)
+
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+    end
+
     it "injects a rule at most once per session" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, pre_json("src/app.cr"), fs)[1]
@@ -389,6 +400,23 @@ describe AgentApropos::Hook do
       code.should eq(0)
       stdout.should be_empty
     end
+
+    it "is skipped for a path-traversal session id, same as a nil one, and writes nothing outside the sessions dir" do
+      fs = InMemoryFS.new
+      code, stdout = invoke(:pre, pre_json("docs/readme.md", session_id: "../../../../tmp/PWNED"), fs)
+      code.should eq(0)
+      stdout.should be_empty
+      fs.files.keys.each(&.should(start_with("/repo/")))
+    end
+
+    it "stays skipped on a second call with the same traversal session id (never gets stuck re-firing)" do
+      fs = InMemoryFS.new
+      invoke(:pre, pre_json("docs/readme.md", session_id: "../../../../tmp/PWNED"), fs)
+
+      code, stdout = invoke(:pre, pre_json("docs/other.md", session_id: "../../../../tmp/PWNED"), fs)
+      code.should eq(0)
+      stdout.should be_empty
+    end
   end
 
   # Gemini CLI wires both `hook pre` and `hook post` onto its single
@@ -472,6 +500,17 @@ describe AgentApropos::Hook do
 
     it "emits nothing for a Layer 2 rule matching a read outside the repo root" do
       code, stdout = invoke(:pre, pre_json("/etc/passwd"), InMemoryFS.new)
+      code.should eq(0)
+      stdout.should be_empty
+    end
+
+    # `src/**` matches this string literally (`File.match?` doesn't collapse
+    # `..` either), so a naive "does the relativized path start with `../`"
+    # check would miss the embedded traversal and let a Layer 2 rule fire for
+    # a path that actually resolves to /etc/passwd, well outside the repo.
+    it "emits nothing for a Layer 2 rule matching a path with an embedded traversal" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      code, stdout = invoke(:pre, pre_json("src/../../../../etc/passwd"), fs)
       code.should eq(0)
       stdout.should be_empty
     end

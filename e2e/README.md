@@ -81,7 +81,11 @@ just skip cleanly, which can look like a pass at a glance.
 image (resolved via `BATS_LIB_PATH`), so nothing is fetched at run time.
 Before invoking `bats`, `run.sh` runs `agent-apropos init --tool claude --tool
 opencode --tool gemini --tool copilot` and `agent-apropos generate` against `project/`
-itself, so its hook wiring (`.claude/`, `.opencode/`, `.gemini/`, `.github/hooks/`)
+itself (both with `--allow-outside-repo`, since `project/agent-apropos.yml`
+points `conventions_dir` outside the sample repo — see above; `Config`
+refuses to resolve an escaping conventions_dir without that flag, and `init`
+also bakes it into the wired hook commands so the live hook invocations below
+keep working), so its hook wiring (`.claude/`, `.opencode/`, `.gemini/`, `.github/hooks/`)
 is always freshly generated rather than committed (see `project/.gitignore`) —
 that way the fixture is fully wired regardless of which agents happen to be
 installed on the machine running the suite. `run.sh` invokes `bats` on

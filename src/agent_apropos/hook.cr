@@ -76,22 +76,25 @@ module AgentApropos
     # older wiring or a manual invocation), used only to label the
     # `SessionState::Cause` recorded for any match — see `execute`.
     def pre(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-            override_root : String? = nil, verbose : Bool = false, tool : String? = nil) : Int32
-      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool)
+            override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
+            allow_outside : Bool = false) : Int32
+      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside)
     end
 
     # PostToolUse handler: match the *written content* against Layer 3 rules
     # (honoring `paths:` AND-scoping) and inject them after the write.
     def post(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-             override_root : String? = nil, verbose : Bool = false, tool : String? = nil) : Int32
-      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool)
+             override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
+             allow_outside : Bool = false) : Int32
+      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside)
     end
 
     private def deliver(event : Symbol, io_in : IO, stdout : IO, fs : Filesystem,
-                        now : Time, override_root : String?, verbose : Bool, tool : String?) : Int32
+                        now : Time, override_root : String?, verbose : Bool, tool : String?,
+                        allow_outside : Bool) : Int32
       payload = Payload.parse(io_in.gets_to_end)
       root = resolve_root(override_root, payload)
-      execute(event, payload, root, stdout, fs, now, tool) if payload && root
+      execute(event, payload, root, stdout, fs, now, tool, allow_outside) if payload && root
       0
     rescue ex
       log_failure(fs, override_root, verbose, ex)
@@ -99,7 +102,7 @@ module AgentApropos
     end
 
     private def execute(event : Symbol, payload : Payload, root : Path,
-                        stdout : IO, fs : Filesystem, now : Time, tool : String?) : Nil
+                        stdout : IO, fs : Filesystem, now : Time, tool : String?, allow_outside : Bool) : Nil
       # Every dialect but Codex's `apply_patch` yields exactly one edit here,
       # so this is unchanged behavior for them. `relative_edit` drops any
       # edit outside the repo root; when that leaves nothing (the common
@@ -110,14 +113,21 @@ module AgentApropos
       in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
       return if in_root.empty?
 
-      index = load_or_build_index(root, fs)
+      index = load_or_build_index(root, fs, allow_outside)
       matches = dedup_by_entry(in_root.flat_map { |relative, edit| matches_for(event, index, root, fs, relative, edit) })
 
+      # Resolved once and reused for load/notice/save below: an unsafe id (see
+      # `SessionState.key?`) must be treated as absent everywhere, not just at
+      # the `save` no-op, or `session_notice` — which only checks for `nil` —
+      # would see a state that can never persist `notified?` and re-fire the
+      # notice on every single call for that id instead of skipping it like a
+      # true nil session does.
+      session_id = SessionState.key?(payload.session_id)
       SessionState.prune(root, fs, now)
-      state = SessionState.load(root, fs, payload.session_id)
+      state = SessionState.load(root, fs, session_id)
       fresh = matches.reject { |match| state.injected?(match.entry.path) }
 
-      notice = session_notice(state, payload.session_id)
+      notice = session_notice(state, session_id)
       combined = combine(notice, build_context(root, fs, fresh.map(&.entry)))
       return if combined.empty?
 
@@ -129,7 +139,7 @@ module AgentApropos
         state.add(match.entry.path, cause)
       end
       state.notify! if notice
-      state.save(root, fs, payload.session_id, now)
+      state.save(root, fs, session_id, now)
       emit(stdout, name, combined, payload.copilot?)
     end
 
@@ -162,10 +172,11 @@ module AgentApropos
       end
     end
 
-    # The one-time notice, or nil once already delivered this session. A nil
-    # `session_id` means there is no key to remember "already notified"
-    # against, so the notice is skipped entirely rather than repeated on
-    # every call.
+    # The one-time notice, or nil once already delivered this session. `nil`
+    # `session_id` — already resolved through `SessionState.key?` by the
+    # caller, so this also covers an unsafe id — means there is no key to
+    # remember "already notified" against, so the notice is skipped entirely
+    # rather than repeated on every call.
     private def session_notice(state : SessionState, session_id : String?) : String?
       return nil if session_id.nil? || state.notified?
       SESSION_NOTICE
@@ -234,12 +245,19 @@ module AgentApropos
     # absent, corrupt, or a stale schema version. Freshness against changed docs
     # is *not* checked here — that would re-walk every doc and blow the warm
     # latency budget; `generate` owns keeping the index current.
-    private def load_or_build_index(root : Path, fs : Filesystem) : Index
+    #
+    # `tolerant: true` on this rebuild: a single malformed doc (e.g. right
+    # after authoring it, before the index is regenerated) must not blank out
+    # delivery of every *other* rule for this call — only its own rule is
+    # unavailable until it's fixed and the index is regenerated (see
+    # `agent-apropos lint`/`doctor`, which already report it). Once the index is warm again this path isn't hit at all,
+    # so the cost of an in-memory rebuild here is a cold-cache-only concern.
+    private def load_or_build_index(root : Path, fs : Filesystem, allow_outside : Bool) : Index
       json = fs.read?(root.join(INDEX_RELATIVE).to_s)
       if json && (index = Index.load(json))
         return index
       end
-      index = Index.build(Conventions.walk(root, fs))
+      index = Index.build(Conventions.walk(root, fs, allow_outside, tolerant: true))
       persist_index(root, fs, index)
       index
     end
@@ -321,9 +339,17 @@ module AgentApropos
       AgentApropos.find_repo_root(Path[start])
     end
 
+    # Absolutizes and normalizes before relativizing, so an embedded `..`
+    # segment anywhere in `file_path` (e.g. `docs/../../../etc/passwd`) is
+    # collapsed just like a leading one — `Path#expand` resolves `.`/`..`
+    # lexically, with no filesystem access (no symlink resolution), so this
+    # stays fail-open-safe. Without this, `outside_root?`'s prefix check
+    # would see the uncollapsed string, which still starts with `docs/`, and
+    # wrongly treat the escape as inside the repo.
     private def relativize(root : Path, file_path : String) : String
       path = Path[file_path]
-      path.absolute? ? path.relative_to(root).to_posix.to_s : path.to_posix.to_s
+      absolute = path.absolute? ? path : root.join(path)
+      absolute.expand.relative_to(root).to_posix.to_s
     end
 
     # `relativize` computes a relative path unconditionally, even when
@@ -332,7 +358,8 @@ module AgentApropos
     # outside the project, like Copilot's `~/.copilot/session-state/`).
     # Conventions are scoped to the repo; nothing outside it should ever
     # match, so callers must skip entirely rather than match against a path
-    # that only superficially looks repo-relative.
+    # that only superficially looks repo-relative. Safe to check via prefix
+    # alone because `relativize` already normalized away any embedded `..`.
     private def outside_root?(relative : String) : Bool
       relative == ".." || relative.starts_with?("../")
     end

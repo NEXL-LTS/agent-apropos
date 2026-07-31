@@ -88,11 +88,26 @@ module AgentApropos
   module Conventions
     extend self
 
-    def walk(repo_root : Path, fs : Filesystem = Filesystem::Real.new) : Array(Convention)
-      base = Config.conventions_dir(repo_root, fs)
-      fs.glob(base, "**/*.md").sort.map do |absolute|
-        Convention.parse(relativize(repo_root, absolute), fs.read(absolute))
+    # `tolerant: true` skips a doc whose frontmatter fails to parse instead of
+    # raising, so one malformed doc doesn't take down the whole walk — used
+    # only by `Hook#load_or_build_index`, whose fail-open contract means a
+    # single bad doc must not blank out every *other* rule for that hook call.
+    # `review`/`generate`/`doctor` keep the default (`false`): they are
+    # CI-facing and documented to fail closed so a malformed doc gets
+    # reported, not silently dropped from the index.
+    def walk(repo_root : Path, fs : Filesystem = Filesystem::Real.new,
+             allow_outside : Bool = false, tolerant : Bool = false) : Array(Convention)
+      base = Config.conventions_dir(repo_root, fs, allow_outside)
+      fs.glob(base, "**/*.md").sort.compact_map do |absolute|
+        parse(repo_root, fs, absolute, tolerant)
       end
+    end
+
+    private def parse(repo_root : Path, fs : Filesystem, absolute : String, tolerant : Bool) : Convention?
+      Convention.parse(relativize(repo_root, absolute), fs.read(absolute))
+    rescue ex : Frontmatter::Error
+      raise ex unless tolerant
+      nil
     end
 
     private def relativize(repo_root : Path, absolute : String) : String

@@ -179,5 +179,23 @@ describe AgentApropos::Conventions do
         FileUtils.rm_rf(dir)
       end
     end
+
+    it "raises on a malformed doc by default" do
+      root = Path["/repo"]
+      fs = FakeFS.new({"/repo/docs/conventions/bad.md" => "---\npaths: not-a-list\n---\nBad\n"})
+      expect_raises(AgentApropos::Frontmatter::Error) do
+        AgentApropos::Conventions.walk(root, fs)
+      end
+    end
+
+    it "skips a malformed doc and keeps the rest when tolerant" do
+      root = Path["/repo"]
+      fs = FakeFS.new({
+        "/repo/docs/conventions/a.md"   => "---\npaths: [\"src/**\"]\n---\nA\n",
+        "/repo/docs/conventions/bad.md" => "---\npaths: not-a-list\n---\nBad\n",
+      })
+      conventions = AgentApropos::Conventions.walk(root, fs, tolerant: true)
+      conventions.map(&.path).should eq(["docs/conventions/a.md"])
+    end
   end
 end

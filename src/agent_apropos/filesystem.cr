@@ -5,6 +5,11 @@ module AgentApropos
   # directly — they receive a `Filesystem`, so error and edge paths are
   # unit-testable with a fake and `Real` is the only code that hits disk.
   abstract class Filesystem
+    # Raised when a filesystem operation refuses to proceed for safety
+    # reasons (e.g. `append` finding a symlink at the destination).
+    class Error < AgentApropos::Error
+    end
+
     # List files under `base` matching a glob `pattern` (results unsorted;
     # callers sort for determinism).
     abstract def glob(base : Path, pattern : String) : Array(String)
@@ -63,9 +68,26 @@ module AgentApropos
         File.rename(temp, path)
       end
 
+      # Opens with `O_NOFOLLOW` so a symlink swapped in after `mkdir_p` (a
+      # TOCTOU window a plain symlink-then-open check can't close) is rejected
+      # atomically by the kernel instead of silently followed. Unix-only —
+      # both shipping platforms (Linux, macOS) are Unix, and CI has no
+      # Windows leg to verify a fallback, so there isn't one; add real
+      # Windows handling (with real Windows CI) when that binary ships.
       def append(path : String, content : String) : Nil
         Dir.mkdir_p(Path[path].dirname)
-        File.open(path, "a", &.print(content))
+        fd = LibC.open(path, LibC::O_WRONLY | LibC::O_APPEND | LibC::O_CREAT | LibC::O_NOFOLLOW,
+          File::DEFAULT_CREATE_PERMISSIONS.value)
+        if fd == -1
+          raise Error.new("refusing to append through a symlink: #{path}") if Errno.value == Errno::ELOOP
+          raise Error.new("failed to open #{path}: #{Errno.value}")
+        end
+        io = IO::FileDescriptor.new(fd)
+        begin
+          io.print(content)
+        ensure
+          io.close
+        end
       end
 
       def remove(path : String) : Nil
