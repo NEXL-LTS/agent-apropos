@@ -56,6 +56,18 @@ describe AgentApropos::Matcher do
         AgentApropos::Matcher.content_match?("(", "anything")
       end
     end
+
+    it "raises an AgentApropos error, not a raw Regex::Error, when PCRE2's match limit is exhausted" do
+      catastrophic = "(a+)+$"
+      # 100 repetitions of the ambiguous group pushes backtracking state count
+      # (~2^n) many orders of magnitude past PCRE2's match limit regardless of
+      # build/version, while match time stays flat (PCRE2 aborts once the
+      # step count — not the input size — hits the limit, so this isn't slow).
+      content = "a" * 100 + "!"
+      expect_raises(AgentApropos::Matcher::Error, /failed to match/) do
+        AgentApropos::Matcher.content_match?(catastrophic, content)
+      end
+    end
   end
 
   describe ".any_content_match?" do
