@@ -21,8 +21,9 @@ help: ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: deps
-deps: ## Install shard dependencies
+deps: ## Install shard and npm dependencies
 	shards install
+	npm install
 
 .PHONY: build
 build: ## Build the agent-apropos binary (debug)
@@ -52,7 +53,7 @@ coverage: ## Run specs under kcov and enforce the coverage gate
 
 .PHONY: dup
 dup: ## Check src/**/*.cr for code duplication (jscpd; zero clones required)
-	jscpd
+	npm run lint:dup
 
 # Mutation testing is advisory-only and never gates CI. Crytic is
 # installed on demand into the gitignored .crytic/ so it stays out of the main

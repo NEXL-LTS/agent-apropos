@@ -13,7 +13,7 @@ static Linux/macOS binary. See `README.md` for the user-facing overview.
 Use `make` — it points `CRYSTAL_CACHE_DIR` at a project-local dir so targets work
 even where the global Crystal cache is not writable.
 
-- `make deps` — install shard dependencies
+- `make deps` — install shard and npm dependencies
 - `make build` — build the `agent-apropos` binary (debug); `make release` for the static-oriented release build
 - `make spec` — run the spec suite
 - `make lint` — run ameba (zero findings required)
