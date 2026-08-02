@@ -6,48 +6,14 @@ require "./config"
 require "./agents"
 
 module AgentApropos
-  # `agent-apropos init`: bootstrap the convention structure into a repo.
-  # Idempotent — safe to re-run; a scaffold file is written only when absent
-  # unless `--force` is given, and the `.claude/settings.json` and `.gitignore`
-  # merges are additive (foreign keys and other hooks are preserved). `--dry-run`
-  # prints what would change and writes nothing.
-  #
-  # Per-tool hook wiring (Claude Code's `.claude/settings.json`, OpenCode's
-  # generated plugin, Gemini CLI's `.gemini/settings.json`, GitHub Copilot
-  # CLI's `.github/hooks/*.json`, Codex CLI's `.codex/hooks.json`) is
-  # tool-agnostic: pass `--tool claude` / `--tool opencode` / `--tool gemini`
-  # / `--tool copilot` / `--tool codex` (repeatable) to wire specific agents
-  # explicitly, or omit `--tool` entirely to auto-detect by probing PATH for
-  # each supported agent. This keeps init easy to extend as more agents
-  # (Cursor CLI, ...) land.
-  #
-  # Gemini CLI's hook system has no pre-edit context-injection event (its
-  # `BeforeTool` output schema only supports overriding tool arguments or
-  # blocking the call — see `merge_gemini_settings`), so both Layer 2 and
-  # Layer 3 are wired onto its `AfterTool` event. Layer 2 still fires, just
-  # after the edit instead of before it — the same timing degradation
-  # `doctor.cr` already documents for older Claude Code versions.
-  #
-  # GitHub Copilot CLI has the identical limitation on its own `preToolUse`
-  # event (output schema is `permissionDecision`/`modifiedArgs` only — no
-  # context field), so it gets the same treatment onto `postToolUse` — see
-  # `scaffold_copilot`.
-  #
-  # init is an authoring command, so it fails **closed**: a malformed existing
-  # `settings.json` is an error, not a silent overwrite.
   module Init
     extend self
 
     class Error < AgentApropos::Error
     end
 
-    # CLI agents init knows how to wire hooks for, delegated to
-    # `Agents::ALL` (one `Agents::Agent` subclass each). Extend that array,
-    # not this set, as more emitters land (Cursor CLI, ...).
     KNOWN_TOOLS = Agents.names
 
-    # Parsed flags for one `init` invocation. `tools: nil` means auto-detect;
-    # a non-nil set (from one or more `--tool`) is used verbatim, ignoring PATH.
     record Options,
       force : Bool = false,
       example : Bool = false,
@@ -58,12 +24,6 @@ module AgentApropos
 
     CACHE_IGNORE_ENTRY = ".cache/agent-apropos/"
 
-    # Printed once per run to point at the bootstrapping prompt — most repos
-    # arrive with docs already scattered across READMEs/wikis/comments, and an
-    # agent can sort those into layers faster than a human writing from scratch.
-    # A fully-qualified URL, not a relative "README.md#..." — this section
-    # lives in *agent-apropos's own* README, not the target repo's, and terminals
-    # only auto-hyperlink absolute URLs.
     NEXT_STEPS_HINT = "next     have your agent bootstrap docs/conventions/ from your existing " \
                       "docs — see https://github.com/NEXL-LTS/agent-apropos#bootstrapping-from-an-existing-codebase"
 
@@ -83,16 +43,11 @@ module AgentApropos
       1
     end
 
-    # An explicit `--tool` selection is used verbatim (even if the named agent
-    # is not actually on PATH — e.g. bootstrapping a repo for a teammate's
-    # setup). Otherwise probe PATH for each known agent.
     private def resolve_tools(env : Environment, explicit : Set(String)?) : Set(String)
       return explicit if explicit
       KNOWN_TOOLS.select { |tool| env.which(tool) }.to_set
     end
 
-    # Only narrate auto-detection — an explicit `--tool` selection was the
-    # user's own words, so echoing it back adds nothing.
     private def report_tools(stdout : IO, explicit : Set(String)?, detected : Set(String)) : Nil
       return unless explicit.nil?
       if detected.empty?
@@ -102,16 +57,6 @@ module AgentApropos
       end
     end
 
-    # The options each `Agent#scaffold` sees: identical to `options`, except
-    # `allow_outside_repo` is recomputed from whether `agent-apropos.yml`'s
-    # conventions_dir *actually* escapes `repo_root` right now — not merely
-    # whether the flag was passed. By the time this runs, `scaffold` above
-    # has already enforced that an escaping config can't get here without the
-    # flag, so this can only narrow a passed-but-unneeded flag back to
-    # `false`, never widen a missing one to `true`. That keeps
-    # `--allow-outside-repo` out of generated hook commands for the ordinary
-    # in-tree case (even if a caller passes it defensively), so a repo isn't
-    # left with a standing "allow escaping" consent it never needed.
     private def with_hook_flag(repo_root : Path, fs : Filesystem, options : Options) : Options
       return options unless options.allow_outside_repo
       Options.new(
@@ -125,8 +70,6 @@ module AgentApropos
       create(repo_root, fs, options, stdout, "#{conventions}/README.md", CONVENTIONS_README)
       create(repo_root, fs, options, stdout, "#{conventions}/workflows/.gitkeep", "")
       create(repo_root, fs, options, stdout, ".claude/skills/.gitkeep", SKILLS_GITKEEP)
-      # The root file is the user's own Layer 1 content — never overwrite it, even
-      # under --force; only scaffold it when absent.
       create(repo_root, fs, options, stdout, "AGENTS.md", AGENTS_SKELETON, force_allowed: false)
     end
 
@@ -137,23 +80,10 @@ module AgentApropos
       create(repo_root, fs, options, stdout, "#{conventions}/workflows/example-skill.md", EXAMPLE_SKILL)
     end
 
-    # The conventions directory, relative to `repo_root` (with `../` segments
-    # when `agent-apropos.yml` points outside it) — `create`'s single relative-path
-    # parameter needs this rather than the resolved absolute `Path` `Config`
-    # returns, since it both derives the write location (joined back onto
-    # `repo_root`) and the printed display string from the same value.
-    #
-    # `Config.conventions_dir` raises unless the result stays under
-    # `repo_root` or `options.allow_outside_repo` was explicitly passed — a
-    # repo-controlled `agent-apropos.yml` (e.g. one just cloned, not yet
-    # reviewed) must never be able to steer scaffold writes to an
-    # attacker-chosen path outside the tree without that explicit opt-in.
     private def conventions_relative(repo_root : Path, fs : Filesystem, options : Options) : String
       Config.conventions_dir(repo_root, fs, options.allow_outside_repo).relative_to(repo_root).to_posix.to_s
     end
 
-    # Write a scaffold file when absent (or when `--force` and `force_allowed`),
-    # otherwise report it as already present.
     private def create(repo_root : Path, fs : Filesystem, options : Options, stdout : IO,
                        relative : String, content : String, force_allowed : Bool = true) : Nil
       path = repo_root.join(relative).to_s
@@ -166,9 +96,6 @@ module AgentApropos
       apply(fs, options, stdout, path, content, verb, display)
     end
 
-    # Reconcile a merge target: write only when the merged content differs from
-    # what is on disk, so re-running is a no-op. Public — each `Agents::Agent`
-    # subclass's own `#scaffold` calls this to write/merge its settings file.
     def sync(fs : Filesystem, options : Options, stdout : IO,
              path : String, content : String, existing : String?, display : String) : Nil
       if existing == content
@@ -188,11 +115,6 @@ module AgentApropos
       end
     end
 
-    # Parse an existing settings file into a mutable root hash (or an empty
-    # one when absent), raising `Init::Error` on malformed JSON — init is an
-    # authoring command, so it fails **closed**. Public — shared by every
-    # `Agents::Agent` whose wiring lives in a shared JSON settings file
-    # (Claude, Gemini).
     def settings_root(existing : String?, label : String) : Hash(String, JSON::Any)
       return {} of String => JSON::Any if existing.nil?
       parsed =
@@ -222,8 +144,6 @@ module AgentApropos
       "#{existing}#{separator}#{CACHE_IGNORE_ENTRY}\n"
     end
 
-    # Alias CLAUDE.md → AGENTS.md so the same Layer 1 file serves both loaders.
-    # Absent-only: an existing CLAUDE.md (real file or link) is left untouched.
     private def link_claude(repo_root : Path, fs : Filesystem, options : Options, stdout : IO) : Nil
       link = repo_root.join("CLAUDE.md").to_s
       if fs.exists?(link)

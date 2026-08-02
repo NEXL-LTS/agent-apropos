@@ -7,11 +7,6 @@ require "./check"
 require "./agents"
 
 module AgentApropos
-  # `agent-apropos doctor`: check the environment so a user can tell *why*
-  # hooks aren't firing. It inspects the settings wiring, whether `agent-apropos` and a
-  # new-enough Claude Code are on PATH, index freshness, and cache writability.
-  # All host access is injected (a `Filesystem` and an `Environment`) so every
-  # branch is unit-testable. Exit 1 if any check fails, else 0.
   module Doctor
     extend self
 

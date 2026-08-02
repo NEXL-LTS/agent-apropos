@@ -43,9 +43,13 @@ install: release ## Build the release binary and install it to PREFIX/bin (on PA
 spec: ## Run the spec suite
 	crystal spec
 
+bin/ameba-apropos: tool/lint/main.cr $(wildcard tool/lint/rules/*.cr)
+	crystal build tool/lint/main.cr -o bin/ameba-apropos
+
 .PHONY: lint
-lint: ## Run ameba (zero findings required)
+lint: bin/ameba-apropos ## Run ameba (zero findings required)
 	./bin/ameba
+	./bin/ameba-apropos
 
 .PHONY: coverage
 coverage: ## Run specs under kcov and enforce the coverage gate

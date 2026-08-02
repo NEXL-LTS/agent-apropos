@@ -12,10 +12,6 @@ require "./repo_root"
 require "./filesystem"
 
 module AgentApropos
-  # Command routing for the `agent-apropos` binary.
-  #
-  # All output goes through injected IO so the router is unit-testable without a
-  # subprocess.
   class CLI
     USAGE = <<-USAGE
       agent-apropos — deliver the right conventions to the right moment.
@@ -58,9 +54,6 @@ module AgentApropos
       end
     end
 
-    # Route a subcommand to its handler. Kept separate from `run` so neither the
-    # dispatch table nor the version/usage shortcuts push the other over the
-    # cyclomatic-complexity gate.
     private def dispatch(command : String, rest : Array(String)) : Int32
       case command
       when "help"     then Help.run(rest, @stdout)
@@ -77,9 +70,6 @@ module AgentApropos
       end
     end
 
-    # `agent-apropos generate [--check] [--repo-root DIR]`. Argument parsing
-    # stays hand-rolled and small; the work lives in `Generate` behind an
-    # injected `Filesystem` so it is unit-testable without a subprocess.
     private def handle_generate(args : Array(String)) : Int32
       check = false
       allow_outside = false
@@ -122,8 +112,6 @@ module AgentApropos
       1
     end
 
-    # Mutable holder for parsed `init` options, keeping the parse loop small
-    # enough to stay under the cyclomatic-complexity gate.
     private class InitArgs
       property? force = false
       property? example = false
@@ -134,10 +122,6 @@ module AgentApropos
       property override : String? = nil
     end
 
-    # `agent-apropos init [--force] [--example] [--claude-symlink] [--dry-run]
-    # [--allow-outside-repo] [--tool claude|opencode|gemini|copilot|codex]
-    # [--repo-root DIR]`. An authoring command: fails *closed*. `--tool` is
-    # repeatable; omit it entirely to auto-detect.
     private def handle_init(args : Array(String)) : Int32
       opts = InitArgs.new
       if code = parse_init_args(args, opts)
@@ -179,9 +163,6 @@ module AgentApropos
       nil
     end
 
-    # The no-argument boolean flags, split out of `parse_init_args` so that
-    # loop's cyclomatic complexity stays under the gate. Returns whether
-    # `arg` was one of them.
     private def apply_init_flag(arg : String, opts : InitArgs) : Bool
       case arg
       when "--force"              then opts.force = true
@@ -194,11 +175,7 @@ module AgentApropos
       true
     end
 
-    # `--tool` validation lives here rather than inline in the parse loop so
-    # that loop's cyclomatic complexity stays under the gate.
     private def parse_init_tool(value : String?, opts : InitArgs) : Int32?
-      # A missing value means the next token is another flag (or nothing) —
-      # treat it as "no value" rather than reporting it as an unknown tool.
       return command_error("init", "--tool requires a value") if value.nil? || value.starts_with?("--")
       unless Init::KNOWN_TOOLS.includes?(value)
         return command_error("init", "unknown tool '#{value}' (#{Init::KNOWN_TOOLS.to_a.sort.join("|")})")
@@ -207,8 +184,6 @@ module AgentApropos
       nil
     end
 
-    # `agent-apropos lint [--strict] [--allow-outside-repo] [--repo-root DIR]`.
-    # CI command: fails *closed*.
     private def handle_lint(args : Array(String)) : Int32
       strict = false
       allow_outside = false
@@ -237,7 +212,6 @@ module AgentApropos
       Lint.run(root, Filesystem::Real.new, strict, @stdout, @stderr, allow_outside)
     end
 
-    # `agent-apropos doctor [--allow-outside-repo] [--repo-root DIR]`.
     private def handle_doctor(args : Array(String)) : Int32
       allow_outside = false
       override : String? = nil
@@ -263,14 +237,6 @@ module AgentApropos
       Doctor.run(root, Filesystem::Real.new, Environment::Real.new, @stdout, @stderr, allow_outside)
     end
 
-    # `agent-apropos hook pre|post [--repo-root DIR] [--tool NAME]`. The wired
-    # CLI agent (Claude Code, Gemini CLI, and Copilot CLI natively; OpenCode
-    # via its generated plugin) invokes these with the payload on stdin,
-    # passing its own `--tool <name>` (see `Agents.names`) so `Hook` knows
-    # which dialect it's talking to without guessing. The whole family fails
-    # *open*: an unknown subcommand, a bad `--repo-root`, or a missing/unknown
-    # `--tool` yields exit 0 (or falls back to auto-detection) rather than
-    # ever blocking an edit. All work lives in `Hook`.
     private def handle_hook(args : Array(String)) : Int32
       event = args.first?
       return 0 unless event == "pre" || event == "post"
@@ -289,11 +255,6 @@ module AgentApropos
       end
     end
 
-    # Extract a `--flag VALUE` pair from hook args, ignoring anything else
-    # (fail open — a stray flag must not break the hook path). A missing
-    # value, or one that looks like another flag (the caller omitted this
-    # flag's value), is treated as absent rather than consuming the next
-    # flag as this one's value.
     private def flag_value(args : Array(String), flag : String) : String?
       index = args.index(flag)
       return nil unless index
@@ -302,8 +263,6 @@ module AgentApropos
       value
     end
 
-    # Mutable holder for parsed `match` options, so the parse loop and the
-    # post-parse validation stay small, independently testable methods.
     private class MatchArgs
       property format = "paths"
       property? stdin_content = false
@@ -312,9 +271,6 @@ module AgentApropos
       getter paths = [] of String
     end
 
-    # `agent-apropos match [--format paths|json|full] [--stdin-content]
-    # [--allow-outside-repo] <path> [...]`. A review/CI command: fails
-    # *closed* on a bad option or a malformed doc.
     private def handle_match(args : Array(String)) : Int32
       opts = MatchArgs.new
       if code = parse_match_args(args, opts)
@@ -331,7 +287,6 @@ module AgentApropos
       Review.match(root, Filesystem::Real.new, opts.paths, opts.format, content, @stdout, @stderr, opts.allow_outside_repo?)
     end
 
-    # Parse `match` args into `opts`; returns a non-nil exit code on a bad option.
     private def parse_match_args(args : Array(String), opts : MatchArgs) : Int32?
       index = 0
       while index < args.size
@@ -370,8 +325,6 @@ module AgentApropos
       nil
     end
 
-    # `agent-apropos review [--format md|json] [--allow-outside-repo]
-    # [<git-range>]`. Fails *closed*.
     private def handle_review(args : Array(String)) : Int32
       format = "md"
       allow_outside = false
