@@ -1,0 +1,5 @@
+{
+  "path": ["src"],
+  "pattern": "**/*.cr",
+  "threshold": 0
+}

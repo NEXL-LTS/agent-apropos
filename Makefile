@@ -50,6 +50,10 @@ lint: ## Run ameba (zero findings required)
 coverage: ## Run specs under kcov and enforce the coverage gate
 	./scripts/coverage.sh
 
+.PHONY: dup
+dup: ## Check src/**/*.cr for code duplication (jscpd; zero clones required)
+	jscpd
+
 # Mutation testing is advisory-only and never gates CI. Crytic is
 # installed on demand into the gitignored .crytic/ so it stays out of the main
 # dependency graph. If it fails to build against the target Crystal, this target
@@ -82,7 +86,7 @@ endif
 	}
 
 .PHONY: check
-check: lint spec ## Lint + spec (the fast local gate)
+check: lint spec dup ## Lint + spec + duplication check (the fast local gate)
 
 # End-to-end test: stands up a sample repo wired with agent-apropos's hooks and
 # proves agent-apropos injects conventions and steers a real `claude` run. Local/advisory —

@@ -102,6 +102,30 @@ jobs:
       - name: Validate documentation links
         run: npm run lint:docs
 
+  # Fails the build on any duplicated code in src/**/*.cr (see .jscpd.json).
+  # Uses the pinned npm devDependency (same version as .devcontainer/Dockerfile's
+  # global install) rather than the Crystal toolchain, so it gets its own job —
+  # same reasoning as docs-links above.
+  duplication:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for code duplication (src/**/*.cr)
+        run: npm run lint:dup
+
   # Build the devcontainer image so a change to .devcontainer/Dockerfile (e.g.
   # the crystal/kcov/bats toolchain) can't break the dev environment unnoticed.
   # The image is loaded and smoke-checked to confirm the tools it installs are
@@ -136,6 +160,7 @@ jobs:
             kcov --version
             bats --version
             jq --version
+            jscpd --version
             echo "BATS_LIB_PATH=$BATS_LIB_PATH"
             test -f "$BATS_LIB_PATH/bats-support/load.bash"
             test -f "$BATS_LIB_PATH/bats-assert/load.bash"

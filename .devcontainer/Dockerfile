@@ -66,6 +66,12 @@ RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | bash - && \
 ARG NPM_VERSION=12.0.1
 RUN npm install -g npm@"${NPM_VERSION}"
 
+# jscpd — the code-duplication gate for src/**/*.cr (see .jscpd.json and
+# `make dup`). Pinned to the same version as package.json's devDependency;
+# bump both together.
+ARG JSCPD_VERSION=5.0.14
+RUN npm install -g jscpd@"${JSCPD_VERSION}"
+
 # kcov — the coverage gate. Ubuntu 24.04 dropped the `kcov` package,
 # so it is built from a pinned release rather than installed from apt. python3
 # is needed only by kcov's build-time code generation; libdw/libcurl/binutils/elf
