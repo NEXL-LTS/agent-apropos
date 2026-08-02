@@ -1,5 +1,6 @@
 ---
 paths: ["src/**/*.cr"]
+contents: ['#(?!\{)']
 ---
 
 # Comments are a smell; names and specs are the source of truth
