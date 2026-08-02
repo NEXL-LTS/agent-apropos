@@ -296,10 +296,10 @@ PR comments).
 This repo dogfoods the standard on itself — `docs/conventions/` holds agent-apropos's own
 scoped guidance, delivered by agent-apropos's own hooks. Use `make`:
 
-- `make deps` — install shard dependencies
+- `make deps` — install shard and npm dependencies
 - `make build` — build the debug binary; `make release` for the release build
 - `make install` — build and install to `$PREFIX/bin` (default `$HOME/.local`)
-- `make check` — lint + spec (the fast local gate)
+- `make check` — lint + spec + dup (the fast local gate)
 - `make coverage` — specs under kcov with the 100% line-coverage gate
 
 Development is spec-first, coverage is 100%, and ameba runs zero-findings. See

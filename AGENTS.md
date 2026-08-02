@@ -13,11 +13,12 @@ static Linux/macOS binary. See `README.md` for the user-facing overview.
 Use `make` — it points `CRYSTAL_CACHE_DIR` at a project-local dir so targets work
 even where the global Crystal cache is not writable.
 
-- `make deps` — install shard dependencies
+- `make deps` — install shard and npm dependencies
 - `make build` — build the `agent-apropos` binary (debug); `make release` for the static-oriented release build
 - `make spec` — run the spec suite
 - `make lint` — run ameba (zero findings required)
-- `make check` — lint + spec (the fast local gate)
+- `make dup` — check `src/**/*.cr` for code duplication (jscpd; zero clones required)
+- `make check` — lint + spec + dup (the fast local gate)
 - `make coverage` — run specs under kcov and enforce the 100% line-coverage gate
 - `make mutate SUBJECT=src/agent_apropos/<module>.cr` — advisory mutation testing (see `docs/mutation-testing.md`)
 - `make e2e` (or `bash e2e/run.sh`) — the **live** end-to-end suite: this is what "e2e tests" means

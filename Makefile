@@ -21,8 +21,9 @@ help: ## Show this help
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 .PHONY: deps
-deps: ## Install shard dependencies
+deps: ## Install shard and npm dependencies
 	shards install
+	npm install
 
 .PHONY: build
 build: ## Build the agent-apropos binary (debug)
@@ -49,6 +50,10 @@ lint: ## Run ameba (zero findings required)
 .PHONY: coverage
 coverage: ## Run specs under kcov and enforce the coverage gate
 	./scripts/coverage.sh
+
+.PHONY: dup
+dup: ## Check src/**/*.cr for code duplication (jscpd; zero clones required)
+	npm run lint:dup
 
 # Mutation testing is advisory-only and never gates CI. Crytic is
 # installed on demand into the gitignored .crytic/ so it stays out of the main
@@ -82,7 +87,7 @@ endif
 	}
 
 .PHONY: check
-check: lint spec ## Lint + spec (the fast local gate)
+check: lint spec dup ## Lint + spec + duplication check (the fast local gate)
 
 # End-to-end test: stands up a sample repo wired with agent-apropos's hooks and
 # proves agent-apropos injects conventions and steers a real `claude` run. Local/advisory —

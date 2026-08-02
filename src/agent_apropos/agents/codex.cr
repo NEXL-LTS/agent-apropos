@@ -63,29 +63,19 @@ module AgentApropos
         false
       end
 
-      def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
-        path = repo_root.join(HOOKS_RELATIVE).to_s
-        existing = fs.read?(path)
-        Init.sync(fs, options, stdout, path, hooks_json(options), existing, ".codex/hooks.json")
-      end
-
-      # Check for the Codex CLI binary and that `.codex/hooks.json` calls
-      # both `agent-apropos hook pre` and `... post` on the `apply_patch`
-      # matcher. Advisory only: never fails, so a Codex-less repo is not
-      # penalised.
-      def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
-        [hook_check(repo_root, fs, env)]
-      end
-
-      def configured?(repo_root : Path, fs : Filesystem) : Bool
-        fs.exists?(repo_root.join(HOOKS_RELATIVE).to_s)
+      def config_relative : Path
+        HOOKS_RELATIVE
       end
 
       def skill_root : Path
         Path[".codex", "skills"]
       end
 
-      private def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
+      # Check for the Codex CLI binary and that `.codex/hooks.json` calls
+      # both `agent-apropos hook pre` and `... post` on the `apply_patch`
+      # matcher. Advisory only: never fails, so a Codex-less repo is not
+      # penalised.
+      protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         unless env.which("codex")
           return Check.new(:ok, "codex", "not on PATH; skipped hook check")
         end
@@ -129,7 +119,7 @@ module AgentApropos
           end
       end
 
-      private def hooks_json(options : Init::Options) : String
+      protected def config_content(existing : String?, options : Init::Options) : String
         hook_pre = hook_command(HOOK_PRE_BASE, options)
         hook_post = hook_command(HOOK_POST_BASE, options)
         <<-JSON

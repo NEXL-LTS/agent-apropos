@@ -47,22 +47,8 @@ module AgentApropos
         payload.tool_name == "view"
       end
 
-      def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
-        path = repo_root.join(HOOKS_RELATIVE).to_s
-        existing = fs.read?(path)
-        Init.sync(fs, options, stdout, path, hooks_json(options), existing, ".github/hooks/agent-apropos.json")
-      end
-
-      # Check for the Copilot CLI binary and that the `create|edit`-matched
-      # `postToolUse` group calls both `agent-apropos hook pre` and
-      # `... post` directly. No bridge script to check for. Advisory only:
-      # never fails, so a Copilot-less repo is not penalised.
-      def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
-        [hook_check(repo_root, fs, env)]
-      end
-
-      def configured?(repo_root : Path, fs : Filesystem) : Bool
-        fs.exists?(repo_root.join(HOOKS_RELATIVE).to_s)
+      def config_relative : Path
+        HOOKS_RELATIVE
       end
 
       # Copilot CLI discovers project skills from Claude Code's directory
@@ -71,7 +57,11 @@ module AgentApropos
         Path[".claude", "skills"]
       end
 
-      private def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
+      # Check for the Copilot CLI binary and that the `create|edit`-matched
+      # `postToolUse` group calls both `agent-apropos hook pre` and
+      # `... post` directly. No bridge script to check for. Advisory only:
+      # never fails, so a Copilot-less repo is not penalised.
+      protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         unless env.which("copilot")
           return Check.new(:ok, "copilot", "not on PATH; skipped hook check")
         end
@@ -114,7 +104,7 @@ module AgentApropos
         commands.any?(&.starts_with?(HOOK_PRE_BASE)) && commands.any?(&.starts_with?(HOOK_POST_BASE))
       end
 
-      private def hooks_json(options : Init::Options) : String
+      protected def config_content(existing : String?, options : Init::Options) : String
         hook_pre = hook_command(HOOK_PRE_BASE, options)
         hook_post = hook_command(HOOK_POST_BASE, options)
         <<-JSON

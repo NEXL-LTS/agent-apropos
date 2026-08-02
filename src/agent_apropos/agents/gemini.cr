@@ -54,28 +54,18 @@ module AgentApropos
         payload.tool_name == "read_file"
       end
 
-      def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
-        path = repo_root.join(SETTINGS_RELATIVE).to_s
-        existing = fs.read?(path)
-        Init.sync(fs, options, stdout, path, merged_settings(existing, options), existing, ".gemini/settings.json")
-      end
-
-      # Check for the Gemini CLI binary and that its AfterTool hook calls
-      # both `agent-apropos hook pre` and `agent-apropos hook post`.
-      # Advisory only: never fails, so a Gemini-less repo is not penalised.
-      def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
-        [hook_check(repo_root, fs, env)]
-      end
-
-      def configured?(repo_root : Path, fs : Filesystem) : Bool
-        fs.exists?(repo_root.join(SETTINGS_RELATIVE).to_s)
+      def config_relative : Path
+        SETTINGS_RELATIVE
       end
 
       def skill_root : Path
         Path[".gemini", "skills"]
       end
 
-      private def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
+      # Check for the Gemini CLI binary and that its AfterTool hook calls
+      # both `agent-apropos hook pre` and `agent-apropos hook post`.
+      # Advisory only: never fails, so a Gemini-less repo is not penalised.
+      protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         unless env.which("gemini")
           return Check.new(:ok, "gemini", "not on PATH; skipped hook check")
         end
@@ -121,7 +111,7 @@ module AgentApropos
         end
       end
 
-      private def merged_settings(existing : String?, options : Init::Options) : String
+      protected def config_content(existing : String?, options : Init::Options) : String
         commands = [hook_command(HOOK_PRE_BASE, options), hook_command(HOOK_POST_BASE, options)]
         root = Init.settings_root(existing, ".gemini/settings.json")
         hooks = (root["hooks"]?.try(&.as_h?)).try(&.dup) || {} of String => JSON::Any
@@ -162,15 +152,6 @@ module AgentApropos
         groups
       end
 
-      private def agent_apropos_group?(group : JSON::Any) : Bool
-        hooks = group.as_h?.try(&.["hooks"]?).try(&.as_a?)
-        return false unless hooks
-        hooks.any? do |hook|
-          command = hook.as_h?.try(&.["command"]?).try(&.as_s?)
-          !command.nil? && command.starts_with?("agent-apropos hook")
-        end
-      end
-
       private def read_group?(group : JSON::Any) : Bool
         group.as_h?.try(&.["matcher"]?).try(&.as_s?) == "read_file"
       end
@@ -190,9 +171,7 @@ module AgentApropos
       # install onto the new command rather than appending a duplicate.
       private def with_missing_hooks(group : JSON::Any, commands : Array(String)) : JSON::Any
         hash = group.as_h.dup
-        present = hash["hooks"]?.try(&.as_a?) || [] of JSON::Any
-        refreshed = present.map do |entry|
-          command = entry.as_h?.try(&.["command"]?).try(&.as_s?)
+        refreshed = map_hooks(group) do |entry, command|
           next entry unless command
           target = commands.includes?(command) ? command : upgrade_target(command, commands)
           target ? hook(target) : entry
@@ -243,9 +222,7 @@ module AgentApropos
       # `with_missing_hooks`.
       private def with_missing_read_hook(group : JSON::Any, target : String) : JSON::Any
         hash = group.as_h.dup
-        present = hash["hooks"]?.try(&.as_a?) || [] of JSON::Any
-        refreshed = present.map do |entry|
-          command = entry.as_h?.try(&.["command"]?).try(&.as_s?)
+        refreshed = map_hooks(group) do |entry, command|
           command && command.starts_with?("agent-apropos hook pre") ? hook(target) : entry
         end
         has_target = refreshed.any? { |entry| entry.as_h?.try(&.["command"]?).try(&.as_s?) == target }
@@ -258,6 +235,17 @@ module AgentApropos
           "matcher" => JSON::Any.new("read_file"),
           "hooks"   => JSON::Any.new([hook(command)]),
         })
+      end
+
+      # Map each entry of this group's `hooks` array (paired with its parsed
+      # `command` string, `nil` when absent) through the block. Shared by
+      # `with_missing_hooks` and `with_missing_read_hook`, which both refresh
+      # or upgrade entries in a group's `hooks` array the same way.
+      private def map_hooks(group : JSON::Any, & : JSON::Any, String? -> JSON::Any) : Array(JSON::Any)
+        present = group.as_h["hooks"]?.try(&.as_a?) || [] of JSON::Any
+        present.map do |entry|
+          yield entry, entry.as_h?.try(&.["command"]?).try(&.as_s?)
+        end
       end
 
       # Add `AGENTS.md` to `context.fileName` (creating it as a one-element
