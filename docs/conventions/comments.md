@@ -9,10 +9,12 @@ contents: ['#(?!\{)']
 comment. If a name doesn't say what something is for, rename it until it does.
 If a behavior, edge case, or invariant needs stating, put it in a spec example
 whose description names the reason (`it "rejects an id that would overflow
-the filesystem's 255-byte name limit"`), not in a comment above the code. A
-lone one-line comment is tolerated only as an `ameba:disable`/`ameba:enable`
-directive; anything else — including a second consecutive comment line — means
-the rationale belongs in a name or a spec instead.
+the filesystem's 255-byte name limit"`), not in a comment above the code.
+`Apropos/CommentBlock` only mechanically fails on two or more consecutive
+comment-only lines — a lone one-liner still compiles clean — but the target
+is zero: treat a single line as legitimate only when it's an
+`ameba:disable`/`ameba:enable` directive; anything else is a name or a spec
+that hasn't been written yet.
 
 **Why:** A comment drifts from the code the moment either one changes without
 the other, and nothing forces them back into sync — a spec fails loudly when
