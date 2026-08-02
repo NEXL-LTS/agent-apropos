@@ -20,9 +20,7 @@ module AgentApropos
     # orphans. Progress goes to `stdout`; errors to `stderr`. Returns a process
     # exit code.
     def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
-      conventions = Conventions.walk(repo_root, fs, allow_outside)
-      wrappers = Skills.wrappers(conventions)
-      active = Skills.active_roots(repo_root, fs)
+      conventions, wrappers, active = inputs(repo_root, fs, allow_outside)
 
       write_index(repo_root, fs, conventions, stdout)
       write_wrappers(repo_root, fs, wrappers, active, stdout)
@@ -37,9 +35,7 @@ module AgentApropos
     # produce and that no orphaned wrappers linger. Writes nothing.
     # Exit 0 when clean, 1 with a drift summary otherwise.
     def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
-      conventions = Conventions.walk(repo_root, fs, allow_outside)
-      wrappers = Skills.wrappers(conventions)
-      active = Skills.active_roots(repo_root, fs)
+      _, wrappers, active = inputs(repo_root, fs, allow_outside)
       drift = [] of String
 
       Skills::ROOTS.each do |root|
@@ -62,6 +58,14 @@ module AgentApropos
     rescue ex : AgentApropos::Error
       stderr.puts "agent-apropos generate: #{ex.message}"
       1
+    end
+
+    # Everything `run` and `check` both start from: the parsed convention
+    # docs, the skill wrappers they compile to, and the roots with a wired
+    # consumer.
+    private def inputs(repo_root : Path, fs : Filesystem, allow_outside : Bool) : {Array(Convention), Hash(String, String), Set(Path)}
+      conventions = Conventions.walk(repo_root, fs, allow_outside)
+      {conventions, Skills.wrappers(conventions), Skills.active_roots(repo_root, fs)}
     end
 
     private def report_check(drift : Array(String), count : Int32, stdout : IO) : Int32

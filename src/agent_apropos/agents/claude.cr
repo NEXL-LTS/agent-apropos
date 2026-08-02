@@ -12,10 +12,6 @@ module AgentApropos
     class Claude < Agent
       SETTINGS_RELATIVE = Path[".claude", "settings.json"]
 
-      # agent-apropos identifies its own settings entries by this command prefix, so
-      # a merge never duplicates a group it already installed.
-      AGENT_APROPOS_HOOK_PREFIX = "agent-apropos hook"
-
       # `--tool claude` tells the binary which dialect wired the invocation,
       # so `Hook` can label a Cause's layer as read-triggered without parsing
       # `tool_name` itself. Both matchers below ("Edit|Write" and "Read")
@@ -41,18 +37,12 @@ module AgentApropos
         payload.tool_name == "Read"
       end
 
-      def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
-        path = repo_root.join(".claude", "settings.json").to_s
-        existing = fs.read?(path)
-        Init.sync(fs, options, stdout, path, merged_settings(existing, options), existing, ".claude/settings.json")
+      def config_relative : Path
+        SETTINGS_RELATIVE
       end
 
       def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
-        [settings_check(repo_root, fs), capability_check(env)]
-      end
-
-      def configured?(repo_root : Path, fs : Filesystem) : Bool
-        fs.exists?(repo_root.join(SETTINGS_RELATIVE).to_s)
+        super + [capability_check(env)]
       end
 
       def skill_root : Path
@@ -65,7 +55,7 @@ module AgentApropos
       # Layer 2 depends only on the target path, which a read carries exactly
       # like an edit, so the same rule can land as early as the model's first
       # read instead of only once it writes there.
-      private def merged_settings(existing : String?, options : Init::Options) : String
+      protected def config_content(existing : String?, options : Init::Options) : String
         hook_pre = hook_command(HOOK_PRE_BASE, options)
         hook_post = hook_command(HOOK_POST_BASE, options)
 
@@ -193,7 +183,7 @@ module AgentApropos
         })
       end
 
-      private def settings_check(repo_root : Path, fs : Filesystem) : Check
+      protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         content = fs.read?(repo_root.join(SETTINGS_RELATIVE).to_s)
         return Check.new(:fail, "hooks", ".claude/settings.json not found; run `agent-apropos init`") unless content
 
@@ -229,15 +219,6 @@ module AgentApropos
           events << event if array.any? { |group| agent_apropos_group?(group) }
         end
         events
-      end
-
-      private def agent_apropos_group?(group : JSON::Any) : Bool
-        hooks = group.as_h?.try(&.["hooks"]?).try(&.as_a?)
-        return false unless hooks
-        hooks.any? do |hook|
-          command = hook.as_h?.try(&.["command"]?).try(&.as_s?)
-          !command.nil? && command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
-        end
       end
 
       private def capability_check(env : Environment) : Check

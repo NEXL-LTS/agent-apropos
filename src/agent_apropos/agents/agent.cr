@@ -1,3 +1,4 @@
+require "json"
 require "../check"
 require "../environment"
 require "../filesystem"
@@ -13,22 +14,46 @@ module AgentApropos
     # and registering it in `Agents::ALL` — neither `Init` nor `Doctor` needs
     # a new per-agent branch.
     abstract class Agent
+      # agent-apropos identifies its own hook entries by this command prefix, so
+      # a merge/probe never mistakes a foreign hook for one it installed.
+      AGENT_APROPOS_HOOK_PREFIX = "agent-apropos hook"
+
       # The `--tool <name>` value / auto-detect PATH probe name.
       abstract def name : String
 
-      # Write or merge this agent's hook wiring into the repo. Must be
-      # idempotent (safe to re-run) the same way `Init.run` as a whole is —
-      # implementations use `Init.sync`/`Init.create` so a re-run with
-      # unchanged content is a no-op.
-      abstract def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
+      # The repo-relative config file `#scaffold` writes or merges this
+      # agent's hook wiring into (`.claude/settings.json`,
+      # `.codex/hooks.json`, ...).
+      abstract def config_relative : Path
 
-      # Probe whether this agent is correctly wired, for `agent-apropos
-      # doctor`. Every check but Claude's `.claude/settings.json` presence is
+      # The desired full content of `config_relative`, given its current
+      # bytes (`nil` when the file doesn't exist yet). Agents that merge into
+      # a shared settings file (Claude, Gemini) fold `existing` in; agents
+      # whose config file is entirely agent-apropos-owned (Codex, Copilot,
+      # OpenCode) ignore it and always return the same content.
+      protected abstract def config_content(existing : String?, options : Init::Options) : String
+
+      # Write or merge this agent's hook wiring into the repo. Idempotent
+      # (safe to re-run) via `Init.sync`, which no-ops when `config_content`
+      # matches what's already on disk.
+      def scaffold(repo_root : Path, fs : Filesystem, options : Init::Options, stdout : IO) : Nil
+        path = repo_root.join(config_relative).to_s
+        existing = fs.read?(path)
+        Init.sync(fs, options, stdout, path, config_content(existing, options), existing, config_relative.to_posix.to_s)
+      end
+
+      # The one check (beyond Claude's extra capability check) every agent
+      # reports for `agent-apropos doctor`: whether its hook wiring is
+      # present and correct. See `#hook_check`.
+      def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
+        [hook_check(repo_root, fs, env)]
+      end
+
+      # Probe whether this agent's hook wiring is present and correct, for
+      # `agent-apropos doctor`. Every implementation but Claude's is
       # advisory-only (`:ok`/`:warn`, never `:fail`) — an agent that is not
-      # on PATH must never penalise a repo that doesn't use it. Returns an
-      # array (not a single `Check`) because Claude reports two: hooks
-      # wiring and CLI version capability.
-      abstract def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
+      # on PATH must never penalise a repo that doesn't use it.
+      protected abstract def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
 
       # Whether this agent's own init-generated hook file exists in the repo
       # — a bare existence probe, unlike `#checks`, which also inspects
@@ -36,7 +61,9 @@ module AgentApropos
       # whether a skill root is worth generating into at all, so `generate`
       # doesn't scatter e.g. `.gemini/skills/` into a repo that never ran
       # `init --tool gemini`.
-      abstract def configured?(repo_root : Path, fs : Filesystem) : Bool
+      def configured?(repo_root : Path, fs : Filesystem) : Bool
+        fs.exists?(repo_root.join(config_relative).to_s)
+      end
 
       # The directory this agent discovers generated skill wrappers from.
       # Not necessarily this agent's *own* directory — OpenCode and Copilot
@@ -62,6 +89,19 @@ module AgentApropos
       # non-interactively, so there is no later moment to ask again.
       protected def hook_command(base : String, options : Init::Options) : String
         options.allow_outside_repo ? "#{base} --allow-outside-repo" : base
+      end
+
+      # Whether one hook group's `hooks` array carries a command
+      # agent-apropos itself installed, keyed on `AGENT_APROPOS_HOOK_PREFIX`.
+      # Shared by Claude (across `PreToolUse`/`PostToolUse` groups) and
+      # Gemini (across `AfterTool` groups).
+      protected def agent_apropos_group?(group : JSON::Any) : Bool
+        hooks = group.as_h?.try(&.["hooks"]?).try(&.as_a?)
+        return false unless hooks
+        hooks.any? do |hook|
+          command = hook.as_h?.try(&.["command"]?).try(&.as_s?)
+          !command.nil? && command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
+        end
       end
     end
   end
