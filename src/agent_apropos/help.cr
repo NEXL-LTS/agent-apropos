@@ -1,25 +1,13 @@
 require "json"
 
 module AgentApropos
-  # `agent-apropos help`: the dual-audience mental-model explainer, distinct
-  # from the terse `--help` flag output. One in-binary source of content renders
-  # to both prose (`agent-apropos help`) and JSON (`agent-apropos help --format json`) so the
-  # two can never drift, and `agent-apropos help <command>` prints the mental-model
-  # context for a single command before deferring to its `--help`.
-  #
-  # `help` never touches the filesystem or the index and always exits 0.
   module Help
     extend self
 
-    # One layer of the standard, described for both readers.
     record Layer, number : Int32, name : String, trigger : String, mechanism : String
 
-    # A canonical path in an agent-apropos-managed repo.
     record PathEntry, path : String, purpose : String
 
-    # One exposed command: its name, a one-line summary, and the mental-model
-    # note printed by `help <command>`. This list is the single source for the
-    # JSON `commands[]`; a spec asserts it covers every command the CLI exposes.
     record Command, name : String, summary : String, detail : String
 
     WHAT = "agent-apropos is a single deterministic binary that delivers the right " \
@@ -131,17 +119,14 @@ module AgentApropos
     LEARN_MORE = "Learn more in docs/conventions/README.md, which defines the " \
                  "layered documentation structure and how to author rules."
 
-    # Entry point for `agent-apropos help [<command>] [--format json]`. Always exits 0.
     def run(args : Array(String), stdout : IO) : Int32
       json = false
       command : String? = nil
       args.each do |arg|
         if arg == "--format"
-          json = true # a bare `--format` (or `--format json`) selects JSON
+          json = true
         elsif arg == "json" && json
-          # value consumed by the preceding --format
         elsif arg.starts_with?("--")
-          # ignore unknown flags; help never fails
         else
           command ||= arg
         end
@@ -157,8 +142,6 @@ module AgentApropos
       0
     end
 
-    # The full prose explainer, wrapping-friendly and degrading
-    # cleanly when piped (no ANSI).
     def text(io : IO) : Nil
       io << "agent-apropos — deliver the right documentation to the right moment.\n\n"
       io << "What agent-apropos is\n\n" << WHAT << "\n\n"
@@ -179,8 +162,6 @@ module AgentApropos
       io << LEARN_MORE << '\n'
     end
 
-    # The same content as structured JSON: `what`, `why`, `layers[]`,
-    # `paths{}`, `commands[]`, `agent_note`. Kept in lockstep with `text`.
     def json(io : IO) : Nil
       JSON.build(io, indent: "  ") do |json|
         json.object do
@@ -218,7 +199,6 @@ module AgentApropos
       io.puts
     end
 
-    # The mental-model note for one command, then a pointer to its flag help.
     private def explain_command(name : String, io : IO) : Nil
       entry = COMMANDS.find { |command| command.name == name }
       unless entry

@@ -7,26 +7,13 @@ require "./rendering"
 require "./git"
 
 module AgentApropos
-  # The review-agent interface: `match` resolves the conventions that
-  # apply to given paths (Layer 2 by path, Layer 3 by on-disk or stdin content),
-  # and `review` resolves them for a git range (Layer 2 by path, Layer 3 by the
-  # diff's *added* lines) and emits a checklist manifest harvesting each rule's
-  # `## Verify` section. Both rebuild the index if missing or stale.
-  #
-  # These are review/CI commands (seconds of latency budget), so unlike the hook
-  # path they fail **closed**: a malformed doc or git failure exits non-zero.
   module Review
     extend self
 
     INDEX_RELATIVE = Path[".cache", "agent-apropos", "index.json"]
 
-    # Default-branch probes when `review` gets no explicit range, tried after the
-    # authoritative `origin/HEAD` symbolic ref.
     DEFAULT_BASE_CANDIDATES = %w[origin/main origin/master main master]
 
-    # One convention that applies to a file, with the specific triggers hit and
-    # its harvested `## Verify` text. `body` is carried for `--format full` and
-    # excluded from JSON output.
     struct RuleMatch
       getter path : String
       getter layer : Int32
@@ -38,7 +25,6 @@ module AgentApropos
       end
     end
 
-    # A file and the conventions resolved for it.
     struct FileMatches
       getter path : String
       getter rules : Array(RuleMatch)
@@ -47,9 +33,6 @@ module AgentApropos
       end
     end
 
-    # `agent-apropos match <path> [...paths]`. `stdin_content`, when given,
-    # replaces the on-disk content for the (single) path so a proposed patch can
-    # be tested.
     def match(repo_root : Path, fs : Filesystem, paths : Array(String),
               format : String, stdin_content : String?, stdout : IO, stderr : IO,
               allow_outside : Bool = false) : Int32
@@ -64,9 +47,6 @@ module AgentApropos
       1
     end
 
-    # `agent-apropos review [<git-range>]`. Resolves the range (default:
-    # merge-base with the default branch), then matches each changed file's path
-    # and added lines.
     def run(repo_root : Path, fs : Filesystem, git : Git, range : String?,
             format : String, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
       conventions = load_conventions(repo_root, fs, allow_outside)
@@ -81,9 +61,6 @@ module AgentApropos
       1
     end
 
-    # Walk the docs (the fresh source of truth) and opportunistically rebuild the
-    # index when missing or stale. Matching uses the walked
-    # conventions directly, so a failed index write is non-fatal.
     private def load_conventions(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Array(Convention)
       list = Conventions.walk(repo_root, fs, allow_outside)
       refresh_index(repo_root, fs, list)
@@ -96,7 +73,6 @@ module AgentApropos
       return if existing && existing.covers?(list)
       fs.write(path, Index.build(list).to_document)
     rescue
-      # Best-effort cache warming; matching does not depend on the persisted index.
     end
 
     private def resolve_path(repo_root : Path, fs : Filesystem, conventions : Array(Convention),
@@ -110,8 +86,6 @@ module AgentApropos
       conventions.compact_map { |convention| rule_for(convention, relative, content) }
     end
 
-    # Resolve how (if at all) `convention` applies to `relative`+`content`. A doc
-    # is Layer 2 or Layer 3, never both, so at most one branch fires.
     private def rule_for(convention : Convention, relative : String, content : String?) : RuleMatch?
       fm = convention.frontmatter
       if convention.layer2? && convention.triggers_for_path?(relative)
@@ -149,10 +123,6 @@ module AgentApropos
       )
     end
 
-    # Parse a unified diff into `{new_path, added_lines}` per changed file, in
-    # order of appearance. Only
-    # added lines within hunks are collected; deletions (`+++ /dev/null`) are
-    # skipped.
     private def parse_diff(diff : String) : Array({String, String})
       order = [] of String
       added = {} of String => Array(String)
@@ -232,8 +202,6 @@ module AgentApropos
       verify_items(rule.verify).each { |item| io << "  - [ ] #{item}\n" }
     end
 
-    # Split a `## Verify` section into individual checklist criteria, stripping
-    # any existing list markers so each line becomes one `- [ ]` item.
     private def verify_items(verify : String?) : Array(String)
       return [] of String unless verify
       items = [] of String

@@ -4,29 +4,14 @@ require "./agent"
 
 module AgentApropos
   module Agents
-    # Claude Code: hooks wired into `.claude/settings.json`'s
-    # `PreToolUse`/`PostToolUse` arrays. The only agent whose settings file is
-    # also probed at `:fail` level by `Doctor` (see `checks` below) — Claude
-    # was agent-apropos's original, load-bearing integration, so its absence is
-    # a failure rather than advisory the way every agent added since is.
     class Claude < Agent
       SETTINGS_RELATIVE = Path[".claude", "settings.json"]
 
-      # `--tool claude` tells the binary which dialect wired the invocation,
-      # so `Hook` can label a Cause's layer as read-triggered without parsing
-      # `tool_name` itself. Both matchers below ("Edit|Write" and "Read")
-      # deliberately share the identical hook-pre command — the read/write
-      # distinction comes from `Claude#read?` inspecting the payload at run
-      # time, not from which matcher fired. `_BASE` because `Agent#hook_command`
-      # may append `--allow-outside-repo` to it (see `merged_settings`).
       HOOK_PRE_BASE  = "agent-apropos hook pre --tool claude"
       HOOK_POST_BASE = "agent-apropos hook post --tool claude"
 
-      # Claude Code's hook `timeout` is seconds.
       CLAUDE_HOOK_TIMEOUT = 10_i64
 
-      # The minimum Claude Code version known to support PreToolUse
-      # `additionalContext`. Older CLIs degrade Layer 2 to PostToolUse.
       MIN_CLAUDE_VERSION = "1.0.0"
 
       def name : String
@@ -49,12 +34,6 @@ module AgentApropos
         Path[".claude", "skills"]
       end
 
-      # Merge agent-apropos's PreToolUse/PostToolUse hook groups into an existing
-      # (or new) settings object, preserving every other key and hook.
-      # `agent-apropos hook pre` is wired onto both "Edit|Write" and "Read" —
-      # Layer 2 depends only on the target path, which a read carries exactly
-      # like an edit, so the same rule can land as early as the model's first
-      # read instead of only once it writes there.
       protected def config_content(existing : String?, options : Init::Options) : String
         hook_pre = hook_command(HOOK_PRE_BASE, options)
         hook_post = hook_command(HOOK_POST_BASE, options)
@@ -75,28 +54,6 @@ module AgentApropos
         JSON::Any.new(root).to_pretty_json + "\n"
       end
 
-      # Ensure every command in `commands` exists in at least one group with
-      # this exact `matcher`, healing (refreshing present commands to the
-      # current `hook_command` shape, appending whatever's missing to one of
-      # them) when a group already exists, or appending a fresh one carrying
-      # all of `commands` when none does.
-      #
-      # Matcher-keyed, not command-ownership-keyed: `agent-apropos hook pre` is
-      # wired onto two matchers here ("Edit|Write" and "Read"), so a search
-      # that only asks "does some group already carry this command" can't
-      # tell the two groups apart — it would find whichever one the traversal
-      # reaches first (order in the JSON array is not guaranteed) and heal
-      # that one, potentially leaving the *other* matcher's group never
-      # created. Keying on the matcher instead means each call only ever
-      # touches the group(s) it's actually about.
-      #
-      # A given matcher can have more than one group already — e.g. a legacy
-      # agent-apropos version (or a hand-edit) put its own command in a separate
-      # "Edit|Write" group instead of a foreign hook's — so presence is
-      # checked across *every* matching group, not just the first: otherwise
-      # healing the foreign hook's group would add a second copy of a command
-      # already installed in the other one. Missing commands are appended to
-      # only the first matching group.
       private def ensure_commands(groups : Array(JSON::Any), matcher : String,
                                   commands : Array(String), timeout : Int64) : Array(JSON::Any)
         matching = groups.each_index.select { |i| group_matcher(groups[i]) == matcher }.to_a
@@ -123,18 +80,6 @@ module AgentApropos
         hooks.compact_map { |hook| hook.as_h?.try(&.["command"]?).try(&.as_s?) }
       end
 
-      # Refresh every one of *our* commands already in this group to the
-      # current `hook_command` shape (so a stale field converges on the next
-      # `init` run instead of surviving forever). Foreign hooks (anything not
-      # in `commands`) pass through untouched.
-      #
-      # An entry whose command already matches `commands` exactly is
-      # refreshed in place. One that merely *starts with* our prefix — a
-      # command string from a prior agent-apropos version, e.g. before a
-      # `--tool` suffix existed — is upgraded to the corresponding current
-      # command instead of being left alone, so re-running `init` converges
-      # an old install onto the new command rather than appending a second,
-      # duplicate entry alongside it.
       private def refresh_owned_hooks(group : JSON::Any, commands : Array(String), timeout : Int64) : JSON::Any
         hash = group.as_h.dup
         present = hash["hooks"]?.try(&.as_a?) || [] of JSON::Any
@@ -148,10 +93,6 @@ module AgentApropos
         JSON::Any.new(hash)
       end
 
-      # The current command that an old, prefix-matching command should
-      # converge to, matched on subcommand ("hook pre" vs "hook post") so a
-      # stale `hook pre` entry never gets upgraded to `hook post` or
-      # vice versa. `nil` for anything that isn't ours at all.
       private def upgrade_target(command : String, commands : Array(String)) : String?
         return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
         if command.starts_with?("agent-apropos hook pre")
@@ -201,8 +142,6 @@ module AgentApropos
         end
       end
 
-      # Which events have a group whose command invokes `agent-apropos hook`.
-      # Returns nil when the settings file is not parseable JSON.
       private def agent_apropos_events(content : String) : Set(String)?
         parsed =
           begin

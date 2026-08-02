@@ -2,9 +2,6 @@ require "./agent"
 
 module AgentApropos
   module Agents
-    # OpenCode: a generated Bun plugin that bridges `agent-apropos hook pre`
-    # into `tool.execute.before` (Layer 2) and `agent-apropos hook post` into
-    # `tool.execute.after` (Layer 3).
     class OpenCode < Agent
       PLUGIN_RELATIVE = Path[".opencode", "plugins", "agent-apropos.js"]
 
@@ -20,14 +17,10 @@ module AgentApropos
         PLUGIN_RELATIVE
       end
 
-      # OpenCode discovers project skills from Claude Code's directory
-      # natively, so it has no `.opencode/skills/` of its own.
       def skill_root : Path
         Path[".claude", "skills"]
       end
 
-      # Check for the OpenCode binary and the generated plugin. Advisory
-      # only: never fails, so a Claude-only repo is not penalised.
       protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         unless env.which("opencode")
           return Check.new(:ok, "opencode", "not on PATH; skipped plugin check")
@@ -40,25 +33,6 @@ module AgentApropos
         end
       end
 
-      # Injects convention context using `client.session.prompt` with
-      # `noReply: true`, which adds a message to the conversation without
-      # triggering a new AI turn. This is the documented OpenCode API for
-      # injecting context from plugins.
-      #
-      # Layer 2 (path-scoped) fires via `tool.execute.before` — on both a
-      # write and a read (Layer 2 depends only on the target path, which a
-      # read carries exactly like an edit, so the rule can land on the
-      # model's first read instead of only once it writes there). Layer 3
-      # (construct-scoped) fires via `tool.execute.after` using the written
-      # content for regex matching — read-only, since it needs content that
-      # doesn't exist yet on a mere read.
-      #
-      # Both hooks fail open: any error exits silently and never blocks an
-      # edit. The session ID is read from `input.sessionID` when available
-      # and tracked through session events as a fallback.
-      #
-      # `hook_args` bakes `--allow-outside-repo` into the spawned command when
-      # `init` itself was run with that flag — see `Agent#hook_command`.
       protected def config_content(existing : String?, options : Init::Options) : String
         hook_args = options.allow_outside_repo ? %(, "--allow-outside-repo") : ""
         <<-JS

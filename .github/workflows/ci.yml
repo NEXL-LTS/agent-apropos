@@ -41,6 +41,14 @@ jobs:
       - name: Lint (ameba, zero findings)
         run: ./bin/ameba
 
+      # Apropos/CommentBlock (tool/lint/) isn't an upstream ameba rule, so it
+      # ships as its own binary rather than a .ameba.yml plugin entry.
+      - name: Build apropos ameba rules
+        run: crystal build tool/lint/main.cr -o bin/ameba-apropos
+
+      - name: Lint (apropos rules, zero findings)
+        run: ./bin/ameba-apropos
+
       - name: Specs
         run: crystal spec
 

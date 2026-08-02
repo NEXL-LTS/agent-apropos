@@ -9,3 +9,11 @@ Globs:
 Excluded:
   - lib
   - bin
+
+# Apropos/CommentBlock is a custom rule (tool/lint/), not part of upstream
+# ameba, run via `bin/ameba-apropos` — see `make lint`. Scoped to src only
+# (docs/conventions/comments.md governs src, not spec).
+Apropos/CommentBlock:
+  Enabled: true
+  Excluded:
+    - "spec/**/*.cr"

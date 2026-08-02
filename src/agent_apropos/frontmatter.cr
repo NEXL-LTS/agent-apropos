@@ -2,22 +2,12 @@ require "yaml"
 require "./errors"
 
 module AgentApropos
-  # Parsed YAML frontmatter from a convention doc. This layer
-  # validates the *shape* of the frontmatter only — the types of the known
-  # keys. Semantic rules (e.g. `skill: true` requires a `description` that
-  # starts with "Use when") are the linter's job, not this parser's,
-  # so the model stays reusable by every command.
   struct Frontmatter
-    # Raised when a frontmatter block is structurally invalid: malformed YAML,
-    # a non-mapping top level, a wrong-typed known key, or an unterminated
-    # fence. Distinct from lint-level policy violations.
     class Error < AgentApropos::Error
     end
 
     KNOWN_KEYS = ["paths", "contents", "skill", "description"]
 
-    # A doc opens with a `---` fence on its own line (optional trailing spaces,
-    # optional CR). The body begins after the matching closing fence line.
     OPEN_FENCE  = /\A---[^\S\r\n]*\r?\n/
     CLOSE_FENCE = /^---[^\S\r\n]*(?:\r?\n|\z)/m
 
@@ -36,15 +26,10 @@ module AgentApropos
     )
     end
 
-    # A doc with neither a path nor a content trigger and no skill flag is
-    # reference-only: reachable by link, never injected.
     def reference_only? : Bool
       paths.empty? && contents.empty? && !skill?
     end
 
-    # Split raw doc text into `{frontmatter, body}`. A doc without a leading
-    # fence has no frontmatter and its whole text is the body. Body bytes are
-    # preserved exactly (byte-stable output is a hard requirement).
     def self.split(text : String) : {Frontmatter?, String}
       open = text.match(OPEN_FENCE)
       return {nil, text} unless open
@@ -58,7 +43,6 @@ module AgentApropos
       {parse(yaml), body}
     end
 
-    # Parse the YAML between the fences into a validated Frontmatter.
     def self.parse(yaml : String) : Frontmatter
       any =
         begin
@@ -67,7 +51,6 @@ module AgentApropos
           raise Error.new("invalid YAML frontmatter: #{ex.message}")
         end
 
-      # Blank or comment-only frontmatter parses to nil → empty (reference-only).
       return new if any.raw.nil?
 
       hash = any.as_h?
@@ -83,7 +66,6 @@ module AgentApropos
       )
     end
 
-    # Fetch a key, treating an explicit YAML null the same as an absent key.
     private def self.fetch(hash, key)
       value = hash[key]?
       return nil if value.nil? || value.raw.nil?

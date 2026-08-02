@@ -4,21 +4,11 @@ require "./skills"
 require "./filesystem"
 
 module AgentApropos
-  # `agent-apropos generate`: compile `docs/conventions/**` into the trigger
-  # index and the committed skill wrappers, and prune orphaned wrappers. `run`
-  # writes; `check` never writes and is the CI drift gate. Both fail *closed* —
-  # a malformed doc or slug collision exits non-zero — because generate is an
-  # authoring/CI command, not the fail-open hook path. Only writes/checks a
-  # `Skills::ROOTS` root whose `Skills.active_roots` includes it — see there
-  # for how that's decided from which `init`-generated hook files exist.
   module Generate
     extend self
 
     INDEX_RELATIVE = Path[".cache", "agent-apropos", "index.json"]
 
-    # Rebuild the index when stale and (re)write every skill wrapper, pruning
-    # orphans. Progress goes to `stdout`; errors to `stderr`. Returns a process
-    # exit code.
     def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
       conventions, wrappers, active = inputs(repo_root, fs, allow_outside)
 
@@ -31,9 +21,6 @@ module AgentApropos
       1
     end
 
-    # Verify the committed skill wrappers byte-match what the current docs
-    # produce and that no orphaned wrappers linger. Writes nothing.
-    # Exit 0 when clean, 1 with a drift summary otherwise.
     def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
       _, wrappers, active = inputs(repo_root, fs, allow_outside)
       drift = [] of String
@@ -60,9 +47,6 @@ module AgentApropos
       1
     end
 
-    # Everything `run` and `check` both start from: the parsed convention
-    # docs, the skill wrappers they compile to, and the roots with a wired
-    # consumer.
     private def inputs(repo_root : Path, fs : Filesystem, allow_outside : Bool) : {Array(Convention), Hash(String, String), Set(Path)}
       conventions = Conventions.walk(repo_root, fs, allow_outside)
       {conventions, Skills.wrappers(conventions), Skills.active_roots(repo_root, fs)}
@@ -100,9 +84,6 @@ module AgentApropos
       end
     end
 
-    # A root with no wired consumer keeps nothing: `keep` is emptied for it,
-    # so any wrapper left over from before its last consumer was un-wired
-    # gets pruned along with genuine orphans.
     private def prune_orphans(repo_root, fs, keep : Array(String), active, stdout) : Nil
       Skills::ROOTS.each do |root|
         root_keep = active.includes?(root) ? keep : [] of String
@@ -113,8 +94,6 @@ module AgentApropos
       end
     end
 
-    # Slugs of the skill wrappers already on disk under one root, derived from
-    # their directory names.
     private def existing_slugs(repo_root : Path, fs : Filesystem, root : Path) : Array(String)
       fs.glob(repo_root.join(root), "*/SKILL.md").map do |absolute|
         Path[absolute].parent.basename

@@ -7,27 +7,16 @@ require "./skills"
 require "./filesystem"
 
 module AgentApropos
-  # `agent-apropos lint`: validate the convention structure against the
-  # standard's quality bar and exit non-zero on any error. It is a CI command, so
-  # it fails **closed** — but it reports *every* problem it can find rather than
-  # stopping at the first, so a malformed doc becomes a finding, not a crash.
   module Lint
     extend self
 
     ROOT_FILES = {"AGENTS.md", "CLAUDE.md"}
 
-    # Line budgets: a root file over 150 lines or a skill doc over 500
-    # lines is a warning (`--strict` promotes warnings to errors).
     ROOT_FILE_MAX = 150
     SKILL_DOC_MAX = 500
 
-    # One lint result: `:error` fails the run; `:warning` is advisory unless
-    # `--strict` promotes it.
     record Finding, severity : Symbol, location : String, message : String
 
-    # `Config::Error` (a malformed `agent-apropos.yml`) propagates here uncaught
-    # elsewhere in this module — lint is an authoring/CI command, so it fails
-    # *closed* on it just like a malformed convention doc.
     def run(repo_root : Path, fs : Filesystem, strict : Bool, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
       report(collect(repo_root, fs, allow_outside), strict, stdout)
     rescue ex : AgentApropos::Error
@@ -43,8 +32,6 @@ module AgentApropos
       findings
     end
 
-    # Parse every doc, tolerating a malformed one by turning its parse error into
-    # a finding so the rest of the suite still runs.
     private def parse_docs(repo_root : Path, fs : Filesystem, allow_outside : Bool) : {Array(Convention), Array(Finding)}
       conventions = [] of Convention
       findings = [] of Finding
@@ -116,10 +103,6 @@ module AgentApropos
       findings
     end
 
-    # Generated skill wrappers must byte-match what the current docs produce — the
-    # same check as `generate --check`. A slug collision or missing
-    # description makes the whole wrapper set undecidable, so it is reported as a
-    # single error and drift comparison is skipped.
     private def wrapper_findings(repo_root : Path, fs : Filesystem,
                                  conventions : Array(Convention), allow_outside : Bool) : Array(Finding)
       skill_docs = conventions.select { |convention| convention.skill? && convention.frontmatter.description }
