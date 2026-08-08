@@ -14,6 +14,20 @@ ENV_FILE="$REPO_ROOT/.devcontainer/.env"
 # docker-compose.yml bind-mounts this file into the container. Docker creates a
 # *directory* in its place if it does not already exist, which then fails the
 # mount, so make sure it is a file first.
+#
+# A bare `touch` is not enough to guarantee that: on an existing directory touch
+# succeeds and merely updates its mtime, so a directory left behind by an
+# earlier failed start would survive here and silently get mounted again. Clear
+# it explicitly. rmdir (not rm -rf) because the directory Docker creates is
+# always empty — anything else is real data this script has no business
+# deleting, so say so and leave it alone.
+if [[ -d "$HOME/.claude.json" ]]; then
+  if ! rmdir "$HOME/.claude.json" 2>/dev/null; then
+    echo "devcontainer: WARNING — $HOME/.claude.json is a non-empty directory." >&2
+    echo "devcontainer:           Claude Code's config cannot be mounted over it." >&2
+    echo "devcontainer:           Move it aside, then rebuild the container." >&2
+  fi
+fi
 touch "$HOME/.claude.json"
 
 # ── 2. Match the container user to the host user ─────────────────────────────

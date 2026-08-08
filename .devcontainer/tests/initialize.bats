@@ -63,6 +63,30 @@ assert_accepted_unchanged() {
   assert_output '{"kept":true}'
 }
 
+# The failure this whole step exists to prevent: Docker creates an empty
+# directory at the bind-mount source when it is missing, and an earlier failed
+# start can leave one behind. `touch` alone would not clear it — on a directory
+# touch succeeds and just updates the mtime, so the broken mount would silently
+# recur.
+@test "replaces an empty ~/.claude.json directory with a file" {
+  mkdir "$HOME/.claude.json"
+  run bash "$SCRIPT"
+  assert_success
+  assert [ -f "$HOME/.claude.json" ]
+}
+
+# A non-empty directory is somebody's data, not Docker's leftover, so it is
+# reported rather than deleted.
+@test "warns about a non-empty ~/.claude.json directory instead of deleting it" {
+  mkdir "$HOME/.claude.json"
+  printf 'mine\n' > "$HOME/.claude.json/keepme"
+  run --separate-stderr bash "$SCRIPT"
+  assert_success
+  assert_regex "$stderr" 'is a non-empty directory'
+  assert [ -d "$HOME/.claude.json" ]
+  assert_equal "$(cat "$HOME/.claude.json/keepme")" mine
+}
+
 # --- creating .env ------------------------------------------------------------
 
 @test "creates .env mode 0600 and pins both ids to the host user" {
