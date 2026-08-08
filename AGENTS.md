@@ -18,7 +18,8 @@ even where the global Crystal cache is not writable.
 - `make spec` — run the spec suite
 - `make lint` — run ameba (zero findings required)
 - `make dup` — check `src/**/*.cr` for code duplication (jscpd; zero clones required)
-- `make check` — lint + spec + dup (the fast local gate)
+- `make devcontainer-spec` — bats tests for `.devcontainer/initialize.sh` (deterministic, offline)
+- `make check` — lint + spec + dup + devcontainer-spec (the fast local gate)
 - `make coverage` — run specs under kcov and enforce the 100% line-coverage gate
 - `make mutate SUBJECT=src/agent_apropos/<module>.cr` — advisory mutation testing (see `docs/mutation-testing.md`)
 - `make e2e` (or `bash e2e/run.sh`) — the **live** end-to-end suite: this is what "e2e tests" means

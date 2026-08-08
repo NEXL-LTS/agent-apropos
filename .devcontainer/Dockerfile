@@ -171,3 +171,19 @@ RUN mkdir -p /home/vscode/.local
 RUN mkdir -p /home/vscode/.cache
 
 ENV PATH=/home/vscode/.local/bin:$PATH
+
+# Claude Code — baked into the image so `claude` exists before postCreate runs,
+# rather than only afterwards via install_agents.sh. Must come after `USER
+# vscode`: the installer refuses to run under sudo and installs into $HOME.
+#
+# It lands a launcher at ~/.local/bin/claude (on PATH above) pointing into
+# ~/.local/share/claude/versions/. Neither path is a named volume in
+# docker-compose.yml, so neither is masked when a container starts against
+# pre-existing volumes — unlike ~/.claude, which holds only session state and
+# IS one (claude-data). The installer's scratch downloads go through
+# ~/.claude/downloads and are deleted before the layer is committed.
+#
+# install_agents.sh still installs claude at postCreate; that now upgrades this
+# copy to the current release instead of being the only thing that provides it.
+RUN curl -fsSL https://claude.ai/install.sh | bash && \
+    claude --version

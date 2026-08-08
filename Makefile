@@ -90,8 +90,18 @@ endif
 		exit 1; \
 	}
 
+# Deterministic bats tests for the devcontainer's host-side initializeCommand
+# (.devcontainer/initialize.sh). Offline and credential-free, unlike the live
+# `e2e` target below, so this one does belong in `check`. bats and the
+# bats-support/bats-assert libraries ship in the devcontainer image; default
+# BATS_LIB_PATH to their install location so the target works even when that
+# env var is not exported into the current shell.
+.PHONY: devcontainer-spec
+devcontainer-spec: ## Run the bats tests for .devcontainer/initialize.sh
+	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats .devcontainer/tests
+
 .PHONY: check
-check: lint spec dup ## Lint + spec + duplication check (the fast local gate)
+check: lint spec dup devcontainer-spec ## Lint + spec + duplication + devcontainer checks (the fast local gate)
 
 # End-to-end test: stands up a sample repo wired with agent-apropos's hooks and
 # proves agent-apropos injects conventions and steers a real `claude` run. Local/advisory —

@@ -38,9 +38,13 @@ services:
     security_opt:
       - seccomp:unconfined
     command: sleep infinity
-    environment:
-      - GH_TOKEN=${GH_TOKEN}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    # Agent credentials live in .devcontainer/.env (gitignored). Loading the
+    # whole file means a new key only has to be added there, not mirrored into
+    # an `environment:` list here. `required: false` keeps a fresh clone
+    # without the file buildable — the live e2e agents just stay unauthenticated.
+    env_file:
+      - path: .env
+        required: false
 
 volumes:
   claude-data:
