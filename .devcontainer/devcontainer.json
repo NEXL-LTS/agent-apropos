@@ -4,6 +4,10 @@
   "service": "app",
   "workspaceFolder": "/workspace",
   "remoteUser": "vscode",
+  "initializeCommand": [
+    "bash",
+    "${localWorkspaceFolder}/.devcontainer/initialize.sh"
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
