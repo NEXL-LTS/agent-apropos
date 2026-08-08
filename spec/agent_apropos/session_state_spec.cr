@@ -8,7 +8,7 @@ private def session_path(id : String) : String
 end
 
 private def cause(file : String = "src/app.cr", patterns : Array(String) = ["src/**"]) : AgentApropos::SessionState::Cause
-  AgentApropos::SessionState::Cause.new(layer: 2, event: "PreToolUse", file: file, matched_patterns: patterns)
+  AgentApropos::SessionState::Cause.new(event: "PreToolUse", file: file, matched_patterns: patterns)
 end
 
 # A filesystem whose glob returns paths that read? cannot resolve — models a
@@ -197,7 +197,6 @@ describe AgentApropos::SessionState do
             {
               "path": "a.md",
               "cause": {
-                "layer": 2,
                 "event": "PreToolUse",
                 "file": "src/a.cr",
                 "matched_patterns": [
@@ -208,7 +207,6 @@ describe AgentApropos::SessionState do
             {
               "path": "z.md",
               "cause": {
-                "layer": 2,
                 "event": "PreToolUse",
                 "file": "src/z.cr",
                 "matched_patterns": [

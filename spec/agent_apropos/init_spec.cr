@@ -43,7 +43,7 @@ describe AgentApropos::Init do
       code.should eq(0)
       stderr.should be_empty
 
-      fs.files[README_PATH].should contain("The four layers")
+      fs.files[README_PATH].should contain("The three layers")
       fs.files.has_key?("/repo/docs/conventions/workflows/.gitkeep").should be_true
       fs.files["/repo/.claude/skills/.gitkeep"].should contain("Do not edit")
       fs.files[AGENTS_PATH].should contain("Where scoped guidance lives")
@@ -76,7 +76,7 @@ describe AgentApropos::Init do
       _, stdout, _ = run_init(fs, AgentApropos::Init::Options.new(force: true))
       stdout.should contain("updated  docs/conventions/README.md")
       stdout.should contain("exists   AGENTS.md")
-      fs.files[README_PATH].should contain("The four layers")
+      fs.files[README_PATH].should contain("The three layers")
       fs.files[AGENTS_PATH].should eq("custom root")
     end
 

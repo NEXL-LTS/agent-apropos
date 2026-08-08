@@ -1,7 +1,7 @@
 ---
 paths: ["api/**"]
 ---
-# Throttle every handler, outermost (Layer 2 — path-scoped)
+# Throttle every handler, outermost (path-scoped)
 
 **Rule:** Every new handler function added under `api/` must also be
 wrapped in `rate_limited` (imported from `api/throttle.py`) — and it must be

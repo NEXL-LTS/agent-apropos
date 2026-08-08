@@ -1,7 +1,7 @@
 ---
 contents: ['datetime\.now\(\)']
 ---
-# Use the injectable clock instead of datetime.now() (Layer 3 — construct-scoped, multi-file)
+# Use the injectable clock instead of datetime.now() (content-scoped, multi-file)
 
 **Rule:** we are phasing out direct `datetime.now()` calls in favor of the
 injectable `Clock.now()` (defined in `services/clock.py`). New code must use

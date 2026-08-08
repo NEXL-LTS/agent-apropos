@@ -22,9 +22,8 @@ module AgentApropos
 
     LAYERS = [
       Layer.new(1, "Root file", "Always loaded", "AGENTS.md (Claude also accepts CLAUDE.md; Gemini via context.fileName; Copilot CLI and Codex CLI both read AGENTS.md automatically)"),
-      Layer.new(2, "Path-scoped", "The file path being edited", "PreToolUse hook (Claude Code, Codex CLI) / tool.execute.before plugin (OpenCode) / AfterTool hook, post-edit fallback (Gemini CLI) / postToolUse hook, post-edit fallback (Copilot CLI)"),
-      Layer.new(3, "Construct-scoped", "The written content (regex), optionally AND path", "PostToolUse hook (Claude Code, Codex CLI) / tool.execute.after plugin (OpenCode) / AfterTool hook (Gemini CLI) / postToolUse hook (Copilot CLI)"),
-      Layer.new(4, "Intent skills", "A semantic skill match", "Generated .claude/skills/*/SKILL.md (Claude Code, OpenCode, Copilot CLI), .gemini/skills/*/SKILL.md (Gemini CLI), and .codex/skills/*/SKILL.md (Codex CLI)"),
+      Layer.new(2, "Scoped rules", "A write to a matching path and/or matching written content (regex), ANDed when both are declared", "PreToolUse hook (Claude Code, Codex CLI) / tool.execute.before and .after plugin (OpenCode) / AfterTool hook, post-edit (Gemini CLI) / postToolUse hook, post-edit (Copilot CLI). Reads never inject."),
+      Layer.new(3, "Intent skills", "A semantic skill match", "Generated .claude/skills/*/SKILL.md (Claude Code, OpenCode, Copilot CLI), .gemini/skills/*/SKILL.md (Gemini CLI), and .codex/skills/*/SKILL.md (Codex CLI)"),
     ]
 
     PATHS = [
@@ -61,33 +60,33 @@ module AgentApropos
         "orphaned."),
       Command.new("hook", "PreToolUse/PostToolUse handlers (Claude Code, Gemini CLI, Copilot CLI, Codex CLI) or plugin bridge (OpenCode)",
         "You do not run hook by hand. Claude Code invokes `hook pre` at edit " \
-        "time (and also on its Read tool, so Layer 2 can land as early as " \
-        "the model's first read) and `hook post` after a write, each with " \
-        "the tool payload on stdin. The generated OpenCode plugin " \
+        "time and `hook post` after a write, each with the tool payload on " \
+        "stdin. Rules are injected only on a write; the same hook is wired " \
+        "onto each agent's read tool, where it emits nothing and merely " \
+        "records a convention doc the model read for itself so no later " \
+        "write re-injects it. The generated OpenCode plugin " \
         "(.opencode/plugins/agent-apropos.js) calls the same commands via " \
-        "tool.execute.before (Layer 2, on reads and pre-write) and " \
-        "tool.execute.after (Layer 3, post-write) and injects context using " \
-        "noReply:true. Gemini CLI calls both `hook pre` and `hook post` from " \
-        "its AfterTool event, since its BeforeTool event cannot inject " \
-        "context — Layer 2 still fires, just after the edit — plus `hook " \
-        "pre` again from AfterTool's read_file match, so Layer 2 can also " \
-        "land on a plain read. GitHub Copilot CLI's postToolUse hook calls " \
-        "`hook pre`/`hook post` directly too, for the same reason as Gemini " \
-        "— its preToolUse event cannot inject context either — with no " \
-        "bridge script: hook pre/post understand Copilot's own wire dialect " \
-        "(toolArgs as a JSON-encoded string) natively and reply in its flat " \
-        "additionalContext shape instead of the hookSpecificOutput envelope. " \
-        "Codex CLI calls `hook pre`/`hook post` from its own PreToolUse/" \
-        "PostToolUse events, matched on its apply_patch tool — its schema " \
-        "supports additionalContext on PreToolUse too, so Layer 2 lands " \
-        "before the write, same as Claude; its patch-envelope tool_input " \
-        "(bundling several files' edits into one call) is parsed by " \
+        "tool.execute.before and tool.execute.after and injects context " \
+        "using noReply:true. Gemini CLI calls both `hook pre` and `hook " \
+        "post` from its AfterTool event, since its BeforeTool event cannot " \
+        "inject context — rules still fire, just after the edit. GitHub " \
+        "Copilot CLI's postToolUse hook calls `hook pre`/`hook post` " \
+        "directly too, for the same reason as Gemini — its preToolUse event " \
+        "cannot inject context either — with no bridge script: hook pre/post " \
+        "understand Copilot's own wire dialect (toolArgs as a JSON-encoded " \
+        "string) natively and reply in its flat additionalContext shape " \
+        "instead of the hookSpecificOutput envelope. Codex CLI calls `hook " \
+        "pre`/`hook post` from its own PreToolUse/PostToolUse events, " \
+        "matched on its apply_patch tool — its schema supports " \
+        "additionalContext on PreToolUse too, so rules land before the " \
+        "write, same as Claude; its patch-envelope tool_input (bundling " \
+        "several files' edits into one call) is parsed by " \
         "Payload#file_edits, matched and deduped per file. All hooks fail " \
         "open."),
       Command.new("match", "Resolve the conventions that apply to given paths",
-        "Use match in a review to see which rules apply to a file — Layer 2 by " \
-        "path, Layer 3 by on-disk (or --stdin-content) content — in paths, json, " \
-        "or full form."),
+        "Use match in a review to see which rules apply to a file — by path " \
+        "glob, by on-disk (or --stdin-content) content regex, or both ANDed " \
+        "— in paths, json, or full form."),
       Command.new("review", "Resolve conventions for a git range as a checklist",
         "Use review to turn a diff into a review manifest: for each changed file, " \
         "the applicable rules and their `## Verify` criteria as checklist items, " \
@@ -146,7 +145,7 @@ module AgentApropos
       io << "agent-apropos — deliver the right documentation to the right moment.\n\n"
       io << "What agent-apropos is\n\n" << WHAT << "\n\n"
       io << "Why it exists\n\n" << WHY << "\n\n"
-      io << "The four layers\n\n"
+      io << "The three layers\n\n"
       LAYERS.each do |layer|
         io << "  Layer #{layer.number} — #{layer.name}: triggered by #{layer.trigger}; " \
               "delivered via #{layer.mechanism}.\n"

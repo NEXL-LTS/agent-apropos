@@ -2,7 +2,7 @@
 skill: true
 description: "Use when adding a new arithmetic operation to the calc library"
 ---
-# Adding an arithmetic operation (Layer 4 — intent skill)
+# Adding an arithmetic operation (Layer 3 — intent skill)
 
 When adding a new operation to the calc library at `lib/calc.py`, don't just
 define a bare function — register it in the dispatch table so it's callable

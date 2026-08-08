@@ -22,3 +22,5 @@
 
 # Node tooling for docs linting (remark-validate-links); package-lock.json is committed
 /node_modules/
+
+/tmp/

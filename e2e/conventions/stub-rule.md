@@ -1,7 +1,7 @@
 ---
 contents: ['\bNotImplementedError\b']
 ---
-# Deferred stubs use StubNotImplemented (Layer 3 — construct-scoped)
+# Deferred stubs use StubNotImplemented (content-scoped)
 
 **Rule:** Do not raise the bare built-in `NotImplementedError` for a
 deliberately deferred stub. Raise `StubNotImplemented("<feature>")` instead

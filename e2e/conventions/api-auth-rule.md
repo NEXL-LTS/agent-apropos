@@ -1,7 +1,7 @@
 ---
 paths: ["api/**"]
 ---
-# Authenticate every handler (Layer 2 — path-scoped)
+# Authenticate every handler (path-scoped)
 
 **Rule:** `api/` is the public HTTP surface. Every new handler function
 added under `api/` must be wrapped in the `require_auth` decorator

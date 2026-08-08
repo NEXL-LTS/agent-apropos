@@ -61,11 +61,15 @@ describe AgentApropos::Agents::OpenCode do
       plugin.should contain("noReply: true")
       plugin.should contain(%(["agent-apropos", "hook", sub, "--tool", "opencode"]))
       # OpenCode delivers tool args in the second callback parameter; the plugin
-      # must read from there (falling back to input) or Layer 2 never fires.
+      # must read from there (falling back to input) or no rule ever fires.
       plugin.should contain("async (input, output)")
       plugin.should contain("output?.args ?? input.args")
-      # Layer 2 fires on OpenCode's "read" tool too, via the same "pre" hook.
+      # The "read" tool still calls the pre hook — not to inject, but so a
+      # convention doc the model read is recorded as already in context.
       plugin.should contain(%("edit", "write", "apply_patch", "read"))
+      # Both events send the written content, so content regexes can match the
+      # fragment about to land rather than only the file after the write.
+      plugin.scan(%(makePayload(input, args, true))).size.should eq(2)
       stdout.should contain(".opencode/plugins/agent-apropos.js")
     end
 

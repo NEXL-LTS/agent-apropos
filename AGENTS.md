@@ -38,6 +38,7 @@ even where the global Crystal cache is not writable.
 - `generate` output must be byte-stable across runs and platforms (sorted walks, LF endings, no timestamps). Determinism is a prerequisite for the `--check` drift gate.
 - Do not put anything in this file that a linter or formatter can enforce — that belongs in tooling. Formatting is enforced by `crystal tool format`; do not document style here.
 - Write Windows-aware path code (use `Path`, never hardcode `/`), even though the Windows binary ships later.
+- Answer with the key ideas only, in as few words as carry them. State a conclusion and its one load-bearing reason; leave out supporting detail, alternatives considered, and exhaustive impact lists until asked. In design discussions, prefer a handful of short points over a structured document — the user will ask for depth on the parts they care about.
 
 ## Pull requests
 

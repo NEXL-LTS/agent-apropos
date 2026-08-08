@@ -1,5 +1,5 @@
 name: agent_apropos
-version: 0.3.3
+version: 0.4.0
 description: |
   Apropos: apt, pertinent, timely — said or done at exactly the right moment.
   This binary delivers the right convention exactly when it's apropos. It

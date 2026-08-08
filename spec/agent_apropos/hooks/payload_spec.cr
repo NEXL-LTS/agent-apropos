@@ -171,7 +171,7 @@ describe AgentApropos::Hook::Payload do
       edits[1].written_contents.should eq(["    \"\"\"docstring\"\"\""])
     end
 
-    it "skips a Delete File section entirely — no content to match Layer 3 against" do
+    it "skips a Delete File section entirely — no content to match a rule against" do
       json = {
         tool_name:  "apply_patch",
         tool_input: {command: "*** Begin Patch\n*** Delete File: gone.py\n*** End Patch\n"},

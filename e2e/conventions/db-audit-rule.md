@@ -2,7 +2,7 @@
 paths: ["db/**"]
 contents: ['\bconn\.execute\(']
 ---
-# Audited queries (Layer 3 — path + content, AND)
+# Audited queries (path + content, AND)
 
 **Rule:** Inside `db/**`, any function that calls `conn.execute(` directly
 must instead call `audited_query(conn, sql, params)` (defined in

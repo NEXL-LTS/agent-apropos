@@ -26,8 +26,12 @@ module AgentApropos
     )
     end
 
+    def scoped? : Bool
+      !paths.empty? || !contents.empty?
+    end
+
     def reference_only? : Bool
-      paths.empty? && contents.empty? && !skill?
+      !scoped? && !skill?
     end
 
     def self.split(text : String) : {Frontmatter?, String}
