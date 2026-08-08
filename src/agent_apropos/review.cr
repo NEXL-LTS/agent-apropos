@@ -16,12 +16,11 @@ module AgentApropos
 
     struct RuleMatch
       getter path : String
-      getter layer : Int32
       getter triggers : Array(String)
       getter verify : String?
       getter body : String
 
-      def initialize(@path, @layer, @triggers, @verify, @body)
+      def initialize(@path, @triggers, @verify, @body)
       end
     end
 
@@ -87,14 +86,9 @@ module AgentApropos
     end
 
     private def rule_for(convention : Convention, relative : String, content : String?) : RuleMatch?
-      fm = convention.frontmatter
-      if convention.layer2? && convention.triggers_for_path?(relative)
-        hits = fm.paths.select { |glob| Matcher.path_match?(glob, relative) }
-        RuleMatch.new(convention.path, 2, hits, convention.verify, convention.body.strip)
-      elsif content && convention.layer3? && convention.triggers_for_content?(relative, content)
-        hits = fm.contents.select { |source| Matcher.content_match?(source, content) }
-        RuleMatch.new(convention.path, 3, hits, convention.verify, convention.body.strip)
-      end
+      hits = convention.triggers(relative, content)
+      return nil unless hits
+      RuleMatch.new(convention.path, hits, convention.verify, convention.body.strip)
     end
 
     private def absolute(repo_root : Path, given : String) : String
@@ -198,7 +192,7 @@ module AgentApropos
     end
 
     private def render_rule_md(io : IO, rule : RuleMatch) : Nil
-      io << "- #{rule.path} (Layer #{rule.layer})\n"
+      io << "- #{rule.path} (#{rule.triggers.map { |trigger| "`#{trigger}`" }.join(", ")})\n"
       verify_items(rule.verify).each { |item| io << "  - [ ] #{item}\n" }
     end
 
@@ -238,7 +232,6 @@ module AgentApropos
     private def rule_object(json : JSON::Builder, rule : RuleMatch) : Nil
       json.object do
         json.field "path", rule.path
-        json.field "layer", rule.layer
         json.field "triggers" do
           json.array { rule.triggers.each { |trigger| json.string trigger } }
         end

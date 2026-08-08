@@ -53,27 +53,40 @@ module AgentApropos
       return if in_root.empty?
 
       index = load_or_build_index(root, fs, allow_outside)
-      matches = dedup_by_entry(in_root.flat_map { |relative, edit| matches_for(event, index, root, fs, relative, edit) })
-
       session_id = SessionState.key?(payload.session_id)
       SessionState.prune(root, fs, now)
       state = SessionState.load(root, fs, session_id)
-      fresh = matches.reject { |match| state.injected?(match.entry.path) }
-
-      notice = session_notice(state, session_id)
-      combined = combine(notice, build_context(root, fs, fresh.map(&.entry)))
-      return if combined.empty?
+      name = event_name(event)
 
       agent = Agents.find(tool) || Agents.detect(payload)
-      layer = agent.read?(payload) ? "agent" : (event == :pre ? 2 : 3)
-      name = event_name(event)
-      fresh.each do |match|
-        cause = SessionState::Cause.new(layer, name, match.relative, match.patterns)
-        state.add(match.entry.path, cause)
+      return suppress(index, state, root, fs, session_id, now, name, in_root) if agent.read?(payload)
+
+      pending = index.docs.reject { |entry| state.injected?(entry.path) }
+      matches = dedup_by_entry(in_root.flat_map { |relative, edit| matches_for(pending, root, fs, relative, edit) })
+
+      notice = session_notice(state, session_id)
+      combined = combine(notice, build_context(root, fs, matches.map(&.entry)))
+      return if combined.empty?
+
+      matches.each do |match|
+        state.add(match.entry.path, SessionState::Cause.new(name, match.relative, match.patterns))
       end
       state.notify! if notice
       state.save(root, fs, session_id, now)
       emit(stdout, name, combined, payload.copilot?)
+    end
+
+    private def suppress(index : Index, state : SessionState, root : Path, fs : Filesystem,
+                         session_id : String?, now : Time, name : String,
+                         in_root : Array({String, Payload::FileEdit})) : Nil
+      read = in_root.map { |relative, _| relative }.to_set
+      recorded = index.docs.select { |entry| read.includes?(entry.path) }
+      return if recorded.empty?
+
+      recorded.each do |entry|
+        state.add(entry.path, SessionState::Cause.new(name, entry.path, [] of String))
+      end
+      state.save(root, fs, session_id, now)
     end
 
     private def relative_edit(root : Path, edit : Payload::FileEdit) : {String, Payload::FileEdit}?
@@ -104,44 +117,18 @@ module AgentApropos
       "#{notice}\n\n#{context}"
     end
 
-    private def matches_for(event : Symbol, index : Index, root : Path, fs : Filesystem,
+    private def matches_for(entries : Array(Index::Entry), root : Path, fs : Filesystem,
                             relative : String, edit : Payload::FileEdit) : Array(Match)
-      case event
-      when :pre
-        match_pre(index, relative)
-      else
-        match_post(index, root, fs, relative, edit)
-      end
-    end
-
-    private def match_pre(index : Index, relative : String) : Array(Match)
-      index.docs.compact_map do |entry|
-        next unless entry.layer2?
-        patterns = Matcher.matching_paths(entry.paths, relative)
-        next if patterns.empty?
+      content = content_for(edit, root, fs, relative)
+      entries.compact_map do |entry|
+        patterns = entry.triggers(relative, content)
+        next unless patterns
         Match.new(entry, patterns, relative)
       end
     end
 
-    private def match_post(index : Index, root : Path, fs : Filesystem,
-                           relative : String, edit : Payload::FileEdit) : Array(Match)
-      content = post_content(edit, root, fs, relative)
-      return [] of Match unless content
-
-      index.docs.compact_map do |entry|
-        next unless entry.layer3?
-        content_patterns = Matcher.matching_contents(entry.contents, content)
-        next if content_patterns.empty?
-
-        path_patterns = entry.paths.empty? ? [] of String : Matcher.matching_paths(entry.paths, relative)
-        next if !entry.paths.empty? && path_patterns.empty?
-
-        Match.new(entry, content_patterns + path_patterns, relative)
-      end
-    end
-
-    private def post_content(edit : Payload::FileEdit, root : Path, fs : Filesystem,
-                             relative : String) : String?
+    private def content_for(edit : Payload::FileEdit, root : Path, fs : Filesystem,
+                            relative : String) : String?
       pieces = edit.written_contents
       return pieces.join('\n') unless pieces.empty?
       fs.read?(root.join(relative).to_s)

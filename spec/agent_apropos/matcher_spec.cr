@@ -17,20 +17,6 @@ describe AgentApropos::Matcher do
     end
   end
 
-  describe ".any_path_match?" do
-    it "is true when any pattern matches" do
-      AgentApropos::Matcher.any_path_match?(["lib/**", "spec/**"], "spec/a_spec.cr").should be_true
-    end
-
-    it "is false when no pattern matches" do
-      AgentApropos::Matcher.any_path_match?(["lib/**", "spec/**"], "src/x.cr").should be_false
-    end
-
-    it "is false for an empty pattern list" do
-      AgentApropos::Matcher.any_path_match?([] of String, "anything.cr").should be_false
-    end
-  end
-
   describe ".matching_paths" do
     it "returns only the patterns that match" do
       AgentApropos::Matcher.matching_paths(["lib/**", "spec/**", "app/**"], "spec/a_spec.cr")
@@ -70,16 +56,6 @@ describe AgentApropos::Matcher do
     end
   end
 
-  describe ".any_content_match?" do
-    it "is true when any source matches" do
-      AgentApropos::Matcher.any_content_match?(["nope", "wor.d"], "hello world").should be_true
-    end
-
-    it "is false for an empty source list" do
-      AgentApropos::Matcher.any_content_match?([] of String, "content").should be_false
-    end
-  end
-
   describe ".matching_contents" do
     it "returns only the sources that match" do
       AgentApropos::Matcher.matching_contents(["nope", "wor.d"], "hello world").should eq(["wor.d"])
@@ -87,6 +63,31 @@ describe AgentApropos::Matcher do
 
     it "is empty when no source matches" do
       AgentApropos::Matcher.matching_contents(["nope", "zilch"], "hello world").should be_empty
+    end
+  end
+
+  describe ".triggers" do
+    it "is nil when neither paths nor contents are declared" do
+      AgentApropos::Matcher.triggers([] of String, [] of String, "src/x.cr", "body").should be_nil
+    end
+
+    it "returns the matched globs for a paths-only rule, ignoring content" do
+      AgentApropos::Matcher.triggers(["src/**"], [] of String, "src/x.cr", nil).should eq(["src/**"])
+    end
+
+    it "returns the matched sources for a contents-only rule, ignoring path" do
+      AgentApropos::Matcher.triggers([] of String, ["wor.d"], "any.cr", "hello world").should eq(["wor.d"])
+    end
+
+    it "is nil when a contents rule has no content to match against" do
+      AgentApropos::Matcher.triggers([] of String, ["wor.d"], "any.cr", nil).should be_nil
+    end
+
+    it "ANDs paths and contents, returning both sides' hits" do
+      AgentApropos::Matcher.triggers(["src/**"], ["wor.d"], "src/x.cr", "hello world")
+        .should eq(["src/**", "wor.d"])
+      AgentApropos::Matcher.triggers(["src/**"], ["wor.d"], "lib/x.cr", "hello world").should be_nil
+      AgentApropos::Matcher.triggers(["src/**"], ["wor.d"], "src/x.cr", "nothing").should be_nil
     end
   end
 

@@ -55,7 +55,7 @@ describe AgentApropos::Generate do
       stdout.should contain("skill: wrote .gemini/skills/foo/SKILL.md")
       stdout.should contain("skill: wrote .codex/skills/foo/SKILL.md")
 
-      fs.files[INDEX_PATH].should contain("\"schema_version\": 1")
+      fs.files[INDEX_PATH].should contain("\"schema_version\": 2")
       expected = AgentApropos::Skills.wrappers([AgentApropos::Convention.parse("docs/conventions/workflows/foo.md", doc)])["foo"]
       fs.files["/repo/.claude/skills/foo/SKILL.md"].should eq(expected)
       fs.files["/repo/.gemini/skills/foo/SKILL.md"].should eq(expected)

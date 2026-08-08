@@ -36,17 +36,19 @@ File: <path>` — this last one per OpenAI's public `apply_patch` format spec,
 not itself independently captured live like the Add/Update shapes were —
 each running until the next such marker or `*** End Patch`. Only Add/Update
 sections become a `FileEdit`: a Delete has no newly written content to match
-Layer 3 against, and no other wired agent's hooks fire on a pure delete
-either, so skipping it keeps Codex's scope consistent with the rest of the
-layer model.
+a `contents` rule against, and no other wired agent's hooks fire on a pure
+delete either, so skipping it keeps Codex's scope consistent with the rest of
+the layer model.
 
 ## Copilot (`agents/copilot.cr`)
 
 GitHub Copilot CLI's `preToolUse` output schema is `permissionDecision`/
-`modifiedArgs` only — no context field — so, like Gemini's `AfterTool`, both
-Layer 2 and Layer 3 are wired onto `postToolUse` instead: a `view`-only
-matcher group carrying just `agent-apropos hook pre`, and a `create|edit`
-group carrying both `pre` and `post`.
+`modifiedArgs` only — no context field — so, like Gemini's `AfterTool`,
+scoped rules are wired onto `postToolUse` instead: a `view`-only matcher
+group carrying just `agent-apropos hook pre`, and a `create|edit` group
+carrying both `pre` and `post`. The `view` group injects nothing (a read
+never does); it exists so a convention doc Copilot reads for itself is
+recorded as already in context.
 
 `.github/hooks/agent-apropos.json` is written with no bridge script, unlike
 Claude/Gemini's shared settings file: Copilot CLI loads every
@@ -63,7 +65,7 @@ not upstream docs — Copilot's own reference types `toolArgs` as `unknown`.
 Codex CLI's `PreToolUse`/`PostToolUse` envelope and reply schema mirror
 Claude Code's almost exactly — down to naming its shell tool `Bash`, matching
 Claude's own tool name — including `PreToolUse`'s own
-`hookSpecificOutput.additionalContext`, so Layer 2 lands *before* the write
+`hookSpecificOutput.additionalContext`, so a rule lands *before* the write
 here, the same as Claude, unlike Gemini/Copilot's post-only degradation.
 Codex's own hook `timeout` field is seconds, like Claude Code's too. Both
 facts were confirmed against a real captured Codex hook payload, not
@@ -78,9 +80,10 @@ every other wired dialect is exactly one file per call.
 
 Codex has no separate structured "read" tool the way Claude's `Read` or
 Gemini's `read_file` are — it reads files by shelling out through its own
-`Bash` tool (`cat`/`sed`/`rg`), which carries no `file_path` — so Layer 2
-cannot land on a bare read the way it does for Claude/Gemini; only
-`apply_patch` is matched.
+`Bash` tool (`cat`/`sed`/`rg`), which carries no `file_path` — so
+`Codex#read?` is unconditionally false and a convention doc Codex reads for
+itself cannot be recorded as already in context; only `apply_patch` is
+matched.
 
 ## Skill wrapper delivery (`skills.cr`)
 

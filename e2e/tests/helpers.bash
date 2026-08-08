@@ -2,8 +2,8 @@
 #
 # Loaded by each *.bats file via `load helpers`. Provides the sample-repo
 # scaffolding, the agent-apropos-on-PATH bootstrap, the live CLI runners, and the
-# agent-agnostic live test matrix (register_live_tests). The per-layer
-# expected artifacts and prompts live in layers.bats so each layer's
+# agent-agnostic live test matrix (register_live_tests). The per-case
+# expected artifacts and prompts live in layers.bats so each case's
 # expectations stay self-contained.
 #
 # Deterministic delivery checks (hook payload -> injected rule, generate ->
@@ -14,9 +14,9 @@
 
 # Registered CLI agents for the live matrix: "name|require_live_fn|run_fn".
 # Adding a CLI agent means adding one entry here plus its require_live_<x>/
-# run_<x> pair below — no per-layer test to write.
+# run_<x> pair below — no per-case test to write.
 #
-# Layer 4 (skills) works for Copilot CLI with no agent-apropos-side work at all:
+# Intent skills work for Copilot CLI with no agent-apropos-side work at all:
 # `copilot skill --help` documents that it discovers project skills from
 # .github/skills/, .agents/skills/, OR .claude/skills/ natively — the same
 # path agent-apropos generate already writes for Claude Code/OpenCode. Verified
@@ -28,7 +28,7 @@
 # Copilot actually reads.
 #
 # Codex CLI needed its own root instead: a repo carrying only .claude/skills/
-# did NOT get the skill's guidance (its live Layer 4 "with" test failed), but
+# did NOT get the skill's guidance (its live intent-skill "with" test failed), but
 # placing the identical wrapper under .codex/skills/ did — confirmed live
 # before wiring generate to write there (see skills.cr's ROOTS).
 E2E_AGENTS=(
@@ -48,15 +48,15 @@ if [ -n "${E2E_GEMINI:-}" ]; then
   E2E_AGENTS+=("Gemini|require_live_gemini|run_gemini")
 fi
 
-# Register the live with/without pair of tests for one layer, once per agent
+# Register the live with/without pair of tests for one case, once per agent
 # in E2E_AGENTS. Equivalent to what `@test "..." { ... }` expands to (see
-# bats-preprocess) but driven from a loop, so the layer files stay agent-count
+# bats-preprocess) but driven from a loop, so the case files stay agent-count
 # agnostic.
 #
 # True iff every newline-separated, non-empty line in $2 is present as a
 # literal substring somewhere in file $1. A single-line value (every existing
-# layer's expected artifact) degenerates to a plain single grep -qF, so this
-# is a drop-in replacement; a multi-line value (e.g. two Layer 2 rules
+# case's expected artifact) degenerates to a plain single grep -qF, so this
+# is a drop-in replacement; a multi-line value (e.g. two path rules
 # landing on one file) requires all of them present at once.
 assert_contains_all() {
   local file="$1" patterns="$2" line
@@ -67,18 +67,18 @@ assert_contains_all() {
   return 0
 }
 
-# Args: layer label (e.g. "Layer 2", "Layer 3 (path+content)"), expected-
+# Args: case label (e.g. "Path rule", "Path+content rule"), expected-
 # artifact var name, prompt var name, target file (repo-relative, e.g.
 # src/util.py). The expected-artifact var may hold one pattern or several
 # newline-separated patterns (see assert_contains_all) — every one of them
 # must land for the "with" test to pass, and "without" asserts they don't
 # all land together.
 register_live_tests() {
-  local layer="$1" expect_var="$2" prompt_var="$3" target="$4"
+  local label="$1" expect_var="$2" prompt_var="$3" target="$4"
   # Sanitize to a valid bash identifier fragment — labels (and, below, agent
   # display names) may contain spaces or punctuation (e.g.
-  # "Layer 3 (path+content)", or a future "GitHub Copilot" entry).
-  local slug="${layer//[^A-Za-z0-9]/_}"
+  # "Path+content rule", or a future "GitHub Copilot" entry).
+  local slug="${label//[^A-Za-z0-9]/_}"
   local entry name require_fn run_fn fn name_slug
 
   for entry in "${E2E_AGENTS[@]}"; do
@@ -92,7 +92,7 @@ register_live_tests() {
       $run_fn \"\$$prompt_var\"
       assert assert_contains_all \"\$WORK/$target\" \"\$$expect_var\"
     }"
-    bats_test_function --description "$layer with agent-apropos ($name): the expected pattern lands" --tags "" -- "$fn"
+    bats_test_function --description "$label with agent-apropos ($name): the expected pattern lands" --tags "" -- "$fn"
 
     fn="test_${slug}_without_${name_slug}"
     eval "$fn() {
@@ -101,7 +101,7 @@ register_live_tests() {
       $run_fn \"\$$prompt_var\"
       refute assert_contains_all \"\$WORK/$target\" \"\$$expect_var\"
     }"
-    bats_test_function --description "$layer without agent-apropos ($name): the expected pattern does not appear" --tags "" -- "$fn"
+    bats_test_function --description "$label without agent-apropos ($name): the expected pattern does not appear" --tags "" -- "$fn"
   done
 }
 
@@ -142,7 +142,7 @@ new_sample() {
   # file listing of its workspace can never reveal it — agent-apropos's hooks are
   # the only channel that can deliver it), or a directory that doesn't exist
   # for "without" (Filesystem::Real#glob on an absent base just finds
-  # nothing, so Layer 2/3 never match and the model gets no convention
+  # nothing, so no scoped rule ever matches and the model gets no convention
   # content and no discoverable directory to explore, full stop).
   if [ "$mode" = "without" ]; then
     echo "conventions_dir: $BATS_TEST_TMPDIR/no-conventions" > "$WORK/agent-apropos.yml"

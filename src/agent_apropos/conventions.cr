@@ -19,12 +19,8 @@ module AgentApropos
       new(path, Digest::SHA256.hexdigest(text), frontmatter || Frontmatter.new, body)
     end
 
-    def layer2? : Bool
-      !frontmatter.paths.empty? && frontmatter.contents.empty?
-    end
-
-    def layer3? : Bool
-      !frontmatter.contents.empty?
+    def scoped? : Bool
+      frontmatter.scoped?
     end
 
     def skill? : Bool
@@ -49,17 +45,15 @@ module AgentApropos
     end
 
     def reference_only? : Bool
-      !layer2? && !layer3? && !skill?
+      frontmatter.reference_only?
     end
 
-    def triggers_for_path?(relative_path : String) : Bool
-      layer2? && Matcher.any_path_match?(frontmatter.paths, relative_path)
+    def triggers(relative_path : String, content : String?) : Array(String)?
+      Matcher.triggers(frontmatter.paths, frontmatter.contents, relative_path, content)
     end
 
-    def triggers_for_content?(relative_path : String, content : String) : Bool
-      return false unless layer3?
-      return false unless Matcher.any_content_match?(frontmatter.contents, content)
-      frontmatter.paths.empty? || Matcher.any_path_match?(frontmatter.paths, relative_path)
+    def triggers?(relative_path : String, content : String?) : Bool
+      !triggers(relative_path, content).nil?
     end
   end
 

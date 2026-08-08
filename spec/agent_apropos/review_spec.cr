@@ -92,16 +92,16 @@ describe AgentApropos::Review do
       stdout.should eq("docs/conventions/a.md\ndocs/conventions/db.md\n")
     end
 
-    it "resolves Layer 2 by path and Layer 3 by on-disk content in json form" do
+    it "resolves path globs and on-disk content regexes into one triggers list in json form" do
       fs = InMemoryFS.new({A_PATH => A_DOC, DB_PATH => DB_DOC, "/repo/src/x.cr" => "run in a transaction"})
       code, stdout, _ = run_match(fs, ["src/x.cr"], "json")
       code.should eq(0)
       parsed = JSON.parse(stdout)
       rules = parsed["files"][0]["rules"].as_a
       rules.map(&.["path"].as_s).should eq(["docs/conventions/a.md", "docs/conventions/db.md"])
-      rules[0]["layer"].should eq(2)
       rules[0]["triggers"].should eq(["src/**"])
-      rules[1]["layer"].should eq(3)
+      rules[1]["triggers"].should eq(["\\btransaction\\b"])
+      rules[0].as_h.has_key?("layer").should be_false
     end
 
     it "concatenates bodies for --format full, deduping a rule matched by two paths" do
@@ -119,7 +119,7 @@ describe AgentApropos::Review do
       stdout.should eq("docs/conventions/db.md\n")
     end
 
-    it "skips Layer 3 when the file is absent from disk (path still resolves Layer 2)" do
+    it "skips a content rule when the file is absent from disk (a path rule still resolves)" do
       fs = InMemoryFS.new({A_PATH => A_DOC, DB_PATH => DB_DOC})
       code, stdout, _ = run_match(fs, ["src/gone.cr"])
       code.should eq(0)
@@ -167,8 +167,8 @@ describe AgentApropos::Review do
       stderr.should be_empty
       stdout.should contain("# Review manifest (main...HEAD)")
       stdout.should contain("## app/models/user.cr")
-      stdout.should contain("- docs/conventions/db.md (Layer 3)")
-      stdout.should contain("- docs/conventions/models.md (Layer 3)")
+      stdout.should contain("- docs/conventions/db.md (`\\btransaction\\b`)")
+      stdout.should contain("- docs/conventions/models.md (`app/**`, `\\bupdate_all\\b`)")
       stdout.should_not contain("old.cr")
     end
 

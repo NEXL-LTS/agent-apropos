@@ -4,8 +4,11 @@
 // with noReply:true, which injects convention context into the conversation
 // without triggering an AI response.
 //
-// Layer 2 (path-scoped)    — fires via tool.execute.before (reads and pre-write).
-// Layer 3 (construct-scoped) — fires via tool.execute.after  (post-write).
+// Scoped rules (path and/or content) inject only when the agent writes:
+// tool.execute.before carries the fragment about to be written, and
+// tool.execute.after carries it again for edits the before-hook missed.
+// A "read" injects nothing — it only tells agent-apropos that a
+// convention doc is already in context, so no write re-injects it.
 // Both fail open: any error produces no output and never blocks an edit.
 // See docs/conventions/README.md for the layer model.
 
@@ -65,26 +68,26 @@ export const AgentAproposPlugin = async ({ worktree, client }) => {
       }
     },
 
-    // Layer 2 — path-scoped: inject BEFORE the write so the model sees
-    // the rule while still in the current tool-processing turn. Also
-    // fires on "read" — Layer 2 depends only on the target path, which
-    // a read carries exactly like an edit, so the rule can land as
-    // early as the model's first read instead of only once it writes
-    // there. OpenCode delivers the tool arguments in the SECOND
-    // callback parameter (output.args) for tool.execute.before; older
-    // builds put them on input.args. Read output first, fall back to
-    // input.
+    // Inject BEFORE the write so the model sees the rule while still in
+    // the current tool-processing turn, with the pending content so
+    // content regexes match the fragment about to land. Also fires on
+    // "read", where agent-apropos emits nothing and only records a
+    // convention doc the model has now read for itself. OpenCode
+    // delivers the tool arguments in the SECOND callback parameter
+    // (output.args) for tool.execute.before; older builds put them on
+    // input.args. Read output first, fall back to input.
     "tool.execute.before": async (input, output) => {
       if (!["edit", "write", "apply_patch", "read"].includes(input.tool)) return
       const args = output?.args ?? input.args
       if (!args?.filePath) return
-      const ctx = await callHook("pre", makePayload(input, args, false))
+      const ctx = await callHook("pre", makePayload(input, args, true))
       await inject(input.sessionID ?? sessionID, ctx)
     },
 
-    // Layer 3 — construct-scoped: inject AFTER the write using the written
-    // content for regex matching. Here OpenCode carries args on input;
-    // the same output-first fallback keeps this robust across versions.
+    // Inject AFTER the write as well, for rules the before-hook could
+    // not resolve (an edit whose newString the before event omits).
+    // Here OpenCode carries args on input; the same output-first
+    // fallback keeps this robust across versions.
     "tool.execute.after": async (input, output) => {
       if (!["edit", "write", "apply_patch"].includes(input.tool)) return
       const args = output?.args ?? input.args

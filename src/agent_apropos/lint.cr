@@ -75,7 +75,7 @@ module AgentApropos
         findings << Finding.new(:error, convention.path, ex.message.to_s)
       end
 
-      if triggered?(fm) && convention.body.strip.empty?
+      if fm.scoped? && convention.body.strip.empty?
         findings << Finding.new(:error, convention.path, "declares triggers but has an empty body")
       end
 
@@ -84,10 +84,6 @@ module AgentApropos
       end
 
       findings
-    end
-
-    private def triggered?(fm : Frontmatter) : Bool
-      !fm.paths.empty? || !fm.contents.empty?
     end
 
     private def root_file_findings(repo_root : Path, fs : Filesystem) : Array(Finding)

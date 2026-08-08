@@ -21,8 +21,8 @@ module AgentApropos
       Commands:
         init        Bootstrap the convention structure into a repo
         generate    Compile frontmatter into the index + skill wrappers
-        hook pre    PreToolUse handler  (Layer 2, path-scoped)
-        hook post   PostToolUse handler (Layer 3, construct-scoped)
+        hook pre    PreToolUse handler  (scoped rules, before the write)
+        hook post   PostToolUse handler (scoped rules, after the write)
         match       Resolve conventions for given paths
         review      Resolve conventions for a git range
         lint        Validate the convention structure
