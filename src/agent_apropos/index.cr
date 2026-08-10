@@ -3,15 +3,13 @@ require "./conventions"
 
 module AgentApropos
   struct Index
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     struct Entry
       include JSON::Serializable
 
       getter path : String
       getter hash : String
-      getter? layer2 : Bool
-      getter? layer3 : Bool
       getter? skill : Bool
       getter paths : Array(String)
       getter contents : Array(String)
@@ -20,8 +18,6 @@ module AgentApropos
       def initialize(
         @path : String,
         @hash : String,
-        @layer2 : Bool,
-        @layer3 : Bool,
         @skill : Bool,
         @paths : Array(String),
         @contents : Array(String),
@@ -34,13 +30,15 @@ module AgentApropos
         new(
           path: convention.path,
           hash: convention.hash,
-          layer2: convention.layer2?,
-          layer3: convention.layer3?,
           skill: convention.skill?,
           paths: fm.paths,
           contents: fm.contents,
           description: fm.description,
         )
+      end
+
+      def triggers(relative_path : String, content : String?) : Array(String)?
+        Matcher.triggers(paths, contents, relative_path, content)
       end
     end
 

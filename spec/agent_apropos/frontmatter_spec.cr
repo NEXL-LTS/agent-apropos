@@ -122,6 +122,18 @@ describe AgentApropos::Frontmatter do
     end
   end
 
+  describe "#scoped?" do
+    it "is true when a path or content trigger is declared" do
+      AgentApropos::Frontmatter.new(paths: ["a/**"]).scoped?.should be_true
+      AgentApropos::Frontmatter.new(contents: ["x"]).scoped?.should be_true
+    end
+
+    it "is false for a skill-only or empty frontmatter" do
+      AgentApropos::Frontmatter.new(skill: true).scoped?.should be_false
+      AgentApropos::Frontmatter.new.scoped?.should be_false
+    end
+  end
+
   describe "#reference_only?" do
     it "is true only when there is no trigger and no skill" do
       AgentApropos::Frontmatter.new.reference_only?.should be_true

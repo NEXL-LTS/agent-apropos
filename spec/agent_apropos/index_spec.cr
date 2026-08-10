@@ -21,14 +21,8 @@ describe AgentApropos::Index do
         "docs/conventions/workflows/c.md",
       ])
 
-      layer2 = index.docs[0]
-      layer2.layer2?.should be_true
-      layer2.layer3?.should be_false
-      layer2.paths.should eq(["app/**"])
-
-      layer3 = index.docs[1]
-      layer3.layer3?.should be_true
-      layer3.contents.should eq(["\\bTODO\\b"])
+      index.docs[0].paths.should eq(["app/**"])
+      index.docs[1].contents.should eq(["\\bTODO\\b"])
 
       skill = index.docs[2]
       skill.skill?.should be_true
@@ -43,7 +37,7 @@ describe AgentApropos::Index do
       document = AgentApropos::Index.build(conventions).to_document
 
       document.ends_with?("\n").should be_true
-      document.should contain("\"schema_version\": 1")
+      document.should contain("\"schema_version\": 2")
 
       loaded = AgentApropos::Index.load(document)
       loaded.should_not be_nil
@@ -65,6 +59,34 @@ describe AgentApropos::Index do
     it "returns nil on a schema-version mismatch (forces rebuild)" do
       stale = %({"schema_version": 999, "docs": []})
       AgentApropos::Index.load(stale).should be_nil
+    end
+
+    it "returns nil for a schema 1 cache, so pre-merge layer entries self-invalidate" do
+      stale = %({"schema_version": 1, "docs": []})
+      AgentApropos::Index.load(stale).should be_nil
+    end
+  end
+
+  describe "Entry#triggers" do
+    it "resolves a path-only entry from the path alone" do
+      entry = AgentApropos::Index.build([convention("a.md", %(paths: ["app/**"]))]).docs.first
+      entry.triggers("app/m.cr", nil).should eq(["app/**"])
+      entry.triggers("src/m.cr", nil).should be_nil
+    end
+
+    it "ANDs path and content when the entry declares both" do
+      entry = AgentApropos::Index.build([
+        convention("a.md", %(paths: ["app/**"]\ncontents: ['\\bx\\b'])),
+      ]).docs.first
+      entry.triggers("app/m.cr", "x").should eq(["app/**", "\\bx\\b"])
+      entry.triggers("app/m.cr", "y").should be_nil
+    end
+
+    it "is nil for an entry with no triggers" do
+      entry = AgentApropos::Index.build([
+        convention("workflows/c.md", %(skill: true\ndescription: "Use when C")),
+      ]).docs.first
+      entry.triggers("any.cr", "any").should be_nil
     end
   end
 

@@ -8,7 +8,7 @@ private def run(args : Array(String), stdin : String = "")
   {code, stdout.to_s, stderr.to_s}
 end
 
-# A throwaway repo with one Layer 2 doc and one skill doc; yields its path.
+# A throwaway repo with one path-scoped doc and one skill doc; yields its path.
 private def with_fixture_repo(git : Bool = false, &)
   dir = File.tempname("agent-apropos-cli")
   begin
@@ -81,7 +81,7 @@ private def git_cmd(dir : String, args : Array(String)) : Nil
   raise "git #{args.join(' ')} failed" unless status.success?
 end
 
-# A real git repo with one Layer 2 doc, an initial commit on `main`, and a
+# A real git repo with one path-scoped doc, an initial commit on `main`, and a
 # feature commit that edits a `src/**` file — so `review` has a range to resolve.
 private def with_git_repo(&)
   dir = File.tempname("agent-apropos-cli-review")
@@ -234,7 +234,7 @@ describe AgentApropos::CLI do
   end
 
   describe "hook" do
-    it "injects a Layer 2 rule on pre with an explicit repo root" do
+    it "injects a path-scoped rule on pre with an explicit repo root" do
       with_fixture_repo do |dir|
         payload = {session_id: "s", tool_name: "Edit", cwd: dir,
                    tool_input: {file_path: File.join(dir, "src/x.cr")}}.to_json
@@ -251,7 +251,7 @@ describe AgentApropos::CLI do
                    tool_input: {file_path: File.join(dir, "src/x.cr"), content: "code"}}.to_json
         code, out, _ = run(["hook", "post", "--repo-root", dir], payload)
         code.should eq(0)
-        out.should be_empty
+        out.should contain("Convention (docs/conventions/a.md):")
       end
     end
 
@@ -265,15 +265,14 @@ describe AgentApropos::CLI do
       end
     end
 
-    it "injects a Layer 2 rule on pre from a Read-tool-shaped payload" do
+    it "emits nothing on pre from a Read-tool-shaped payload" do
       with_fixture_repo do |dir|
         payload = {session_id: "s", tool_name: "Read", cwd: dir,
                    tool_input: {file_path: File.join(dir, "src/x.cr")}}.to_json
         code, out, err = run(["hook", "pre", "--repo-root", dir], payload)
         code.should eq(0)
         err.should be_empty
-        out.should contain("agent-apropos is connected and running")
-        out.should contain("Convention (docs/conventions/a.md):")
+        out.should be_empty
       end
     end
 
@@ -290,15 +289,19 @@ describe AgentApropos::CLI do
       end
     end
 
-    it "parses --tool and threads it through to label the recorded cause" do
+    it "parses --tool and threads it through to pick which dialect calls a payload a read" do
       with_fixture_repo do |dir|
         payload = {session_id: "s", tool_name: "Read", cwd: dir,
                    tool_input: {file_path: File.join(dir, "src/x.cr")}}.to_json
-        code, _, err = run(["hook", "pre", "--repo-root", dir, "--tool", "claude"], payload)
+        code, out, err = run(["hook", "pre", "--repo-root", dir, "--tool", "claude"], payload)
         code.should eq(0)
         err.should be_empty
-        session_file = File.join(dir, ".cache/agent-apropos/sessions/s.json")
-        File.read(session_file).should contain(%("layer": "agent"))
+        out.should be_empty
+
+        # Codex has no read tool, so the same payload is a write there.
+        code, out, _ = run(["hook", "pre", "--repo-root", dir, "--tool", "codex"], payload)
+        code.should eq(0)
+        out.should contain("Convention (docs/conventions/a.md):")
       end
     end
 

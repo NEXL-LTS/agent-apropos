@@ -55,6 +55,30 @@ describe AgentApropos::Hook::Payload do
     end
   end
 
+  describe "#partial_read?" do
+    it "is false for a whole-file read" do
+      parse(%({"tool_name":"Read","tool_input":{"file_path":"a.md"}})).partial_read?.should be_false
+    end
+
+    it "is true when the read is bounded by an offset or a limit" do
+      parse(%({"tool_input":{"file_path":"a.md","offset":40}})).partial_read?.should be_true
+      parse(%({"tool_input":{"file_path":"a.md","limit":20}})).partial_read?.should be_true
+    end
+
+    it "is true for a Copilot view carrying a view_range" do
+      json = %({"toolName":"view","toolArgs":"{\\"path\\":\\"a.md\\",\\"view_range\\":[1,20]}"})
+      parse(json).partial_read?.should be_true
+    end
+
+    it "treats an explicitly null range as absent, not as a bound" do
+      parse(%({"tool_input":{"file_path":"a.md","offset":null,"limit":null}})).partial_read?.should be_false
+    end
+
+    it "does not mistake a non-numeric range for a whole-file read" do
+      parse(%({"tool_input":{"file_path":"a.md","offset":"40"}})).partial_read?.should be_true
+    end
+  end
+
   # GitHub Copilot CLI's own wire format, confirmed against a real captured
   # hook payload (upstream docs type toolArgs as `unknown`): camelCase
   # top-level fields, and toolArgs arrives as a JSON-encoded STRING (not a
@@ -171,7 +195,7 @@ describe AgentApropos::Hook::Payload do
       edits[1].written_contents.should eq(["    \"\"\"docstring\"\"\""])
     end
 
-    it "skips a Delete File section entirely — no content to match Layer 3 against" do
+    it "skips a Delete File section entirely — no content to match a rule against" do
       json = {
         tool_name:  "apply_patch",
         tool_input: {command: "*** Begin Patch\n*** Delete File: gone.py\n*** End Patch\n"},

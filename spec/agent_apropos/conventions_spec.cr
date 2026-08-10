@@ -59,47 +59,26 @@ describe AgentApropos::Convention do
     end
   end
 
-  describe "layer classification" do
-    it "classifies a paths-only doc as Layer 2" do
+  describe "trigger classification" do
+    it "classifies a paths-only doc as scoped" do
       conv = convention(%(paths: ["src/**"]))
-      conv.layer2?.should be_true
-      conv.layer3?.should be_false
+      conv.scoped?.should be_true
       conv.reference_only?.should be_false
     end
 
-    it "classifies a contents-only doc as repo-wide Layer 3" do
-      conv = convention(%(contents: ['\\bTODO\\b']))
-      conv.layer2?.should be_false
-      conv.layer3?.should be_true
+    it "classifies a contents-only doc as scoped" do
+      convention(%(contents: ['\\bTODO\\b'])).scoped?.should be_true
     end
 
-    it "classifies a paths+contents doc as Layer 3, not Layer 2" do
-      conv = convention(%(paths: ["app/**"]\ncontents: ['\\bx\\b']))
-      conv.layer2?.should be_false
-      conv.layer3?.should be_true
+    it "classifies a paths+contents doc as scoped" do
+      convention(%(paths: ["app/**"]\ncontents: ['\\bx\\b'])).scoped?.should be_true
     end
 
     it "treats skill as independent of triggers" do
       conv = convention(%(skill: true\ndescription: "Use when X"))
       conv.skill?.should be_true
       conv.reference_only?.should be_false
-      conv.layer2?.should be_false
-      conv.layer3?.should be_false
-    end
-  end
-
-  describe "#triggers_for_path?" do
-    it "fires when a Layer 2 glob matches" do
-      convention(%(paths: ["app/jobs/**"])).triggers_for_path?("app/jobs/m.cr").should be_true
-    end
-
-    it "does not fire when the glob misses" do
-      convention(%(paths: ["app/jobs/**"])).triggers_for_path?("src/x.cr").should be_false
-    end
-
-    it "never fires for a path-scoped Layer 3 doc (content is unknown pre-write)" do
-      convention(%(paths: ["app/**"]\ncontents: ['\\bx\\b']))
-        .triggers_for_path?("app/x.cr").should be_false
+      conv.scoped?.should be_false
     end
   end
 
@@ -124,22 +103,48 @@ describe AgentApropos::Convention do
     end
   end
 
-  describe "#triggers_for_content?" do
-    it "does not fire for a Layer 2 doc" do
-      convention(%(paths: ["src/**"])).triggers_for_content?("src/x.cr", "code").should be_false
+  describe "#triggers?" do
+    it "fires on a path match alone, whatever the content is" do
+      conv = convention(%(paths: ["app/jobs/**"]))
+      conv.triggers?("app/jobs/m.cr", nil).should be_true
+      conv.triggers?("app/jobs/m.cr", "anything").should be_true
+    end
+
+    it "does not fire when the glob misses" do
+      convention(%(paths: ["app/jobs/**"])).triggers?("src/x.cr", "anything").should be_false
     end
 
     it "fires repo-wide when contents match and no paths are declared" do
       conv = convention(%(contents: ['\\btransaction\\b']))
-      conv.triggers_for_content?("anywhere.cr", "db.transaction").should be_true
-      conv.triggers_for_content?("anywhere.cr", "no match").should be_false
+      conv.triggers?("anywhere.cr", "db.transaction").should be_true
+      conv.triggers?("anywhere.cr", "no match").should be_false
     end
 
-    it "requires both content and path to match (AND) when paths are declared" do
+    it "does not fire a content rule when the content is unavailable (fail open to silence)" do
+      convention(%(contents: ['\\btransaction\\b'])).triggers?("anywhere.cr", nil).should be_false
+    end
+
+    it "requires both content and path to match (AND) when both are declared" do
       conv = convention(%(paths: ["app/**"]\ncontents: ['\\bupdate_all\\b']))
-      conv.triggers_for_content?("app/models/u.cr", "User.update_all").should be_true
-      conv.triggers_for_content?("scripts/one_off.cr", "User.update_all").should be_false
-      conv.triggers_for_content?("app/models/u.cr", "User.save").should be_false
+      conv.triggers?("app/models/u.cr", "User.update_all").should be_true
+      conv.triggers?("scripts/one_off.cr", "User.update_all").should be_false
+      conv.triggers?("app/models/u.cr", "User.save").should be_false
+      conv.triggers?("app/models/u.cr", nil).should be_false
+    end
+
+    it "never fires for a doc that declares no triggers" do
+      convention(%(skill: true\ndescription: "Use when X")).triggers?("any.cr", "any").should be_false
+    end
+  end
+
+  describe "#triggers" do
+    it "returns the matched path globs then the matched content regexes" do
+      convention(%(paths: ["app/**", "lib/**"]\ncontents: ['\\bx\\b', '\\by\\b']))
+        .triggers("app/m.cr", "x here").should eq(["app/**", "\\bx\\b"])
+    end
+
+    it "is nil when nothing matches" do
+      convention(%(paths: ["app/**"])).triggers("src/x.cr", nil).should be_nil
     end
   end
 end
@@ -157,7 +162,7 @@ describe AgentApropos::Conventions do
         "docs/conventions/a.md",
         "docs/conventions/workflows/b.md",
       ])
-      conventions.first.layer2?.should be_true
+      conventions.first.scoped?.should be_true
     end
 
     it "reads real files through the default adapter" do
@@ -173,7 +178,7 @@ describe AgentApropos::Conventions do
           "docs/conventions/a.md",
           "docs/conventions/workflows/b.md",
         ])
-        conventions[0].layer2?.should be_true
+        conventions[0].scoped?.should be_true
         conventions[1].reference_only?.should be_true
       ensure
         FileUtils.rm_rf(dir)

@@ -30,7 +30,7 @@ describe AgentApropos::Help do
       code.should eq(0)
       stdout.should contain("What agent-apropos is")
       stdout.should contain("Why it exists")
-      stdout.should contain("The four layers")
+      stdout.should contain("The three layers")
       stdout.should contain("Where things live")
       stdout.should contain("If you're an AI agent reading this")
       stdout.should contain("docs/conventions/README.md")
@@ -39,7 +39,7 @@ describe AgentApropos::Help do
     it "renders one line per layer" do
       _, stdout = run_help([] of String)
       stdout.should contain("Layer 1 — Root file")
-      stdout.should contain("Layer 4 — Intent skills")
+      stdout.should contain("Layer 3 — Intent skills")
     end
   end
 
@@ -50,7 +50,7 @@ describe AgentApropos::Help do
       parsed = JSON.parse(stdout)
       parsed["what"].as_s.should contain("deterministic")
       parsed["why"].as_s.should_not be_empty
-      parsed["layers"].as_a.size.should eq(4)
+      parsed["layers"].as_a.size.should eq(3)
       parsed["paths"].as_h.has_key?("docs/conventions/").should be_true
       parsed["agent_note"].as_s.should contain("human-authored")
       parsed["learn_more"].as_s.should_not be_empty

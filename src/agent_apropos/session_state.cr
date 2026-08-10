@@ -14,12 +14,11 @@ module AgentApropos
     struct Cause
       include JSON::Serializable
 
-      getter layer : Int32 | String
       getter event : String
       getter file : String
       getter matched_patterns : Array(String)
 
-      def initialize(@layer : Int32 | String, @event : String, @file : String, @matched_patterns : Array(String))
+      def initialize(@event : String, @file : String, @matched_patterns : Array(String))
       end
     end
 

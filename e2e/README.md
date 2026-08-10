@@ -5,7 +5,7 @@ against live Claude Code, OpenCode, GitHub Copilot CLI, and Codex CLI by
 default (Gemini CLI is supported but opt-in — see [Options](#options) — since
 even a healthy call has been observed taking 30-60s, and a real edit-task
 prompt over 180s) and asserts what the model actually writes. It is organized
-**by layer**; each layer runs the same with-agent-apropos / without-agent-apropos
+**by trigger kind**; each case runs the same with-agent-apropos / without-agent-apropos
 contrast for every enabled CLI.
 
 ## Structure
@@ -13,26 +13,26 @@ contrast for every enabled CLI.
 ```
 tests/
   helpers.bash  # sample scaffolding, agent-apropos-on-PATH, agent registry, live runners
-  layers.bats   # all layers, each grouped with its expected artifact/prompt/target
+  layers.bats   # all cases, each grouped with its expected artifact/prompt/target
 ```
 
-`layers.bats` holds every layer's expected artifact, prompt, target file, and
+`layers.bats` holds every case's expected artifact, prompt, target file, and
 the `register_live_tests` call that generates its tests — grouped together so
-a layer's full intent reads in one place instead of hopping between files.
-Each layer registers a with/without pair of live tests **per CLI agent** in
+a case's full intent reads in one place instead of hopping between files.
+Each case registers a with/without pair of live tests **per CLI agent** in
 `E2E_AGENTS` (`helpers.bash`); adding a new CLI agent means adding one entry
 to that registry plus a `require_live_<x>`/`run_<x>` helper pair, not a new
-per-layer test.
+per-case test.
 
-[`project/`](./project) is a sample codebase with a convention document on
-every layer. Each convention is a realistic project rule — a tracing
+[`project/`](./project) is a sample codebase with a convention document for
+every trigger kind. Each convention is a realistic project rule — a tracing
 decorator, a custom exception, a registry call, an audit wrapper — naming a
 specific module/symbol that only exists because the rule said so. A model
 can't produce it by chance, but unlike an arbitrary marker token it's not
 inert either: a pass proves the convention's *behavior* landed, not just that
-a string got copied. Layers sit on non-overlapping paths so each expected
+a string got copied. Cases sit on non-overlapping paths so each expected
 artifact is attributable to exactly one convention — except the "two rules,
-one file" Layer 2 case, which deliberately overlaps `api-auth-rule.md` and
+one file" case, which deliberately overlaps `api-auth-rule.md` and
 `api-throttle-rule.md` on the same `api/**` path to prove two path-scoped
 rules can both fire on one edit. That pair is also deliberately
 counter-intuitive: throttling must wrap *outermost*, above auth, so an
@@ -52,19 +52,19 @@ whether agent-apropos's hooks are wired at all. Keeping them external means the
 *only* channel that can deliver a rule's content into a live run is agent-apropos's
 hooks. `new_sample()` (`tests/helpers.bash`) points the copied sample's
 `agent-apropos.yml` at the real `conventions/` for "with" and at a directory that
-doesn't exist for "without" — Layer 2/3 then simply have nothing to match,
+doesn't exist for "without" — the scoped rules then simply have nothing to match,
 and there's nothing to find by exploring either. The module each rule points
 to (the decorator, exception, registry, audit wrapper) is still stripped
 from `project/` in the without-agent-apropos control, since that one *is* reachable
 by exploring the sample's own tree.
 
-| Layer | Trigger | Convention | Expected artifact | Target file |
+| Case | Trigger | Convention | Expected artifact | Target file |
 | --- | --- | --- | --- | --- |
-| 2 Path-scoped | editing `src/**` | new functions wrapped in `@trace_call` | `@trace_call` | `src/util.py` |
-| 2 Two rules, one file | editing `api/**` | new handlers wrapped in both `require_auth` and `rate_limited`, outermost | `require_auth`, `rate_limited` | `api/handlers.py` |
-| 3 Construct-scoped | writing `NotImplementedError` | stubs raise `StubNotImplemented` instead | `StubNotImplemented(` | `scripts/jobs.py` |
-| 3 Path+content (AND) | editing `db/**` AND writing `conn.execute(` | queries go through the audit wrapper | `audited_query(` | `db/queries.py` |
-| 4 Intent skill | "add an arithmetic operation" | new ops register in the dispatch table | `register_operation(` | `lib/calc.py` |
+| Path rule | writing `src/**` | new functions wrapped in `@trace_call` | `@trace_call` | `src/util.py` |
+| Path rules (two) | writing `api/**` | new handlers wrapped in both `require_auth` and `rate_limited`, outermost | `require_auth`, `rate_limited` | `api/handlers.py` |
+| Content rule | writing `NotImplementedError` | stubs raise `StubNotImplemented` instead | `StubNotImplemented(` | `scripts/jobs.py` |
+| Path+content rule (AND) | writing `db/**` AND writing `conn.execute(` | queries go through the audit wrapper | `audited_query(` | `db/queries.py` |
+| Intent skill | "add an arithmetic operation" | new ops register in the dispatch table | `register_operation(` | `lib/calc.py` |
 
 ## Running
 
@@ -89,13 +89,13 @@ keep working), so its hook wiring (`.claude/`, `.opencode/`, `.gemini/`, `.githu
 is always freshly generated rather than committed (see `project/.gitignore`) —
 that way the fixture is fully wired regardless of which agents happen to be
 installed on the machine running the suite. `run.sh` invokes `bats` on
-[`tests/`](./tests); extra flags pass through, e.g. `bash e2e/run.sh --filter 'Layer 2'`.
+[`tests/`](./tests); extra flags pass through, e.g. `bash e2e/run.sh --filter 'Path rule'`.
 
-## The two tests per layer, per agent
+## The two tests per case, per agent
 
 Each test copies the sample into an isolated temp git repo (bats'
 `BATS_TEST_TMPDIR`, outside this repo) with a freshly built `agent-apropos` on PATH.
-For each layer, every agent in `E2E_AGENTS` runs the same live pair:
+For each case, every agent in `E2E_AGENTS` runs the same live pair:
 
 1. **with agent-apropos (live).** Run the CLI against the wired sample and assert the
    expected artifact lands in the edited file.
@@ -143,20 +143,20 @@ unset it for every invocation they make, so this is only a concern if you
 invoke `copilot` yourself outside the suite to debug.
 
 **Copilot CLI caveat:** its own `preToolUse` event can't inject context (only
-`postToolUse` can), so its Layer 2 lands right after the edit rather than
-before it — see the root README's Supported CLI agents section. Layer 4
-(skills), by contrast, needs no Copilot-specific work at all: `copilot skill
+`postToolUse` can), so its scoped rules land right after the edit rather than
+before it — see the root README's Supported CLI agents section. Intent
+skills, by contrast, need no Copilot-specific work at all: `copilot skill
 --help` documents that it discovers project skills from `.github/skills/`,
 `.agents/skills/`, or `.claude/skills/` natively, and `agent-apropos generate`
 already writes the latter for Claude Code/OpenCode — Copilot just picks it
 up. Verified by isolating the two possible causes: with the skill file
 present but the target module removed, Copilot cited the skill's guidance
 verbatim; with the skill file removed but the module left in place, it used
-neither. So the "Layer 4 ... (Copilot)" pair is a genuine proof, same as
+neither. So the "Intent skill ... (Copilot)" pair is a genuine proof, same as
 every other agent's.
 
 **Codex CLI caveat:** unlike Gemini/Copilot, its `PreToolUse` event *can*
-inject context, so Layer 2 lands before the write, same as Claude — but its
+inject context, so scoped rules land before the write, same as Claude — but its
 own file-editing tool, `apply_patch`, can bundle several files' Add/Update
 sections into a single call (a real capture of this shape lives at
 `spec/fixtures/hook_payloads/codex_*_apply_patch.json`); `Hook::Payload`
@@ -165,7 +165,7 @@ passes `--dangerously-bypass-hook-trust` because every test stands up a
 fresh git repo with a `.codex/hooks.json` Codex has never reviewed before —
 without it Codex silently refuses to run the hook rather than prompting, so
 agent-apropos would never fire and "with" would look identical to "without".
-Layer 4 (skills) needed its own root, unlike Copilot: Codex does **not**
+Intent skills needed their own root, unlike Copilot: Codex does **not**
 discover `.claude/skills/` the way Copilot does (confirmed live — the "with"
 test failed against a repo carrying only `.claude/skills/`), but it *does*
 discover a repo-local `.codex/skills/` (confirmed live the same way, by
