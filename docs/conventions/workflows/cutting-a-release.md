@@ -5,10 +5,11 @@ description: "Use when the user asks to cut, publish, or tag a release of agent-
 
 # Cutting a release
 
-**Rule:** A release is a pushed annotated tag `vX.Y.Z` — that is the only
-trigger `.github/workflows/release.yml` listens for. Never publish without an
-explicit ask; it is outward-facing and hard to reverse. Then follow this order,
-because two steps of it race:
+**Rule:** A release is a pushed annotated tag `vX.Y.Z` — that is the publishing
+trigger `.github/workflows/release.yml` uses. (`workflow_dispatch` exists to
+rehearse the pipeline without publishing.) Never publish without an explicit ask;
+it is outward-facing and hard to reverse. Then follow this order, because two
+steps of it race:
 
 1. **Bump the version in the change's own PR, not in a release commit.** Three
    places must agree, and nothing checks that they do: `shard.yml`'s `version:`,
