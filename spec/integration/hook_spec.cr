@@ -27,7 +27,7 @@ describe "agent-apropos hook (binary)" do
     File.delete?(binary)
   end
 
-  it "injects a Layer 2 rule on PreToolUse and dedupes within a session" do
+  it "injects a path-scoped rule on PreToolUse and dedupes within a session" do
     dir = File.tempname("agent-apropos-hook-repo")
     begin
       Dir.mkdir_p(File.join(dir, "docs/conventions"))
@@ -50,7 +50,7 @@ describe "agent-apropos hook (binary)" do
     end
   end
 
-  it "injects a Layer 3 rule on PostToolUse from written content" do
+  it "injects a content-scoped rule on PostToolUse from written content" do
     dir = File.tempname("agent-apropos-hook-repo")
     begin
       Dir.mkdir_p(File.join(dir, "docs/conventions"))
@@ -160,7 +160,7 @@ describe "agent-apropos hook (binary)" do
     end
   end
 
-  it "handles a Copilot CLI view postToolUse payload (Layer 2 on a plain read)" do
+  it "stays silent on a Copilot CLI view postToolUse payload — a read never injects" do
     dir = File.tempname("agent-apropos-hook-repo")
     begin
       Dir.mkdir_p(File.join(dir, "docs/conventions"))
@@ -172,7 +172,7 @@ describe "agent-apropos hook (binary)" do
 
       code, output = run_hook(binary, ["hook", "pre", "--repo-root", dir], payload)
       code.should eq(0)
-      output.should contain("Keep jobs idempotent.")
+      output.should be_empty
     ensure
       FileUtils.rm_rf(dir)
     end
@@ -186,7 +186,7 @@ describe "agent-apropos hook (binary)" do
   # real captures of that shape (spec/fixtures/hook_payloads/), proving the
   # binary matches and injects for *every* file such a payload touches, not
   # just the first.
-  it "handles a Codex CLI apply_patch PreToolUse payload bundling two files (Layer 2 on each)" do
+  it "handles a Codex CLI apply_patch PreToolUse payload bundling two files (a rule for each)" do
     dir = File.tempname("agent-apropos-hook-repo")
     begin
       Dir.mkdir_p(File.join(dir, "docs/conventions"))
@@ -207,7 +207,7 @@ describe "agent-apropos hook (binary)" do
     end
   end
 
-  it "handles a Codex CLI apply_patch PostToolUse payload, matching Layer 3 on the Update section's added line" do
+  it "handles a Codex CLI apply_patch PostToolUse payload, matching content on the Update section's added line" do
     dir = File.tempname("agent-apropos-hook-repo")
     begin
       Dir.mkdir_p(File.join(dir, "docs/conventions"))

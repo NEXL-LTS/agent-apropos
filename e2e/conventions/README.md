@@ -5,17 +5,16 @@ Scoped guidance for this sample repo, delivered just-in-time by agent-apropos.
 | Layer | For | Trigger | Delivered by |
 | --- | --- | --- | --- |
 | 1 Root file | Universal rules | Always loaded | `AGENTS.md` |
-| 2 Path-scoped | A directory / file type | File **path** | PreToolUse hook |
-| 3 Construct-scoped | An API / code construct | Written **content** (regex), optionally AND path | PostToolUse hook |
-| 4 Intent skills | Task-nature guidance | Semantic skill match | Generated `SKILL.md` |
+| 2 Scoped rules | A directory / file type, an API / code construct, or both | A **write** to a matching **path** and/or matching written **content** (regex) | Pre/PostToolUse hooks |
+| 3 Intent skills | Task-nature guidance | Semantic skill match | Generated `SKILL.md` |
 
 Each rule doc declares how it is delivered via YAML frontmatter:
 
 ```yaml
 ---
-paths: ["src/**"]                     # Layer 2
-contents: ['\bNotImplementedError\b'] # Layer 3 (PCRE2)
-skill: true                           # Layer 4
+paths: ["src/**"]                     # write to a matching path
+contents: ['\bNotImplementedError\b'] # written code matches (PCRE2)
+skill: true                           # Layer 3: generate a skill wrapper
 description: "Use when ..."           # required iff skill: true
 ---
 ```
@@ -24,14 +23,14 @@ description: "Use when ..."           # required iff skill: true
 `db-audit-rule.md`: it only fires inside `db/**` (not the whole tree) AND only
 when the written code calls `conn.execute(` (not every edit under `db/`).
 
-The docs in this directory demonstrate one convention per layer, plus one
-combined path+content example:
+The docs in this directory demonstrate each kind of trigger:
 
-- `src-rule.md` — Layer 2, fires on edits under `src/**`.
-- `api-auth-rule.md` / `api-throttle-rule.md` — two Layer 2 rules that both
-  fire on edits under `api/**`, demonstrating that more than one path-scoped
-  rule can apply to the same file at once.
-- `stub-rule.md` — Layer 3, fires when written code raises `NotImplementedError`.
-- `db-audit-rule.md` — Layer 3 (path + content, AND), fires only inside
-  `db/**` when the written code calls `conn.execute(`.
-- `workflows/add-operation.md` — Layer 4 skill, matched by task intent.
+- `src-rule.md` — path-scoped, fires on writes under `src/**`.
+- `api-auth-rule.md` / `api-throttle-rule.md` — two path-scoped rules that both
+  fire on writes under `api/**`, demonstrating that more than one rule can
+  apply to the same file at once.
+- `stub-rule.md` — content-scoped, fires when written code raises
+  `NotImplementedError`.
+- `db-audit-rule.md` — path + content (AND), fires only inside `db/**` when the
+  written code calls `conn.execute(`.
+- `workflows/add-operation.md` — Layer 3 intent skill, matched by task intent.

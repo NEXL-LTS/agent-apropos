@@ -11,10 +11,6 @@ module AgentApropos
       File.match?(pattern, path)
     end
 
-    def any_path_match?(patterns : Enumerable(String), path : String) : Bool
-      patterns.any? { |pattern| path_match?(pattern, path) }
-    end
-
     def matching_paths(patterns : Enumerable(String), path : String) : Array(String)
       patterns.select { |pattern| path_match?(pattern, path) }
     end
@@ -25,12 +21,22 @@ module AgentApropos
       raise Error.new("regex #{source.inspect} failed to match #{content.bytesize} bytes: #{ex.message}")
     end
 
-    def any_content_match?(sources : Enumerable(String), content : String) : Bool
-      sources.any? { |source| content_match?(source, content) }
-    end
-
     def matching_contents(sources : Enumerable(String), content : String) : Array(String)
       sources.select { |source| content_match?(source, content) }
+    end
+
+    def triggers(paths : Array(String), contents : Array(String),
+                 path : String, content : String?) : Array(String)?
+      return nil if paths.empty? && contents.empty?
+
+      path_hits = matching_paths(paths, path)
+      return nil if path_hits.empty? && !paths.empty?
+
+      return nil if content.nil? && !contents.empty?
+      content_hits = content ? matching_contents(contents, content) : [] of String
+      return nil if content_hits.empty? && !contents.empty?
+
+      path_hits + content_hits
     end
 
     def valid_glob?(pattern : String) : Bool

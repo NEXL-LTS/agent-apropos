@@ -39,6 +39,26 @@ private def payload(tool_name : String) : AgentApropos::Hook::Payload
   AgentApropos::Hook::Payload.parse(json) || raise "expected #{json.inspect} to parse"
 end
 
+# Read the generated wiring back as JSON rather than string-slicing it: the
+# key order of `hooks` follows whatever the seed used, so a `split` on an
+# event name silently pulls in the other event's groups.
+private def hook_entries(fs : InMemoryFS, event : String, matcher : String) : Array(JSON::Any)
+  groups(fs, event).select { |group| group["matcher"]?.try(&.as_s?) == matcher }
+    .flat_map { |group| group["hooks"]?.try(&.as_a) || [] of JSON::Any }
+end
+
+private def commands_for(fs : InMemoryFS, event : String, matcher : String) : Array(String)
+  hook_entries(fs, event, matcher).compact_map { |entry| entry["command"]?.try(&.as_s?) }
+end
+
+private def matchers_for(fs : InMemoryFS, event : String) : Array(String)
+  groups(fs, event).compact_map { |group| group["matcher"]?.try(&.as_s?) }
+end
+
+private def groups(fs : InMemoryFS, event : String) : Array(JSON::Any)
+  JSON.parse(fs.files[SETTINGS_PATH])["hooks"][event].as_a
+end
+
 describe AgentApropos::Agents::Claude do
   describe "#read?" do
     it "is true for Claude's Read tool" do
@@ -94,7 +114,8 @@ describe AgentApropos::Agents::Claude do
       run_scaffold(fs) # installs agent-apropos hooks
       stdout = run_scaffold(fs)
       stdout.should contain("current  .claude/settings.json")
-      fs.files[SETTINGS_PATH].scan("agent-apropos hook post").size.should eq(1)
+      commands_for(fs, "PostToolUse", "Edit|Write")
+        .should eq(["agent-apropos hook post --tool claude"])
     end
 
     it "does not add an already-installed command into a second group sharing the same matcher" do
@@ -110,9 +131,9 @@ describe AgentApropos::Agents::Claude do
              %(]}})
       fs = InMemoryFS.new({SETTINGS_PATH => seed})
       run_scaffold(fs)
-      merged = fs.files[SETTINGS_PATH]
-      merged.should contain("bash myscript.sh")
-      merged.scan("agent-apropos hook post").size.should eq(1)
+      fs.files[SETTINGS_PATH].should contain("bash myscript.sh")
+      commands_for(fs, "PostToolUse", "Edit|Write")
+        .count("agent-apropos hook post --tool claude").should eq(1)
     end
 
     it "replaces a non-array event value and a group with no hooks list" do
@@ -142,62 +163,77 @@ describe AgentApropos::Agents::Claude do
       expect_raises(AgentApropos::Init::Error, /must be a JSON object/) { run_scaffold(fs) }
     end
 
-    it "wires agent-apropos hook pre onto Read too, distinct from the Edit|Write group" do
+    it "wires the Read group onto PostToolUse, so a denied read cannot suppress a rule" do
       fs = InMemoryFS.new
       run_scaffold(fs)
-      merged = fs.files[SETTINGS_PATH]
-      merged.scan("agent-apropos hook pre").size.should eq(2)
-      merged.should contain(%("matcher": "Read"))
-      merged.should contain(%("matcher": "Edit|Write"))
+      matchers_for(fs, "PreToolUse").should eq(["Edit|Write"])
+      matchers_for(fs, "PostToolUse").should eq(["Edit|Write", "Read"])
+      commands_for(fs, "PostToolUse", "Read")
+        .should eq(["agent-apropos hook post --tool claude"])
     end
 
-    it "adds agent-apropos hook pre into an existing Read group that has a different command" do
-      seed = %({"hooks":{"PreToolUse":[{"matcher":"Read","hooks":) +
+    it "unwires a Read group left on PreToolUse by an older agent-apropos version" do
+      seed = %({"hooks":{"PreToolUse":[) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook pre --tool claude","timeout":10}]},) +
+             %({"matcher":"Read","hooks":[{"type":"command","command":"agent-apropos hook pre --tool claude","timeout":10}]}) +
+             %(]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      matchers_for(fs, "PreToolUse").should eq(["Edit|Write"])
+      commands_for(fs, "PreToolUse", "Edit|Write")
+        .should eq(["agent-apropos hook pre --tool claude"])
+    end
+
+    it "keeps a foreign Read hook when unwiring its agent-apropos sibling from PreToolUse" do
+      seed = %({"hooks":{"PreToolUse":[{"matcher":"Read","hooks":[) +
+             %({"type":"command","command":"echo hi"},) +
+             %({"type":"command","command":"agent-apropos hook pre --tool claude","timeout":10}) +
+             %(]}]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      commands_for(fs, "PreToolUse", "Read").should eq(["echo hi"])
+    end
+
+    it "adds agent-apropos hook post into an existing PostToolUse Read group that has a different command" do
+      seed = %({"hooks":{"PostToolUse":[{"matcher":"Read","hooks":) +
              %([{"type":"command","command":"echo hi"}]}]}})
       fs = InMemoryFS.new({SETTINGS_PATH => seed})
       run_scaffold(fs)
-      merged = fs.files[SETTINGS_PATH]
-      merged.should contain("echo hi")
-      merged.should contain("agent-apropos hook pre")
-      merged.scan(%("matcher": "Read")).size.should eq(1)
+      commands_for(fs, "PostToolUse", "Read")
+        .should eq(["echo hi", "agent-apropos hook post --tool claude"])
     end
 
     it "does not mistake an existing Read group for the Edit|Write group to heal" do
-      seed = %({"hooks":{"PreToolUse":[{"matcher":"Read","hooks":) +
-             %([{"type":"command","command":"agent-apropos hook pre","timeout":10}]}]}})
+      seed = %({"hooks":{"PostToolUse":[{"matcher":"Read","hooks":) +
+             %([{"type":"command","command":"agent-apropos hook post","timeout":10}]}]}})
       fs = InMemoryFS.new({SETTINGS_PATH => seed})
       run_scaffold(fs)
-      # Isolate PreToolUse: PostToolUse gets its own independent "Edit|Write"
-      # group (for agent-apropos hook post), which would mask a missing PreToolUse
-      # one if counted across the whole file.
-      pre_section = fs.files[SETTINGS_PATH].split(%("PostToolUse"))[0]
-      pre_section.scan(%("matcher": "Read")).size.should eq(1)
-      pre_section.scan(%("matcher": "Edit|Write")).size.should eq(1)
+      matchers_for(fs, "PostToolUse").should eq(["Read", "Edit|Write"])
     end
 
-    it "refreshes a stale timeout on the Read group's own pre command too" do
-      seed = %({"hooks":{"PreToolUse":[{"matcher":"Read","hooks":) +
-             %([{"type":"command","command":"agent-apropos hook pre","timeout":999}]}]}})
+    it "refreshes a stale timeout on the Read group's own post command too" do
+      seed = %({"hooks":{"PostToolUse":[{"matcher":"Read","hooks":) +
+             %([{"type":"command","command":"agent-apropos hook post","timeout":999}]}]}})
       fs = InMemoryFS.new({SETTINGS_PATH => seed})
       run_scaffold(fs)
-      pre_section = fs.files[SETTINGS_PATH].split(%("PostToolUse"))[0]
-      pre_section.should_not contain(%("timeout": 999))
-      pre_section.scan(%("timeout": 10)).size.should eq(2) # Read's own pre, Edit|Write's pre
+      entries = hook_entries(fs, "PostToolUse", "Read")
+      entries.size.should eq(1)
+      entries[0]["timeout"].as_i.should eq(10)
     end
 
     it "upgrades a pre-`--tool` command from an older agent-apropos version in place, without duplicating it" do
       seed = %({"hooks":{"PreToolUse":[) +
-             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook pre","timeout":10}]},) +
-             %({"matcher":"Read","hooks":[{"type":"command","command":"agent-apropos hook pre","timeout":10}]}) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook pre","timeout":10}]}) +
              %(],"PostToolUse":[) +
-             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook post","timeout":10}]}) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook post","timeout":10}]},) +
+             %({"matcher":"Read","hooks":[{"type":"command","command":"agent-apropos hook post","timeout":10}]}) +
              %(]}})
       fs = InMemoryFS.new({SETTINGS_PATH => seed})
       run_scaffold(fs)
       merged = fs.files[SETTINGS_PATH]
 
-      merged.scan(%("agent-apropos hook pre --tool claude")).size.should eq(2)
-      merged.scan(%("agent-apropos hook post --tool claude")).size.should eq(1)
+      merged.scan(%("agent-apropos hook pre --tool claude")).size.should eq(1)
+      merged.scan(%("agent-apropos hook post --tool claude")).size.should eq(2)
       merged.should_not contain(%("command": "agent-apropos hook pre",))
       merged.should_not contain(%("command": "agent-apropos hook post",))
     end
@@ -226,7 +262,7 @@ describe AgentApropos::Agents::Claude do
       run_scaffold(fs)
       run_scaffold(fs)
       merged = fs.files[SETTINGS_PATH]
-      merged.scan("agent-apropos hook pre").size.should eq(2)
+      merged.scan("agent-apropos hook post").size.should eq(2)
       merged.scan(%("matcher": "Read")).size.should eq(1)
     end
   end

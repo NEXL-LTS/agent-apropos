@@ -1,7 +1,7 @@
 ---
 paths: ["src/**"]
 ---
-# Tracing on the public surface (Layer 2 — path-scoped)
+# Tracing on the public surface (path-scoped)
 
 **Rule:** `src/` is this project's public surface. Every new function added
 under `src/` must be wrapped in the `@trace_call` decorator (imported from

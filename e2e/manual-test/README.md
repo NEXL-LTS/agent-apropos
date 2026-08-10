@@ -1,4 +1,4 @@
-# Manual test rig — Layer 2 (two rules, one file)
+# Manual test rig — two path rules, one file
 
 Five wired, git-initialized copies of `e2e/project/` — one per CLI agent — for
 driving a real agent by hand and watching the `api-auth-rule.md` /

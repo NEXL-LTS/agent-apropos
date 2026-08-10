@@ -8,7 +8,7 @@ That's the whole design brief: agent-apropos is a single deterministic binary th
 keeps a layered documentation structure working. It compiles convention-doc
 frontmatter into a trigger index, generates skill wrappers, serves as a hook
 handler for supported CLI agents that injects path- and construct-scoped rules
-at edit time, and resolves the conventions that apply to a diff for review.
+at write time, and resolves the conventions that apply to a diff for review.
 
 One large always-loaded instruction file gets skimmed and forgotten. agent-apropos
 keeps the guidance small and just-in-time: rules live in
@@ -22,11 +22,11 @@ macOS binary.
 
 - **Claude Code** — PreToolUse/PostToolUse hooks, `AGENTS.md`/`CLAUDE.md`, and generated `SKILL.md` wrappers.
 - **OpenCode** — `tool.execute.before`/`tool.execute.after` plugin hooks, same root file and generated skills.
-- **Gemini CLI** — both Layer 2 and Layer 3 delivered via its `AfterTool` hook (its `BeforeTool` event
-  can't inject context, so Layer 2 lands right after the edit rather than before it), `AGENTS.md` via
+- **Gemini CLI** — scoped rules delivered via its `AfterTool` hook (its `BeforeTool` event
+  can't inject context, so a rule lands right after the edit rather than before it), `AGENTS.md` via
   `context.fileName`, and generated `.gemini/skills/*/SKILL.md` wrappers.
-- **GitHub Copilot CLI** — both Layer 2 and Layer 3 delivered via its `postToolUse` hook (its
-  `preToolUse` event can only allow/deny/modify a call, not inject context, so — like Gemini — Layer 2
+- **GitHub Copilot CLI** — scoped rules delivered via its `postToolUse` hook (its
+  `preToolUse` event can only allow/deny/modify a call, not inject context, so — like Gemini — a rule
   lands right after the edit rather than before it), calling `agent-apropos hook pre`/`post` directly —
   no bridge script — since the binary understands Copilot's own wire dialect (`toolArgs` as a
   JSON-encoded string) and replies in its flat `additionalContext` shape natively. Wired via a
@@ -34,7 +34,7 @@ macOS binary.
   require a trusted folder, and non-interactive `copilot -p` runs need
   `GITHUB_COPILOT_PROMPT_MODE_REPO_HOOKS=true` set for hooks to fire at all.
 - **Codex CLI** — PreToolUse/PostToolUse hooks (its schema supports
-  `additionalContext` on both, so Layer 2 lands before the write, same as
+  `additionalContext` on both, so rules land before the write, same as
   Claude), `AGENTS.md` read automatically, calling `agent-apropos hook
   pre`/`post` directly via a generated `.codex/hooks.json` — no bridge
   script. Its own file-editing tool, `apply_patch`, can bundle several
@@ -43,7 +43,7 @@ macOS binary.
   envelope and matches/injects per file. Non-interactive `codex exec` runs
   need `--dangerously-bypass-hook-trust` for a repo's hooks to fire at all
   (a one-time trust review Codex otherwise requires per hook definition).
-  Layer 4 skill wrappers go in a generated `.codex/skills/` — a repo-local
+  Intent-skill wrappers go in a generated `.codex/skills/` — a repo-local
   root distinct from its default `~/.codex/skills`, confirmed live: Codex
   does not pick up `.claude/skills/` on its own the way Copilot does.
 - **Cursor CLI** — coming soon.
@@ -71,7 +71,7 @@ make install          # builds the release binary into $PREFIX/bin (default ~/.l
 ### Pinning a version in another repo's Dockerfile
 
 ```dockerfile
-ARG AGENT_APROPOS_VERSION=v0.3.3
+ARG AGENT_APROPOS_VERSION=v0.4.0
 
 RUN curl -fsSL "https://raw.githubusercontent.com/NEXL-LTS/agent-apropos/${AGENT_APROPOS_VERSION}/install.sh" -o /tmp/install.sh \
     && AGENT_APROPOS_VERSION=${AGENT_APROPOS_VERSION} AGENT_APROPOS_BIN_DIR=/usr/local/bin sh /tmp/install.sh \
@@ -92,21 +92,21 @@ agent-apropos doctor              # check the environment and hook wiring
 
 `agent-apropos init` wires hooks for whichever CLI agents are in play. By default it
 auto-detects: if `claude` is on PATH it wires two hooks into
-`.claude/settings.json` (`agent-apropos hook pre` → PreToolUse → Layer 2,
-path-scoped; `agent-apropos hook post` → PostToolUse → Layer 3, construct-scoped);
+`.claude/settings.json` (`agent-apropos hook pre` → PreToolUse, before the
+write; `agent-apropos hook post` → PostToolUse, after it);
 if `opencode` is on PATH it generates the OpenCode plugin bridge instead (or
 as well); if `gemini` is on PATH it wires both `agent-apropos hook pre` and
 `agent-apropos hook post` into `.gemini/settings.json`'s `AfterTool` event (Gemini's
-`BeforeTool` event has no way to inject context back into the model, so Layer
-2 degrades to firing right after the edit) and points `context.fileName` at
+`BeforeTool` event has no way to inject context back into the model, so
+delivery degrades to firing right after the edit) and points `context.fileName` at
 `AGENTS.md`; if `copilot` is on PATH it wires the same two commands into
 `.github/hooks/agent-apropos.json`'s `postToolUse` event, for the identical
 reason Gemini's does (Copilot's `preToolUse` event can't inject context
 either) — no bridge script, since the binary speaks Copilot's own wire
 dialect natively; if `codex` is on PATH it wires both commands into
 `.codex/hooks.json`'s `PreToolUse`/`PostToolUse` events, matched on Codex's
-`apply_patch` tool — Codex's `PreToolUse` *can* inject context, so Layer 2
-lands before the write here, same as Claude. Pass `--tool claude` /
+`apply_patch` tool — Codex's `PreToolUse` *can* inject context, so rules
+land before the write here, same as Claude. Pass `--tool claude` /
 `--tool opencode` / `--tool gemini` / `--tool copilot` / `--tool codex`
 (repeatable) to wire specific agents explicitly regardless of PATH. You never
 run the hooks themselves by hand — the agent calls them, and they inject the
@@ -120,18 +120,18 @@ the machine-readable form, or `agent-apropos help <command>`).
 Most repos aren't starting from zero — the conventions already exist, just
 scattered across a README, a wiki, ADRs, or tribal knowledge in someone's
 head. Rather than writing `docs/conventions/` from scratch, have your coding
-agent survey what's already there and sort it into the four layers. After
+agent survey what's already there and sort it into the three layers. After
 `agent-apropos init`, hand it a prompt along these lines:
 
 ```
-Read docs/conventions/README.md to learn agent-apropos's four-layer convention
-model (root file, path-scoped, construct-scoped, intent skills). Then survey
+Read docs/conventions/README.md to learn agent-apropos's three-layer convention
+model (root file, scoped rules, intent skills). Then survey
 this repo's existing documentation — README, wiki exports, ADRs, code
 comments — plus any patterns you can infer from the code itself.
 
 For each distinct convention you find, classify it into exactly one layer
 (see "Classifying an instruction" in that doc) and draft it as a new file
-under docs/conventions/ (or docs/conventions/workflows/ for Layer 4 skills)
+under docs/conventions/ (or docs/conventions/workflows/ for Layer 3 skills)
 with the right YAML frontmatter, stating what the rule is, why it exists,
 and a verification criterion. Only add to AGENTS.md if the convention is
 truly universal.
@@ -179,7 +179,7 @@ rule or generator and retire the prose it replaces.
 
 ## How it works
 
-Guidance is organized into four layers, each triggered by the cheapest mechanism
+Guidance is organized into three layers, each triggered by the cheapest mechanism
 that reliably fires it — see [`docs/conventions/README.md`](./docs/conventions/README.md)
 for the full model:
 
@@ -193,12 +193,12 @@ flowchart LR
     Index --> Skill["skill match"]
     Root["AGENTS.md / CLAUDE.md"] --> L1
 
-    Pre -->|file path| L2["Layer 2 · path-scoped"]
-    Post -->|written content| L3["Layer 3 · construct-scoped"]
-    Skill -->|task intent| L4["Layer 4 · intent skills"]
+    Pre -->|path and/or written content| L2["Layer 2 · scoped rules"]
+    Post -->|path and/or written content| L2
+    Skill -->|task intent| L3["Layer 3 · intent skills"]
     L1["Layer 1 · always loaded"]
 
-    L1 & L2 & L3 & L4 --> Ctx(["context injected\ninto the agent"])
+    L1 & L2 & L3 --> Ctx(["context injected\ninto the agent"])
 
     Diff["git diff"] -->|agent-apropos review| Manifest["review manifest\n(conventions that apply)"]
     Index --> Manifest
@@ -207,13 +207,16 @@ flowchart LR
 | Layer | For | Trigger | Delivered by |
 | --- | --- | --- | --- |
 | 1 Root file | Universal rules | Always loaded | `AGENTS.md` |
-| 2 Path-scoped | A directory / file type | File **path** | PreToolUse hook |
-| 3 Construct-scoped | An API / code construct | Written **content** (regex) | PostToolUse hook |
-| 4 Intent skills | Task-nature guidance | Semantic skill match | Generated `SKILL.md` |
+| 2 Scoped rules | A directory / file type, an API / code construct, or both | A **write** to a matching **path** and/or matching written **content** (regex) | Pre/PostToolUse hooks |
+| 3 Intent skills | Task-nature guidance | Semantic skill match | Generated `SKILL.md` |
 
 `agent-apropos generate` compiles the frontmatter in `docs/conventions/` into a cached
-trigger index and committed skill wrappers. At edit time, the hooks look up the
-matching rules and inject them. For review, the same frontmatter resolves which
+trigger index and committed skill wrappers. At write time, the hooks look up the
+matching rules and inject them. Reads never inject — the same hook is wired onto
+each agent's read tool only so that a convention doc the model reads for itself
+is not injected again later. That suppression needs a read that both completed
+and covered the whole doc, so read tools are wired on each agent's
+post-execution event and a partial (offset/limit) read is ignored. For review, the same frontmatter resolves which
 conventions apply to a diff, so review prompts carry zero copies of the rules.
 
 ## Configuration
@@ -227,8 +230,8 @@ conventions_dir: ../shared-conventions   # relative to repo root, or absolute
 ```
 
 Every command that reads conventions (`generate`, `hook`, `lint`, `match`,
-`review`, `doctor`) and `init`'s own scaffolding follow this. Layer 2/3 hook delivery
-works identically regardless of where the docs live. Layer 4 skill wrappers
+`review`, `doctor`) and `init`'s own scaffolding follow this. Scoped-rule hook delivery
+works identically regardless of where the docs live. Intent-skill wrappers
 inline the doc's full body instead of the usual lightweight pointer whenever
 the source resolves outside the repo — a model can't be relied on to follow a
 pointer to a path outside its own workspace tree, so the wrapper carries the
@@ -250,7 +253,7 @@ repo's hooks to keep working.
 | --- | --- |
 | `agent-apropos init` | Bootstrap the convention structure into a repo (idempotent; `--tool claude\|opencode\|gemini` — repeatable, auto-detects by default — plus `--force`, `--example`, `--claude-symlink`, `--dry-run`). |
 | `agent-apropos generate` | Compile frontmatter into the trigger index and skill wrappers. `--check` is the CI drift gate. |
-| `agent-apropos hook pre` / `hook post` | Hook handlers for the wired CLI agent (Layer 2 / Layer 3). Fail open — never block an edit. |
+| `agent-apropos hook pre` / `hook post` | Hook handlers for the wired CLI agent (scoped rules, before / after the write). Fail open — never block an edit. |
 | `agent-apropos match <paths>` | Resolve the conventions applying to given files (`--format paths\|json\|full`). |
 | `agent-apropos review [range]` | Resolve conventions for a git diff range as a review manifest (`--format md\|json`). |
 | `agent-apropos lint` | Validate frontmatter, skill descriptions, root-file budget, and generated-artifact freshness (`--strict`). |
