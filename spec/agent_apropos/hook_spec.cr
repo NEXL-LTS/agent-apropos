@@ -74,6 +74,11 @@ private def read_json(file_path : String, session_id : String? = "s", cwd : Stri
   {session_id: session_id, tool_name: "Read", cwd: cwd, tool_input: {file_path: file_path}}.to_json
 end
 
+private def partial_read_json(file_path : String, offset : Int32? = nil, limit : Int32? = nil) : String
+  {session_id: "s", tool_name: "Read", cwd: "/repo",
+   tool_input: {file_path: file_path, offset: offset, limit: limit}}.to_json
+end
+
 private def invoke(event : Symbol, input : String, fs : AgentApropos::Filesystem,
                    override : String? = "/repo", now : Time = NOW, verbose : Bool = false,
                    tool : String? = nil) : {Int32, String}
@@ -148,6 +153,21 @@ describe AgentApropos::Hook do
       code.should eq(0)
       stdout.should contain(%("hookEventName":"PreToolUse"))
       stdout.should contain("Convention (docs/conventions/db.md):")
+    end
+
+    it "does not match a content rule against the pre-write file on disk" do
+      fs = InMemoryFS.new({DB_PATH => DB_DOC, "/repo/lib/x.cr" => "db.transaction do"})
+      input = %({"session_id":"s","tool_name":"Edit","cwd":"/repo","tool_input":{"file_path":"lib/x.cr"}})
+      code, stdout = invoke(:pre, input, fs)
+      code.should eq(0)
+      stdout.should_not contain("Convention (docs/conventions/db.md):")
+    end
+
+    it "still matches a path rule when the payload carries no written content" do
+      fs = InMemoryFS.new({A_PATH => A_DOC, "/repo/src/app.cr" => "existing"})
+      code, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
     end
 
     it "emits nothing when no rule matches the path" do
@@ -377,6 +397,30 @@ describe AgentApropos::Hook do
       invoke(:pre, read_json("docs/conventions/a.md"), fs)
       fs.files["/repo/.cache/agent-apropos/sessions/s.json"]
         .should contain(%("path": "docs/conventions/a.md"))
+    end
+
+    it "does not suppress a rule when only part of the doc was read (offset)" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      invoke(:pre, partial_read_json("docs/conventions/a.md", offset: 40), fs)
+      fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_false
+
+      invoke(:pre, pre_json("src/app.cr"), fs)[1]
+        .should contain("Convention (docs/conventions/a.md):")
+    end
+
+    it "does not suppress a rule when only part of the doc was read (limit)" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      invoke(:pre, partial_read_json("docs/conventions/a.md", limit: 5), fs)
+      fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_false
+    end
+
+    it "suppresses from the post event too, which is where the read tools are wired" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      code, stdout = invoke(:post, read_json("docs/conventions/a.md"), fs)
+      code.should eq(0)
+      stdout.should be_empty
+      fs.files["/repo/.cache/agent-apropos/sessions/s.json"]
+        .should contain(%("event": "PostToolUse"))
     end
 
     it "falls back to auto-detection for an unrecognized --tool value" do

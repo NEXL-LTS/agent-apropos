@@ -59,10 +59,15 @@ module AgentApropos
       name = event_name(event)
 
       agent = Agents.find(tool) || Agents.detect(payload)
-      return suppress(index, state, root, fs, session_id, now, name, in_root) if agent.read?(payload)
+      if agent.read?(payload)
+        suppress(index, state, root, fs, session_id, now, name, in_root) unless payload.partial_read?
+        return
+      end
 
       pending = index.docs.reject { |entry| state.injected?(entry.path) }
-      matches = dedup_by_entry(in_root.flat_map { |relative, edit| matches_for(pending, root, fs, relative, edit) })
+      matches = dedup_by_entry(in_root.flat_map do |relative, edit|
+        matches_for(pending, event, root, fs, relative, edit)
+      end)
 
       notice = session_notice(state, session_id)
       combined = combine(notice, build_context(root, fs, matches.map(&.entry)))
@@ -117,9 +122,9 @@ module AgentApropos
       "#{notice}\n\n#{context}"
     end
 
-    private def matches_for(entries : Array(Index::Entry), root : Path, fs : Filesystem,
-                            relative : String, edit : Payload::FileEdit) : Array(Match)
-      content = content_for(edit, root, fs, relative)
+    private def matches_for(entries : Array(Index::Entry), event : Symbol, root : Path,
+                            fs : Filesystem, relative : String, edit : Payload::FileEdit) : Array(Match)
+      content = content_for(event, edit, root, fs, relative)
       entries.compact_map do |entry|
         patterns = entry.triggers(relative, content)
         next unless patterns
@@ -127,10 +132,11 @@ module AgentApropos
       end
     end
 
-    private def content_for(edit : Payload::FileEdit, root : Path, fs : Filesystem,
-                            relative : String) : String?
+    private def content_for(event : Symbol, edit : Payload::FileEdit, root : Path,
+                            fs : Filesystem, relative : String) : String?
       pieces = edit.written_contents
       return pieces.join('\n') unless pieces.empty?
+      return nil if event == :pre
       fs.read?(root.join(relative).to_s)
     end
 

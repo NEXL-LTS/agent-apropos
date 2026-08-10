@@ -39,6 +39,9 @@ module AgentApropos
         getter edits : Array(Edit)?
 
         getter command : String?
+
+        getter offset : JSON::Any?
+        getter limit : JSON::Any?
       end
 
       struct CopilotArgs
@@ -47,6 +50,8 @@ module AgentApropos
         getter file_text : String?
         getter old_str : String?
         getter new_str : String?
+
+        getter view_range : JSON::Any?
       end
 
       def self.parse(json : String) : Payload?
@@ -69,6 +74,11 @@ module AgentApropos
 
       def file_path : String?
         tool_input.try(&.file_path) || copilot_args.try(&.path)
+      end
+
+      def partial_read? : Bool
+        ranges = [tool_input.try(&.offset), tool_input.try(&.limit), copilot_args.try(&.view_range)]
+        ranges.any? { |range| range && !range.raw.nil? }
       end
 
       def written_contents : Array(String)

@@ -64,12 +64,17 @@ describe AgentApropos::Agents::OpenCode do
       # must read from there (falling back to input) or no rule ever fires.
       plugin.should contain("async (input, output)")
       plugin.should contain("output?.args ?? input.args")
-      # The "read" tool still calls the pre hook — not to inject, but so a
-      # convention doc the model read is recorded as already in context.
-      plugin.should contain(%("edit", "write", "apply_patch", "read"))
+      # The "read" tool calls the hook — not to inject, but so a convention doc
+      # the model read is recorded as already in context. It is wired on the
+      # after event only, which fires once the read has actually succeeded.
+      plugin.should contain(%(if (!["edit", "write", "apply_patch"].includes(input.tool)) return))
+      plugin.should contain(%(if (!["edit", "write", "apply_patch", "read"].includes(input.tool)) return))
       # Both events send the written content, so content regexes can match the
-      # fragment about to land rather than only the file after the write.
-      plugin.scan(%(makePayload(input, args, true))).size.should eq(2)
+      # fragment about to land rather than only the file after the write, plus
+      # the read range so a partial read cannot suppress a whole rule.
+      plugin.scan(%(makePayload(input, args))).size.should eq(3) # definition + both calls
+      plugin.should contain("offset:     args?.offset")
+      plugin.should contain("limit:      args?.limit")
       stdout.should contain(".opencode/plugins/agent-apropos.js")
     end
 

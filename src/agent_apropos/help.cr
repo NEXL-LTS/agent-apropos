@@ -64,7 +64,9 @@ module AgentApropos
         "stdin. Rules are injected only on a write; the same hook is wired " \
         "onto each agent's read tool, where it emits nothing and merely " \
         "records a convention doc the model read for itself so no later " \
-        "write re-injects it. The generated OpenCode plugin " \
+        "write re-injects it — only when that read completed and was not " \
+        "bounded by an offset or limit, which is why the read tools hang off " \
+        "each agent's post-execution event. The generated OpenCode plugin " \
         "(.opencode/plugins/agent-apropos.js) calls the same commands via " \
         "tool.execute.before and tool.execute.after and injects context " \
         "using noReply:true. Gemini CLI calls both `hook pre` and `hook " \

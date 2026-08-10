@@ -48,7 +48,13 @@ scoped rules are wired onto `postToolUse` instead: a `view`-only matcher
 group carrying just `agent-apropos hook pre`, and a `create|edit` group
 carrying both `pre` and `post`. The `view` group injects nothing (a read
 never does); it exists so a convention doc Copilot reads for itself is
-recorded as already in context.
+recorded as already in context. `postToolUse` is also the *right* event for
+that: it fires only after the read succeeded, so a denied or failed read
+cannot mark a doc delivered when the model never saw it. Claude's `Read` and
+OpenCode's `read` are wired onto their own post-execution events
+(`PostToolUse`, `tool.execute.after`) for the same reason, even though both
+have a usable pre-execution event — this is the one place agent-apropos
+deliberately gives up early delivery, because a read has nothing to deliver.
 
 `.github/hooks/agent-apropos.json` is written with no bridge script, unlike
 Claude/Gemini's shared settings file: Copilot CLI loads every

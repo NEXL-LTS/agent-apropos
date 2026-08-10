@@ -214,7 +214,9 @@ flowchart LR
 trigger index and committed skill wrappers. At write time, the hooks look up the
 matching rules and inject them. Reads never inject — the same hook is wired onto
 each agent's read tool only so that a convention doc the model reads for itself
-is not injected again later. For review, the same frontmatter resolves which
+is not injected again later. That suppression needs a read that both completed
+and covered the whole doc, so read tools are wired on each agent's
+post-execution event and a partial (offset/limit) read is ignored. For review, the same frontmatter resolves which
 conventions apply to a diff, so review prompts carry zero copies of the rules.
 
 ## Configuration

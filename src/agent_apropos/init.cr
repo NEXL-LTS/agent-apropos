@@ -193,7 +193,9 @@ module AgentApropos
 
       Rules are injected only when the agent **writes**. A read injects nothing;
       it only tells agent-apropos that a convention doc is already in the model's
-      context, so no later write re-injects it.
+      context, so no later write re-injects it. That needs a read that both
+      completed and covered the whole doc, so read tools are wired on the
+      post-execution event and a partial (offset/limit) read is ignored.
 
       ## Writing a rule
 

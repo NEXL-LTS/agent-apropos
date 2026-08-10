@@ -59,7 +59,10 @@ it carries no intent — a model reads plenty of files it will never edit — an
 each rule is injected at most once per session, so spending that one injection on
 an exploratory read wastes it. Reads do one thing, which is to *suppress*: if the
 agent reads a convention doc itself, the doc is in context verbatim, so no later
-write re-injects it.
+write re-injects it. Suppression is deliberately conservative — it needs a read
+that both completed and covered the whole doc, so the read tools are wired on
+each agent's *post*-execution event (a denied or failed read never reaches it)
+and a read bounded by an offset or a limit is ignored.
 
 **Layer 3 — intent skills.** For guidance triggered by the nature of a task, not
 its path or content ("doing a data migration", "touching billing"). The doc lives

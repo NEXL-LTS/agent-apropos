@@ -46,7 +46,9 @@ module AgentApropos
         // tool.execute.before carries the fragment about to be written, and
         // tool.execute.after carries it again for edits the before-hook missed.
         // A "read" injects nothing — it only tells agent-apropos that a
-        // convention doc is already in context, so no write re-injects it.
+        // convention doc is already in context, so no write re-injects it, and
+        // it is wired on tool.execute.after so a read that failed or was
+        // denied never suppresses a rule it did not actually deliver.
         // Both fail open: any error produces no output and never blocks an edit.
         // See docs/conventions/README.md for the layer model.
 
@@ -82,17 +84,17 @@ module AgentApropos
             }
           }
 
-          function makePayload(input, args, withContent) {
+          function makePayload(input, args) {
             return {
               session_id: input.sessionID ?? sessionID,
               cwd: worktree,
               tool_name: input.tool,
               tool_input: {
-                file_path: args?.filePath,
-                ...(withContent ? {
-                  content:    args?.content,
-                  new_string: args?.newString,
-                } : {}),
+                file_path:  args?.filePath,
+                content:    args?.content,
+                new_string: args?.newString,
+                offset:     args?.offset,
+                limit:      args?.limit,
               },
             }
           }
@@ -108,29 +110,29 @@ module AgentApropos
 
             // Inject BEFORE the write so the model sees the rule while still in
             // the current tool-processing turn, with the pending content so
-            // content regexes match the fragment about to land. Also fires on
-            // "read", where agent-apropos emits nothing and only records a
-            // convention doc the model has now read for itself. OpenCode
+            // content regexes match the fragment about to land. OpenCode
             // delivers the tool arguments in the SECOND callback parameter
             // (output.args) for tool.execute.before; older builds put them on
             // input.args. Read output first, fall back to input.
             "tool.execute.before": async (input, output) => {
-              if (!["edit", "write", "apply_patch", "read"].includes(input.tool)) return
+              if (!["edit", "write", "apply_patch"].includes(input.tool)) return
               const args = output?.args ?? input.args
               if (!args?.filePath) return
-              const ctx = await callHook("pre", makePayload(input, args, true))
+              const ctx = await callHook("pre", makePayload(input, args))
               await inject(input.sessionID ?? sessionID, ctx)
             },
 
             // Inject AFTER the write as well, for rules the before-hook could
             // not resolve (an edit whose newString the before event omits).
-            // Here OpenCode carries args on input; the same output-first
-            // fallback keeps this robust across versions.
+            // "read" is handled here only, never before: this event fires once
+            // the read has actually succeeded, so a denied or failed read
+            // cannot suppress a rule. Here OpenCode carries args on input; the
+            // same output-first fallback keeps this robust across versions.
             "tool.execute.after": async (input, output) => {
-              if (!["edit", "write", "apply_patch"].includes(input.tool)) return
+              if (!["edit", "write", "apply_patch", "read"].includes(input.tool)) return
               const args = output?.args ?? input.args
               if (!args?.filePath) return
-              const ctx = await callHook("post", makePayload(input, args, true))
+              const ctx = await callHook("post", makePayload(input, args))
               await inject(input.sessionID ?? sessionID, ctx)
             },
           }

@@ -43,11 +43,12 @@ module AgentApropos
 
         pre_groups = (hooks["PreToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
         pre_groups = ensure_commands(pre_groups, "Edit|Write", [hook_pre], CLAUDE_HOOK_TIMEOUT)
-        pre_groups = ensure_commands(pre_groups, "Read", [hook_pre], CLAUDE_HOOK_TIMEOUT)
+        pre_groups = drop_owned_commands(pre_groups, "Read")
         hooks["PreToolUse"] = JSON::Any.new(pre_groups)
 
         post_groups = (hooks["PostToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
         post_groups = ensure_commands(post_groups, "Edit|Write", [hook_post], CLAUDE_HOOK_TIMEOUT)
+        post_groups = ensure_commands(post_groups, "Read", [hook_post], CLAUDE_HOOK_TIMEOUT)
         hooks["PostToolUse"] = JSON::Any.new(post_groups)
 
         root["hooks"] = JSON::Any.new(hooks)
@@ -69,6 +70,19 @@ module AgentApropos
         target = matching.first
         groups[target] = append_hooks(groups[target], missing, timeout)
         groups
+      end
+
+      private def drop_owned_commands(groups : Array(JSON::Any), matcher : String) : Array(JSON::Any)
+        groups.compact_map do |group|
+          next group unless group_matcher(group) == matcher
+          kept = (group.as_h?.try(&.["hooks"]?).try(&.as_a?) || [] of JSON::Any).reject do |hook|
+            hook.as_h?.try(&.["command"]?).try(&.as_s?).try(&.starts_with?(AGENT_APROPOS_HOOK_PREFIX))
+          end
+          next nil if kept.empty?
+          hash = group.as_h.dup
+          hash["hooks"] = JSON::Any.new(kept)
+          JSON::Any.new(hash)
+        end
       end
 
       private def group_matcher(group : JSON::Any) : String?
