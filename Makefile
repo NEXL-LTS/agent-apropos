@@ -100,8 +100,15 @@ endif
 devcontainer-spec: ## Run the bats tests for .devcontainer/initialize.sh
 	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats .devcontainer/tests
 
+# Deterministic bats tests for the repo's own Claude Code hook scripts under
+# .claude/hooks/. Same story as devcontainer-spec: offline, credential-free, and
+# therefore part of `check`.
+.PHONY: hooks-spec
+hooks-spec: ## Run the bats tests for .claude/hooks/
+	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats .claude/hooks/tests
+
 .PHONY: check
-check: lint spec dup devcontainer-spec ## Lint + spec + duplication + devcontainer checks (the fast local gate)
+check: lint spec dup devcontainer-spec hooks-spec ## Lint + spec + duplication + devcontainer + hook checks (the fast local gate)
 
 # End-to-end test: stands up a sample repo wired with agent-apropos's hooks and
 # proves agent-apropos injects conventions and steers a real `claude` run. Local/advisory —
