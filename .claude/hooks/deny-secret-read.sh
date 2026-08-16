@@ -33,12 +33,16 @@ deny() {
 reason="$SECRET_REL holds live agent credentials for the devcontainer and is off limits. \
 Read .devcontainer/docker-compose.yml or .devcontainer/initialize.sh to see which keys it is expected to define."
 
+# The path as it appears in a payload, with a trailing boundary that keeps
+# siblings like .envrc and .env.example out of the match. Used both for Bash
+# command strings and for the jq-less fallback over the whole payload.
+SECRET_PATTERN='\.devcontainer/\.env([^[:alnum:]_.-]|$)'
+
 # No jq means no structured view of the payload. Fall back to matching the raw
-# input so a missing dependency cannot silently disable the guard.
+# input so a missing dependency cannot silently disable the guard. The bound
+# match keeps this degraded mode as narrow as the parsed one.
 if ! command -v jq >/dev/null 2>&1; then
-  case "$input" in
-    *"$SECRET_REL"*) deny "$reason" ;;
-  esac
+  [[ $input =~ $SECRET_PATTERN ]] && deny "$reason"
   exit 0
 fi
 
@@ -67,11 +71,33 @@ for field in file_path path notebook_path; do
 done
 
 # Bash names its target inside a shell string, so the check is necessarily a
-# textual one: any command mentioning the path is refused. The trailing boundary
-# keeps siblings like .devcontainer/.envrc and .devcontainer/.env.example free.
+# textual one. Three shapes are refused; all three are about the path the command
+# would reach, not the program doing the reading, so `sed`, `awk`, `head`, `xxd`,
+# an inline `python -c` and anything else are covered by the same rules.
 command_text="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null || true)"
-if [ -n "$command_text" ] && [[ $command_text =~ \.devcontainer/\.env([^[:alnum:]_.-]|$) ]]; then
+[ -n "$command_text" ] || exit 0
+
+# 1. The path spelled out, absolute or relative.
+[[ $command_text =~ $SECRET_PATTERN ]] && deny "$reason"
+
+# 2. The directory entered first, then the file named bare: `cd .devcontainer &&
+#    cat .env`. Requiring both halves keeps an unrelated `.env` elsewhere in the
+#    repo readable. A leading `/` disqualifies the token, so the `.env.example`
+#    and `.devcontainer/.env`-prefixed forms stay with rule 1.
+if [[ $command_text =~ \.devcontainer ]] &&
+  [[ $command_text =~ (^|[^[:alnum:]_./-])\.env([^[:alnum:]_.-]|$) ]]; then
   deny "$reason"
 fi
+
+# 3. A content-wide sweep of the directory, which reads the secret without ever
+#    naming it: `grep -r ... .devcontainer/`, `rg ... .devcontainer`, or a glob
+#    like `cat .devcontainer/*`. Narrowing the command to a specific file is the
+#    intended way through.
+if [[ $command_text =~ \.devcontainer ]] &&
+  [[ $command_text =~ (grep[^;|]*[[:space:]]-[[:alnum:]]*[rR]|(^|[^[:alnum:]_.-])(rg|ag|ack)([[:space:]]|$)|\.devcontainer/\*) ]]; then
+  deny "$reason"
+fi
+
+exit 0
 
 exit 0

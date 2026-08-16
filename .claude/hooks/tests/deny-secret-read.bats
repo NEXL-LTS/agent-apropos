@@ -91,6 +91,63 @@ bash_payload() {
   assert_denied
 }
 
+# The rule is about the path reached, not the program reading it, so every
+# stream editor / dumper / inline interpreter falls out of the same check.
+@test "denies readers other than cat" {
+  local reader
+  for reader in \
+    "sed -n '1,5p' .devcontainer/.env" \
+    "awk -F= '{print \$2}' .devcontainer/.env" \
+    "head -5 .devcontainer/.env" \
+    "tail -n2 .devcontainer/.env" \
+    "less .devcontainer/.env" \
+    "xxd .devcontainer/.env" \
+    "strings .devcontainer/.env" \
+    "od -c .devcontainer/.env" \
+    "python3 -c \"print(open('.devcontainer/.env').read())\"" ; do
+    run --separate-stderr bash "$HOOK" <<<"$(bash_payload "$reader")"
+    assert_denied
+  done
+}
+
+# Two ways to reach the file without ever spelling its path.
+@test "denies entering the directory and naming the file bare" {
+  run --separate-stderr bash "$HOOK" <<<"$(bash_payload 'cd .devcontainer && sed -n p .env')"
+  assert_denied
+}
+
+@test "denies a recursive content sweep of the directory" {
+  local sweep
+  for sweep in \
+    'grep -r ANTHROPIC .devcontainer/' \
+    'grep -rn KEY .devcontainer' \
+    'rg TOKEN .devcontainer' \
+    'cat .devcontainer/*' ; do
+    run --separate-stderr bash "$HOOK" <<<"$(bash_payload "$sweep")"
+    assert_denied
+  done
+}
+
+# ...without swallowing ordinary work in that directory.
+@test "allows naming a specific non-secret file in the directory" {
+  local ok
+  for ok in \
+    'cat .devcontainer/docker-compose.yml' \
+    'grep env_file .devcontainer/docker-compose.yml' \
+    'bash .devcontainer/initialize.sh' \
+    'ls .devcontainer/' \
+    'cd .devcontainer && cat Dockerfile' \
+    'cd .devcontainer && cat .env.example' ; do
+    run --separate-stderr bash "$HOOK" <<<"$(bash_payload "$ok")"
+    assert_allowed
+  done
+}
+
+@test "allows a bare .env token unrelated to the devcontainer" {
+  run --separate-stderr bash "$HOOK" <<<"$(bash_payload 'cd e2e/project && cat .env')"
+  assert_allowed
+}
+
 # The trailing-boundary check exists so the guard stays narrow: neighbouring
 # files in the same directory are ordinary source, not credentials.
 @test "allows a Read of a sibling whose name merely starts with .env" {
@@ -157,5 +214,19 @@ jqless_path() {
 @test "still allows an unrelated call without jq on PATH" {
   run --separate-stderr env PATH="$(jqless_path)" bash "$HOOK" \
     <<<"$(read_payload 'src/agent_apropos/cli.cr')"
+  assert_allowed
+}
+
+# The fallback matches the whole payload rather than a parsed field, so it is the
+# path most at risk of widening into a blunt substring check. Pin the siblings.
+@test "still allows .env.example without jq on PATH" {
+  run --separate-stderr env PATH="$(jqless_path)" bash "$HOOK" \
+    <<<"$(read_payload '.devcontainer/.env.example')"
+  assert_allowed
+}
+
+@test "still allows .envrc without jq on PATH" {
+  run --separate-stderr env PATH="$(jqless_path)" bash "$HOOK" \
+    <<<"$(read_payload '.devcontainer/.envrc')"
   assert_allowed
 }
