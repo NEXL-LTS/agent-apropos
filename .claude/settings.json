@@ -1,4 +1,10 @@
 {
+  "permissions": {
+    "deny": [
+      "Read(./.devcontainer/.env)",
+      "Edit(./.devcontainer/.env)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -28,6 +34,16 @@
       }
     ],
     "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Grep|Bash|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/deny-secret-read.sh\"",
+            "timeout": 10
+          }
+        ]
+      },
       {
         "matcher": "Edit|Write",
         "hooks": [
