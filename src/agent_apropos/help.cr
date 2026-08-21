@@ -95,8 +95,9 @@ module AgentApropos
         "so a review prompt carries zero copies of the conventions."),
       Command.new("lint", "Validate the convention structure",
         "Run lint (in CI, with --strict) to enforce the standard's quality bar: " \
-        "frontmatter parses, regexes and globs are valid, triggered docs have " \
-        "bodies, and generated wrappers are up to date."),
+        "frontmatter parses, regexes and globs are valid, every path glob still " \
+        "matches a tracked file, triggered docs have bodies, and generated " \
+        "wrappers are up to date. A doc opts out with `lint: ignore`."),
       Command.new("doctor", "Check the environment",
         "Run doctor when hooks are not firing: it checks the Claude Code settings " \
         "wiring, the OpenCode plugin presence, the Gemini CLI AfterTool wiring, " \

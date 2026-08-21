@@ -27,6 +27,10 @@ module AgentApropos
       frontmatter.skill?
     end
 
+    def lint_ignore? : Bool
+      frontmatter.lint_ignore?
+    end
+
     def verify : String?
       capturing = false
       captured = [] of String

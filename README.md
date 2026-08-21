@@ -256,7 +256,7 @@ repo's hooks to keep working.
 | `agent-apropos hook pre` / `hook post` | Hook handlers for the wired CLI agent (scoped rules, before / after the write). Fail open — never block an edit. |
 | `agent-apropos match <paths>` | Resolve the conventions applying to given files (`--format paths\|json\|full`). |
 | `agent-apropos review [range]` | Resolve conventions for a git diff range as a review manifest (`--format md\|json`). |
-| `agent-apropos lint` | Validate frontmatter, skill descriptions, root-file budget, and generated-artifact freshness (`--strict`). |
+| `agent-apropos lint` | Validate frontmatter, skill descriptions, `paths` globs that match no tracked file, root-file budget, and generated-artifact freshness (`--strict`). Per-doc opt-out: `lint: ignore`. |
 | `agent-apropos doctor` | Check hook wiring, agent version/capability support, index freshness, and cache writability. |
 | `agent-apropos help` | The dual-audience mental model (human and agent), single-sourced with `--format json`. |
 

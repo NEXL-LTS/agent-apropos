@@ -209,7 +209,7 @@ module AgentApropos
       root = resolve_repo_root(override)
       return repo_root_error("lint") if root.nil?
 
-      Lint.run(root, Filesystem::Real.new, strict, @stdout, @stderr, allow_outside)
+      Lint.run(root, Filesystem::Real.new, Git::Real.new, strict, @stdout, @stderr, allow_outside)
     end
 
     private def handle_doctor(args : Array(String)) : Int32
