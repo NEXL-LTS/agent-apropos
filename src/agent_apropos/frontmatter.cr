@@ -6,7 +6,9 @@ module AgentApropos
     class Error < AgentApropos::Error
     end
 
-    KNOWN_KEYS = ["paths", "contents", "skill", "description"]
+    KNOWN_KEYS = ["paths", "contents", "skill", "description", "lint"]
+
+    LINT_IGNORE = "ignore"
 
     OPEN_FENCE  = /\A---[^\S\r\n]*\r?\n/
     CLOSE_FENCE = /^---[^\S\r\n]*(?:\r?\n|\z)/m
@@ -15,6 +17,7 @@ module AgentApropos
     getter contents : Array(String)
     getter? skill : Bool
     getter description : String?
+    getter lint : String?
     getter unknown_keys : Array(String)
 
     def initialize(
@@ -22,8 +25,13 @@ module AgentApropos
       @contents = [] of String,
       @skill = false,
       @description = nil,
+      @lint = nil,
       @unknown_keys = [] of String,
     )
+    end
+
+    def lint_ignore? : Bool
+      lint == LINT_IGNORE
     end
 
     def scoped? : Bool
@@ -66,6 +74,7 @@ module AgentApropos
         contents: string_list(hash, "contents"),
         skill: boolean(hash, "skill"),
         description: string(hash, "description"),
+        lint: string(hash, "lint"),
         unknown_keys: unknown,
       )
     end

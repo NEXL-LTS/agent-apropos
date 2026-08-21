@@ -5,6 +5,7 @@ require "./config"
 require "./matcher"
 require "./skills"
 require "./filesystem"
+require "./git"
 
 module AgentApropos
   module Lint
@@ -17,18 +18,21 @@ module AgentApropos
 
     record Finding, severity : Symbol, location : String, message : String
 
-    def run(repo_root : Path, fs : Filesystem, strict : Bool, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
-      report(collect(repo_root, fs, allow_outside), strict, stdout)
+    def run(repo_root : Path, fs : Filesystem, git : Git, strict : Bool,
+            stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
+      report(collect(repo_root, fs, git, allow_outside), strict, stdout)
     rescue ex : AgentApropos::Error
       stderr.puts "agent-apropos lint: #{ex.message}"
       1
     end
 
-    private def collect(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Array(Finding)
+    private def collect(repo_root : Path, fs : Filesystem, git : Git, allow_outside : Bool) : Array(Finding)
       conventions, findings = parse_docs(repo_root, fs, allow_outside)
-      conventions.each { |convention| findings.concat(doc_findings(convention)) }
+      ignored, linted = conventions.partition(&.lint_ignore?)
+      tracked = git.ls_files(repo_root)
+      linted.each { |convention| findings.concat(doc_findings(convention, tracked)) }
       findings.concat(root_file_findings(repo_root, fs))
-      findings.concat(wrapper_findings(repo_root, fs, conventions, allow_outside))
+      findings.concat(wrapper_findings(repo_root, fs, linted, ignored, allow_outside))
       findings
     end
 
@@ -46,28 +50,11 @@ module AgentApropos
       {conventions, findings}
     end
 
-    private def doc_findings(convention : Convention) : Array(Finding)
+    private def doc_findings(convention : Convention, tracked : Array(String)?) : Array(Finding)
       fm = convention.frontmatter
-      findings = [] of Finding
-
-      unless fm.unknown_keys.empty?
-        findings << Finding.new(:warning, convention.path,
-          "unknown frontmatter keys: #{fm.unknown_keys.join(", ")}")
-      end
-
-      if convention.skill? && fm.description.nil?
-        findings << Finding.new(:error, convention.path, "`skill: true` requires a `description`")
-      end
-
-      if (description = fm.description) && !description.starts_with?("Use when")
-        findings << Finding.new(:error, convention.path, %(`description` must start with "Use when"))
-      end
-
-      fm.paths.each do |glob|
-        unless Matcher.valid_glob?(glob)
-          findings << Finding.new(:error, convention.path, "invalid path glob: #{glob.inspect}")
-        end
-      end
+      findings = key_findings(convention)
+      findings.concat(skill_findings(convention))
+      fm.paths.each { |glob| findings.concat(glob_findings(convention, glob, tracked)) }
 
       fm.contents.each do |source|
         Matcher.compile(source)
@@ -79,11 +66,51 @@ module AgentApropos
         findings << Finding.new(:error, convention.path, "declares triggers but has an empty body")
       end
 
+      findings
+    end
+
+    private def key_findings(convention : Convention) : Array(Finding)
+      fm = convention.frontmatter
+      findings = [] of Finding
+
+      unless fm.unknown_keys.empty?
+        findings << Finding.new(:warning, convention.path,
+          "unknown frontmatter keys: #{fm.unknown_keys.join(", ")}")
+      end
+
+      if (lint = fm.lint) && !fm.lint_ignore?
+        findings << Finding.new(:error, convention.path,
+          "unrecognized `lint` value: #{lint.inspect} (only #{Frontmatter::LINT_IGNORE.inspect} is supported)")
+      end
+
+      findings
+    end
+
+    private def skill_findings(convention : Convention) : Array(Finding)
+      fm = convention.frontmatter
+      findings = [] of Finding
+
+      if convention.skill? && fm.description.nil?
+        findings << Finding.new(:error, convention.path, "`skill: true` requires a `description`")
+      end
+
+      if (description = fm.description) && !description.starts_with?("Use when")
+        findings << Finding.new(:error, convention.path, %(`description` must start with "Use when"))
+      end
+
       if convention.skill? && line_count(convention.body) > SKILL_DOC_MAX
         findings << Finding.new(:warning, convention.path, "skill doc is over #{SKILL_DOC_MAX} lines")
       end
 
       findings
+    end
+
+    private def glob_findings(convention : Convention, glob : String, tracked : Array(String)?) : Array(Finding)
+      unless Matcher.valid_glob?(glob)
+        return [Finding.new(:error, convention.path, "invalid path glob: #{glob.inspect}")]
+      end
+      return [] of Finding if tracked.nil? || tracked.any? { |path| Matcher.path_match?(glob, path) }
+      [Finding.new(:error, convention.path, "path glob matches no tracked file: #{glob.inspect}")]
     end
 
     private def root_file_findings(repo_root : Path, fs : Filesystem) : Array(Finding)
@@ -99,8 +126,8 @@ module AgentApropos
       findings
     end
 
-    private def wrapper_findings(repo_root : Path, fs : Filesystem,
-                                 conventions : Array(Convention), allow_outside : Bool) : Array(Finding)
+    private def wrapper_findings(repo_root : Path, fs : Filesystem, conventions : Array(Convention),
+                                 ignored : Array(Convention), allow_outside : Bool) : Array(Finding)
       skill_docs = conventions.select { |convention| convention.skill? && convention.frontmatter.description }
       wrappers =
         begin
@@ -110,6 +137,7 @@ module AgentApropos
           return [Finding.new(:error, location, ex.message.to_s)]
         end
 
+      ignored_slugs = ignored.select(&.skill?).map { |convention| Skills.slug_for(convention.path) }
       active = Skills.active_roots(repo_root, fs)
       findings = [] of Finding
       Skills::ROOTS.each do |root|
@@ -123,7 +151,7 @@ module AgentApropos
           end
         end
 
-        (existing_slugs(repo_root, fs, root) - expected.keys).sort.each do |slug|
+        (existing_slugs(repo_root, fs, root) - expected.keys - ignored_slugs).sort.each do |slug|
           findings << Finding.new(:error, wrapper_display(root, slug), "orphaned generated wrapper (run `agent-apropos generate`)")
         end
       end

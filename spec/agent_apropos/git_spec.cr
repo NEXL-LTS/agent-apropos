@@ -54,6 +54,38 @@ describe AgentApropos::Git::Real do
     end
   end
 
+  it "lists tracked files relative to the repo root" do
+    with_repo do |dir|
+      AgentApropos::Git::Real.new.ls_files(Path[dir]).should eq(["app.cr"])
+    end
+  end
+
+  it "returns nil for ls_files outside a git checkout rather than an empty list" do
+    dir = File.tempname("agent-apropos-nongit")
+    begin
+      Dir.mkdir_p(dir)
+      AgentApropos::Git::Real.new.ls_files(Path[dir]).should be_nil
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
+
+  it "returns nil for ls_files when the directory does not exist and git cannot even start" do
+    AgentApropos::Git::Real.new.ls_files(Path[File.tempname("agent-apropos-missing")]).should be_nil
+  end
+
+  it "raises rather than reporting no tracked files when git fails inside a checkout" do
+    dir = File.tempname("agent-apropos-broken")
+    begin
+      Dir.mkdir_p(File.join(dir, ".git"))
+      expect_raises(AgentApropos::Git::Error, "git ls-files failed") do
+        AgentApropos::Git::Real.new.ls_files(Path[dir])
+      end
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
+
   it "raises a Git::Error when the git command fails" do
     with_repo do |dir|
       expect_raises(AgentApropos::Git::Error, "git diff") do

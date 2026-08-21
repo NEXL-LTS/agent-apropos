@@ -19,31 +19,6 @@ private class ReadOnlyFS < InMemoryFS
   end
 end
 
-# A fake git that records the range it was asked to diff and returns canned
-# output, so the pure review logic (range resolution, diff parsing, rendering) is
-# unit-testable without a real repo (Git::Real is covered in git_spec).
-private class FakeGit < AgentApropos::Git
-  getter diffed_range : String? = nil
-
-  def initialize(@diff_text : String = "", @symbolic : String? = nil,
-                 @refs : Array(String) = [] of String, @diff_raises : Bool = false)
-  end
-
-  def diff(repo_root : Path, range : String) : String
-    @diffed_range = range
-    raise AgentApropos::Git::Error.new("diff boom") if @diff_raises
-    @diff_text
-  end
-
-  def symbolic_ref(repo_root : Path, name : String) : String?
-    @symbolic
-  end
-
-  def ref_exists?(repo_root : Path, ref : String) : Bool
-    @refs.includes?(ref)
-  end
-end
-
 private def run_match(fs : AgentApropos::Filesystem, paths : Array(String),
                       format : String = "paths", stdin_content : String? = nil) : {Int32, String, String}
   stdout = IO::Memory.new

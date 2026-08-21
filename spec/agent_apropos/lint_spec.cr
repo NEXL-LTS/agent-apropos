@@ -2,15 +2,18 @@ require "../spec_helper"
 
 private ROOT = Path["/repo"]
 
-private def run_lint(fs : AgentApropos::Filesystem, strict : Bool = false) : {Int32, String}
-  code, stdout, _ = run_lint_full(fs, strict)
+private def run_lint(fs : AgentApropos::Filesystem, strict : Bool = false,
+                     tracked : Array(String)? = nil) : {Int32, String}
+  code, stdout, _ = run_lint_full(fs, strict, tracked)
   {code, stdout}
 end
 
-private def run_lint_full(fs : AgentApropos::Filesystem, strict : Bool = false) : {Int32, String, String}
+private def run_lint_full(fs : AgentApropos::Filesystem, strict : Bool = false,
+                          tracked : Array(String)? = nil,
+                          git : AgentApropos::Git? = nil) : {Int32, String, String}
   stdout = IO::Memory.new
   stderr = IO::Memory.new
-  code = AgentApropos::Lint.run(ROOT, fs, strict, stdout, stderr)
+  code = AgentApropos::Lint.run(ROOT, fs, git || FakeGit.new(tracked: tracked), strict, stdout, stderr)
   {code, stdout.to_s, stderr.to_s}
 end
 
@@ -197,6 +200,116 @@ describe AgentApropos::Lint do
       code, stdout = run_lint(fs)
       code.should eq(1)
       stdout.should contain("slug collision")
+    end
+  end
+
+  describe "dead path globs" do
+    it "errors when a path glob matches no tracked file" do
+      fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.rb\"]\n---\n# D\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(1)
+      stdout.should contain(%(error  docs/conventions/d.md: path glob matches no tracked file: "src/**/*.rb"))
+    end
+
+    it "accepts a glob that matches a tracked file" do
+      fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.cr\"]\n---\n# D\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(0)
+      stdout.should contain("lint: clean")
+    end
+
+    it "matches dotfile paths the hook would fire on, unlike Dir.glob" do
+      fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"**/*.yml\"]\n---\n# D\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: [".github/workflows/ci.yml"])
+      code.should eq(0)
+      stdout.should contain("lint: clean")
+    end
+
+    it "fails loudly instead of reporting clean when git blows up listing tracked files" do
+      fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.rb\"]\n---\n# D\n\nb\n"})
+      code, stdout, stderr = run_lint_full(fs, git: FakeGit.new(ls_files_raises: true))
+      code.should eq(1)
+      stdout.should_not contain("lint: clean")
+      stderr.should contain("agent-apropos lint: ls-files boom")
+    end
+
+    it "skips the check entirely when the repo is not a git checkout" do
+      fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.rb\"]\n---\n# D\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: nil)
+      code.should eq(0)
+      stdout.should contain("lint: clean")
+    end
+
+    it "reports an invalid glob once rather than also calling it dead" do
+      fs = InMemoryFS.new({doc("g.md") => "---\npaths: [\"src/[\"]\n---\n# G\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(1)
+      stdout.should contain("invalid path glob")
+      stdout.should_not contain("matches no tracked file")
+      stdout.should contain("lint: 1 error(s), 0 warning(s)")
+    end
+  end
+
+  describe "lint: ignore" do
+    it "suppresses a dead path glob" do
+      fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.rb\"]\nlint: ignore\n---\n# D\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(0)
+      stdout.should contain("lint: clean")
+    end
+
+    it "suppresses every finding the doc's frontmatter could raise" do
+      fs = InMemoryFS.new({
+        doc("s.md") => "---\nskill: true\npaths: [\"src/[\"]\nlint: ignore\n---\n# S\n\nb\n",
+      })
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(0)
+      stdout.should contain("lint: clean")
+    end
+
+    it "does not suppress invalid YAML, which stops the key from being read at all" do
+      fs = InMemoryFS.new({doc("bad.md") => "---\nlint: ignore\npaths: [\n---\nbody\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(1)
+      stdout.should contain("invalid YAML frontmatter")
+    end
+
+    it "does not suppress an unterminated frontmatter fence" do
+      fs = InMemoryFS.new({doc("bad.md") => "---\nlint: ignore\npaths: [\"src/**\"]\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(1)
+      stdout.should contain("unterminated frontmatter block")
+    end
+
+    it "does not suppress a wrong-typed key" do
+      fs = InMemoryFS.new({doc("bad.md") => "---\nlint: ignore\npaths: \"src/**\"\n---\n# B\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(1)
+      stdout.should contain("`paths` must be a list of strings")
+    end
+
+    it "does not suppress a wrong-typed lint key itself" do
+      fs = InMemoryFS.new({doc("bad.md") => "---\nlint: true\n---\n# B\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(1)
+      stdout.should contain("`lint` must be a string")
+    end
+
+    it "does not make an ignored skill doc's existing wrapper look orphaned" do
+      text = "---\nskill: true\ndescription: \"Use when w\"\nlint: ignore\n---\n# W\n\nb\n"
+      wrappers, _ = wrapper_for("workflows/w.md", text)
+      fs = InMemoryFS.new(WIRED_ALL.merge(wrappers).merge({doc("workflows/w.md") => text}))
+      code, stdout = run_lint(fs, tracked: ["docs/conventions/workflows/w.md"])
+      code.should eq(0)
+      stdout.should contain("lint: clean")
+    end
+
+    it "errors on an unrecognized value instead of suppressing" do
+      fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.rb\"]\nlint: strict\n---\n# D\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(1)
+      stdout.should contain(%(unrecognized `lint` value: "strict"))
+      stdout.should contain("path glob matches no tracked file")
     end
   end
 

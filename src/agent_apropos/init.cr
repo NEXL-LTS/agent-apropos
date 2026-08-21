@@ -182,6 +182,7 @@ module AgentApropos
       contents: ['\\bTODO\\b']        # inject when written code matches (PCRE2)
       skill: true                    # Layer 3: generate a skill wrapper
       description: "Use when ..."    # required iff skill: true; must start with "Use when"
+      lint: ignore                   # opt this doc out of every `agent-apropos lint` check
       ---
       ```
 
@@ -190,6 +191,8 @@ module AgentApropos
       - `paths` + `contents` → **AND**: both must match
       - `skill: true` is independent and may combine with either
       - no frontmatter → reference-only: reachable by link, never triggered
+      - `lint: ignore` suppresses every finding for this doc, including a `paths`
+        glob that matches no tracked file
 
       Rules are injected only when the agent **writes**. A read injects nothing;
       it only tells agent-apropos that a convention doc is already in the model's
@@ -245,6 +248,7 @@ module AgentApropos
     EXAMPLE_L2 = <<-MD
       ---
       paths: ["src/**"]
+      lint: ignore
       ---
 
       # Source files
@@ -252,6 +256,10 @@ module AgentApropos
       Keep modules small and single-purpose. This is an example path-scoped rule: it
       is injected whenever a file under `src/` is written. Replace it with a real
       convention or delete it.
+
+      `lint: ignore` is here because this placeholder may point at a directory your
+      repo does not have — `agent-apropos lint` errors on a `paths` glob that matches
+      no tracked file. Drop the key once the globs are real.
 
       ## Verify
 

@@ -86,6 +86,7 @@ paths: ["src/**"]              # inject when writing to a matching path
 contents: ['\bSTDIN\b']        # inject when written code matches (PCRE2)
 skill: true                    # Layer 3: generate a skill wrapper
 description: "Use when ..."    # required iff skill: true; must start with "Use when"
+lint: ignore                   # opt this doc out of every `agent-apropos lint` check
 ---
 ```
 
@@ -96,6 +97,20 @@ Combination semantics:
 - `paths` + `contents` → **AND**: both must match
 - `skill: true` is independent and may combine with either
 - no frontmatter → reference-only: reachable by link, never triggered
+- `lint: ignore` is the one escape hatch, and it suppresses *everything* lint
+  would say about the doc
+
+Every `paths` glob must match at least one tracked file. A doc scoped to a
+directory that was renamed or deleted is inert, so `agent-apropos lint` errors
+on it rather than letting it sit in the repo never firing. The check uses the
+same matcher the hooks use, so lint and the hooks can never disagree about what
+a glob hits. Outside a git checkout the check is skipped; if git fails *inside*
+one, lint fails rather than quietly reporting clean on a check that never ran.
+
+Reach for `lint: ignore` when a doc legitimately runs ahead of the code it
+governs. Because suppression means reading the frontmatter, anything that stops
+the frontmatter from parsing — invalid YAML, an unterminated `---` fence, a
+wrong-typed key — is reported regardless. So is an unrecognized `lint:` value.
 
 A `contents` rule needs the written content to match against. When the payload
 carries no content and the file cannot be read, the rule stays silent rather than
@@ -149,7 +164,8 @@ zero copies of the conventions; one source serves authoring, editing, and review
 - Root file under budget, containing zero rules that tooling enforces.
 - Every rule file: one concern, as short as possible, with the *why* and a
   verification criterion.
-- Every Layer 2 file declares at least one path or content trigger.
+- Every Layer 2 file declares at least one path or content trigger, and every
+  `paths` glob matches a tracked file (or the doc carries `lint: ignore`).
 - Every skill description passes the "Use when…" precision test; all `SKILL.md`
   files are generator output, never hand-edited, with no guidance duplicated from
   `docs/conventions/`.
