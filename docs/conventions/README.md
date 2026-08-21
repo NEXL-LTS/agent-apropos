@@ -104,7 +104,8 @@ Every `paths` glob must match at least one tracked file. A doc scoped to a
 directory that was renamed or deleted is inert, so `agent-apropos lint` errors
 on it rather than letting it sit in the repo never firing. The check uses the
 same matcher the hooks use, so lint and the hooks can never disagree about what
-a glob hits; it is skipped entirely outside a git checkout.
+a glob hits. Outside a git checkout the check is skipped; if git fails *inside*
+one, lint fails rather than quietly reporting clean on a check that never ran.
 
 Reach for `lint: ignore` when a doc legitimately runs ahead of the code it
 governs. Because suppression means reading the frontmatter, anything that stops

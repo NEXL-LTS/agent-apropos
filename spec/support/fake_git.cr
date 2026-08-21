@@ -9,7 +9,7 @@ class FakeGit < AgentApropos::Git
 
   def initialize(@diff_text : String = "", @symbolic : String? = nil,
                  @refs : Array(String) = [] of String, @diff_raises : Bool = false,
-                 @tracked : Array(String)? = [] of String)
+                 @tracked : Array(String)? = [] of String, @ls_files_raises : Bool = false)
   end
 
   def diff(repo_root : Path, range : String) : String
@@ -27,6 +27,7 @@ class FakeGit < AgentApropos::Git
   end
 
   def ls_files(repo_root : Path) : Array(String)?
+    raise AgentApropos::Git::Error.new("ls-files boom") if @ls_files_raises
     @tracked
   end
 end

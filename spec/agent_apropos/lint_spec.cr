@@ -9,11 +9,11 @@ private def run_lint(fs : AgentApropos::Filesystem, strict : Bool = false,
 end
 
 private def run_lint_full(fs : AgentApropos::Filesystem, strict : Bool = false,
-                          tracked : Array(String)? = nil) : {Int32, String, String}
+                          tracked : Array(String)? = nil,
+                          git : AgentApropos::Git? = nil) : {Int32, String, String}
   stdout = IO::Memory.new
   stderr = IO::Memory.new
-  git = FakeGit.new(tracked: tracked)
-  code = AgentApropos::Lint.run(ROOT, fs, git, strict, stdout, stderr)
+  code = AgentApropos::Lint.run(ROOT, fs, git || FakeGit.new(tracked: tracked), strict, stdout, stderr)
   {code, stdout.to_s, stderr.to_s}
 end
 
@@ -225,7 +225,15 @@ describe AgentApropos::Lint do
       stdout.should contain("lint: clean")
     end
 
-    it "skips the check entirely when git cannot list tracked files" do
+    it "fails loudly instead of reporting clean when git blows up listing tracked files" do
+      fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.rb\"]\n---\n# D\n\nb\n"})
+      code, stdout, stderr = run_lint_full(fs, git: FakeGit.new(ls_files_raises: true))
+      code.should eq(1)
+      stdout.should_not contain("lint: clean")
+      stderr.should contain("agent-apropos lint: ls-files boom")
+    end
+
+    it "skips the check entirely when the repo is not a git checkout" do
       fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.rb\"]\n---\n# D\n\nb\n"})
       code, stdout = run_lint(fs, tracked: nil)
       code.should eq(0)

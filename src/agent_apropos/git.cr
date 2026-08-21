@@ -28,7 +28,11 @@ module AgentApropos
 
       def ls_files(repo_root : Path) : Array(String)?
         output = capture?(repo_root, ["ls-files", "-z"])
-        output.try(&.split('\0').reject(&.empty?))
+        if output.nil?
+          raise Error.new("git ls-files failed in #{repo_root}") if File.exists?(repo_root.join(".git"))
+          return nil
+        end
+        output.split('\0').reject(&.empty?)
       end
 
       private def capture(repo_root : Path, args : Array(String)) : String
