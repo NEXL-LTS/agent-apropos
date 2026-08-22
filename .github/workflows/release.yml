@@ -199,6 +199,9 @@ jobs:
             throw "install.ps1 installed a tampered binary"
           }
           Write-Host "refused, as it should: exit $LASTEXITCODE"
+          # The step would otherwise inherit install.ps1's non-zero exit, which
+          # is the outcome this step is asserting rather than a failure.
+          exit 0
 
       # The version override has to resolve a tagged path rather than
       # /latest/download, which is a different URL shape — worth proving here
