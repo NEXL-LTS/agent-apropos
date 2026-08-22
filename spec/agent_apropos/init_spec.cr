@@ -24,6 +24,13 @@ private class FakeEnv < AgentApropos::Environment
   end
 end
 
+# Refuses to create a symlink, the way an OS without symlink permission does.
+private class NoSymlinkFS < InMemoryFS
+  def symlink(target : String, link_path : String) : Nil
+    raise AgentApropos::Filesystem::Error.new("symlink refused: operation not permitted")
+  end
+end
+
 # Defaults to both supported agents present on PATH, so examples that are not
 # about tool selection itself keep exercising the full scaffold.
 private def run_init(fs : AgentApropos::Filesystem,
@@ -149,6 +156,30 @@ describe AgentApropos::Init do
       _, stdout, _ = run_init(fs, AgentApropos::Init::Options.new(claude_symlink: true))
       fs.symlinks.has_key?("/repo/CLAUDE.md").should be_false
       stdout.should contain("exists   CLAUDE.md")
+    end
+
+    it "reports the flag as unavailable and still exits zero when the OS refuses" do
+      fs = NoSymlinkFS.new
+      code, stdout, stderr = run_init(fs, AgentApropos::Init::Options.new(claude_symlink: true))
+      code.should eq(0)
+      stderr.should be_empty
+      stdout.should contain("skipped  CLAUDE.md -> AGENTS.md")
+      stdout.should contain("operation not permitted")
+    end
+
+    it "leaves no partial or substitute link behind when the OS refuses" do
+      fs = NoSymlinkFS.new
+      run_init(fs, AgentApropos::Init::Options.new(claude_symlink: true))
+      fs.symlinks.should be_empty
+      fs.files.has_key?("/repo/CLAUDE.md").should be_false
+    end
+
+    it "still completes every other init step when the OS refuses" do
+      fs = NoSymlinkFS.new
+      _, stdout, _ = run_init(fs, AgentApropos::Init::Options.new(claude_symlink: true))
+      stdout.should contain("docs/conventions/README.md")
+      stdout.should contain(".gitignore")
+      stdout.should contain(AgentApropos::Init::NEXT_STEPS_HINT)
     end
 
     it "reports the link under --dry-run without creating it" do

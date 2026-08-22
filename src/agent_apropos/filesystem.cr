@@ -52,6 +52,8 @@ module AgentApropos
       def symlink(target : String, link_path : String) : Nil
         Dir.mkdir_p(Path[link_path].dirname)
         File.symlink(target, link_path)
+      rescue ex : File::Error
+        raise Error.new("symlink #{link_path} -> #{target} refused: #{ex.message}")
       end
     end
   end

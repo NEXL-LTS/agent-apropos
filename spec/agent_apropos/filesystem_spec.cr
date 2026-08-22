@@ -89,4 +89,20 @@ describe AgentApropos::Filesystem::Real do
       FileUtils.rm_rf(dir)
     end
   end
+
+  it "raises a Filesystem::Error when the OS refuses to create the symlink" do
+    dir = File.tempname("agent-apropos-fs")
+    fs = AgentApropos::Filesystem::Real.new
+    begin
+      Dir.mkdir_p(dir)
+      blocker = File.join(dir, "blocker")
+      File.write(blocker, "not a directory\n")
+
+      expect_raises(AgentApropos::Filesystem::Error, /symlink/) do
+        fs.symlink("AGENTS.md", File.join(blocker, "CLAUDE.md"))
+      end
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
 end

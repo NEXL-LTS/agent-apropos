@@ -152,10 +152,12 @@ module AgentApropos
       end
       if options.dry_run
         stdout.puts "would link CLAUDE.md -> AGENTS.md"
-      else
-        fs.symlink("AGENTS.md", link)
-        stdout.puts "linked   CLAUDE.md -> AGENTS.md"
+        return
       end
+      fs.symlink("AGENTS.md", link)
+      stdout.puts "linked   CLAUDE.md -> AGENTS.md"
+    rescue ex : Filesystem::Error
+      stdout.puts "skipped  CLAUDE.md -> AGENTS.md (#{ex.message})"
     end
 
     CONVENTIONS_README = <<-MD
