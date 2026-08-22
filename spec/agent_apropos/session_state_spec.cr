@@ -32,9 +32,6 @@ private class PhantomFS < AgentApropos::Filesystem
   def write(path : String, content : String) : Nil
   end
 
-  def append(path : String, content : String) : Nil
-  end
-
   def remove(path : String) : Nil
     raise "prune must not remove a file it could not read"
   end

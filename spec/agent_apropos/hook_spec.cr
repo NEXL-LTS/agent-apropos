@@ -23,13 +23,16 @@ end
 # always-true flag so the compiler still infers String/String? (an unconditional
 # raise would be NoReturn and poison type inference in the modules under test).
 private class ExplodingFS < AgentApropos::Filesystem
-  getter appended = [] of {String, String}
+  getter written = [] of {String, String}
+  getter removed = [] of String
 
-  def initialize(@append_raises : Bool = false, @raise_reads : Bool = true)
+  def initialize(@write_raises : Bool = false, @raise_reads : Bool = true,
+                 @entries = [] of String)
   end
 
   def glob(base : Path, pattern : String) : Array(String)
-    [] of String
+    full = base.join(pattern).to_posix.to_s
+    @entries.select { |entry| File.match?(full, entry) }
   end
 
   def read(path : String) : String
@@ -43,14 +46,12 @@ private class ExplodingFS < AgentApropos::Filesystem
   end
 
   def write(path : String, content : String) : Nil
-  end
-
-  def append(path : String, content : String) : Nil
-    raise "log boom" if @append_raises
-    @appended << {path, content}
+    raise "log boom" if @write_raises
+    @written << {path, content}
   end
 
   def remove(path : String) : Nil
+    @removed << path
   end
 
   def exists?(path : String) : Bool
@@ -249,24 +250,56 @@ describe AgentApropos::Hook do
       code, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
       code.should eq(0)
       stdout.should be_empty
-      fs.appended.should be_empty
+      fs.written.should be_empty
     end
 
-    it "logs the failure under the override root when verbose" do
+    it "logs the failure to a per-invocation file under the override root when verbose" do
       fs = ExplodingFS.new
       code, _ = invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
       code.should eq(0)
-      fs.appended.map(&.first).should eq(["/repo/.cache/agent-apropos/log"])
+      path, content = fs.written.first
+      Path[path].parent.to_posix.to_s.should eq("/repo/.cache/agent-apropos/logs")
+      Path[path].extension.should eq(".log")
+      content.should contain("agent-apropos hook:")
+    end
+
+    it "gives each invocation its own log file rather than overwriting the last" do
+      fs = ExplodingFS.new
+      2.times { invoke(:pre, pre_json("src/app.cr"), fs, verbose: true) }
+      fs.written.size.should eq(2)
+      fs.written.map(&.first).uniq!.size.should eq(2)
     end
 
     it "logs to the process directory when verbose with no override" do
       fs = ExplodingFS.new
       invoke(:pre, pre_json("src/app.cr", cwd: Dir.current), fs, override: nil, verbose: true)
-      fs.appended.first.first.should eq(File.join(Dir.current, ".cache", "agent-apropos", "log"))
+      Path[fs.written.first.first].parent.should eq(
+        Path[Dir.current].join(".cache", "agent-apropos", "logs"))
+    end
+
+    it "prunes a log file older than the retention window and keeps a newer one" do
+      stale = "/repo/.cache/agent-apropos/logs/#{(NOW - 8.days).to_unix}-aaaaaa.log"
+      fresh = "/repo/.cache/agent-apropos/logs/#{(NOW - 1.day).to_unix}-bbbbbb.log"
+      fs = ExplodingFS.new(entries: [stale, fresh])
+      invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
+      fs.removed.should eq([stale])
+    end
+
+    it "leaves a log-directory entry alone when its name carries no timestamp" do
+      fs = ExplodingFS.new(entries: ["/repo/.cache/agent-apropos/logs/notes.log"])
+      invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
+      fs.removed.should be_empty
+    end
+
+    it "prunes nothing when not verbose, because nothing writes to the log directory" do
+      stale = "/repo/.cache/agent-apropos/logs/#{(NOW - 8.days).to_unix}-aaaaaa.log"
+      fs = ExplodingFS.new(entries: [stale])
+      invoke(:pre, pre_json("src/app.cr"), fs)
+      fs.removed.should be_empty
     end
 
     it "swallows a logging failure (best-effort log)" do
-      fs = ExplodingFS.new(append_raises: true)
+      fs = ExplodingFS.new(write_raises: true)
       code, stdout = invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
       code.should eq(0)
       stdout.should be_empty
