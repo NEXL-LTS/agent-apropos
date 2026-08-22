@@ -57,6 +57,44 @@ describe AgentApropos::Convention do
       conv.reference_only?.should be_true
       conv.body.should eq("# Just prose\n")
     end
+
+    it "hashes a CRLF doc the same as its LF-equivalent bytes" do
+      lf = "---\npaths: [\"src/**\"]\n---\nbody\n"
+      crlf = "---\r\npaths: [\"src/**\"]\r\n---\r\nbody\r\n"
+      AgentApropos::Convention.parse("docs/conventions/a.md", crlf).hash
+        .should eq(AgentApropos::Convention.parse("docs/conventions/a.md", lf).hash)
+    end
+
+    it "parses the same frontmatter fields from a CRLF doc as from its LF equivalent" do
+      crlf = "---\r\npaths: [\"src/**\"]\r\ncontents: ['\\bTODO\\b']\r\n" \
+             "skill: true\r\ndescription: \"Use when x\"\r\n---\r\nbody\r\n"
+      frontmatter = AgentApropos::Convention.parse("docs/conventions/a.md", crlf).frontmatter
+      frontmatter.paths.should eq(["src/**"])
+      frontmatter.contents.should eq(["\\bTODO\\b"])
+      frontmatter.skill?.should be_true
+      frontmatter.description.should eq("Use when x")
+    end
+
+    it "normalizes a CRLF body to LF" do
+      crlf = "---\r\npaths: [\"src/**\"]\r\n---\r\nline one\r\nline two\r\n"
+      AgentApropos::Convention.parse("docs/conventions/a.md", crlf).body
+        .should eq("line one\nline two\n")
+    end
+
+    it "normalizes a lone CR to LF so a classic-Mac checkout still parses" do
+      cr = "---\rpaths: [\"src/**\"]\r---\rline one\rline two\r"
+      conv = AgentApropos::Convention.parse("docs/conventions/a.md", cr)
+      conv.frontmatter.paths.should eq(["src/**"])
+      conv.body.should eq("line one\nline two\n")
+    end
+
+    it "normalizes a doc mixing CRLF and LF sections to all-LF" do
+      mixed = "---\r\npaths: [\"src/**\"]\n---\r\nline one\nline two\r\n"
+      lf = "---\npaths: [\"src/**\"]\n---\nline one\nline two\n"
+      conv = AgentApropos::Convention.parse("docs/conventions/a.md", mixed)
+      conv.body.should eq("line one\nline two\n")
+      conv.hash.should eq(AgentApropos::Convention.parse("docs/conventions/a.md", lf).hash)
+    end
   end
 
   describe "trigger classification" do

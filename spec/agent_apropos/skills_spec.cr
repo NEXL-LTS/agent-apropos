@@ -65,6 +65,15 @@ describe AgentApropos::Skills do
       wrapper.should end_with("no trailing newline\n")
     end
 
+    it "inlines a CRLF body byte-identically to its LF equivalent" do
+      path = "../shared-conventions/workflows/foo.md"
+      crlf = "---\r\nskill: true\r\ndescription: \"Use when foo\"\r\n---\r\nline one\r\nline two\r\n"
+      lf = "---\nskill: true\ndescription: \"Use when foo\"\n---\nline one\nline two\n"
+
+      AgentApropos::Skills.wrappers([AgentApropos::Convention.parse(path, crlf)])["foo"]
+        .should eq(AgentApropos::Skills.wrappers([AgentApropos::Convention.parse(path, lf)])["foo"])
+    end
+
     it "ignores docs without skill: true" do
       conventions = [
         convention("docs/conventions/a.md", %(paths: ["src/**"])),

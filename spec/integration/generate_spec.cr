@@ -63,4 +63,51 @@ describe "agent-apropos generate (binary)" do
       FileUtils.rm_rf(dir)
     end
   end
+
+  describe "line endings" do
+    doc = "---\nskill: true\ndescription: \"Use when shipping a feature\"\n---\n\n# Shipping\n\nbody\n"
+    index = ".cache/agent-apropos/index.json"
+    wrapper = ".claude/skills/ship/SKILL.md"
+
+    it "emits a byte-identical index and wrapper from a CRLF checkout as from an LF one" do
+      lf_dir = fixture_repo(doc)
+      crlf_dir = fixture_repo(doc.gsub("\n", "\r\n"))
+      begin
+        generate(binary, lf_dir).exit_code.should eq(0)
+        generate(binary, crlf_dir).exit_code.should eq(0)
+
+        File.read(File.join(crlf_dir, index)).should eq(File.read(File.join(lf_dir, index)))
+        File.read(File.join(crlf_dir, wrapper)).should eq(File.read(File.join(lf_dir, wrapper)))
+      ensure
+        FileUtils.rm_rf(lf_dir)
+        FileUtils.rm_rf(crlf_dir)
+      end
+    end
+
+    it "reports no drift when the working tree turns CRLF after an LF generate" do
+      dir = fixture_repo(doc)
+      begin
+        generate(binary, dir).exit_code.should eq(0)
+        File.write(File.join(dir, "docs/conventions/workflows/ship.md"), doc.gsub("\n", "\r\n"))
+
+        check = Process.run(binary, ["generate", "--check", "--repo-root", dir], output: IO::Memory.new)
+        check.exit_code.should eq(0)
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+  end
+end
+
+private def fixture_repo(doc : String) : String
+  dir = File.tempname("agent-apropos-gen-repo")
+  Dir.mkdir_p(File.join(dir, "docs/conventions/workflows"))
+  File.write(File.join(dir, "docs/conventions/workflows/ship.md"), doc)
+  Dir.mkdir_p(File.join(dir, ".claude"))
+  File.write(File.join(dir, ".claude/settings.json"), "{}")
+  dir
+end
+
+private def generate(binary : String, dir : String) : Process::Status
+  Process.run(binary, ["generate", "--repo-root", dir], output: IO::Memory.new)
 end
