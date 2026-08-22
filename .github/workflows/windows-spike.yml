@@ -1,0 +1,75 @@
+# TEMPORARY diagnostic spike — U1 of docs/plans/2026-08-22-1038-feat-windows-support-plan.md.
+#
+# Delete this whole file before merging. Its only deliverable is a findings
+# report: what the Crystal Windows toolchain can and cannot do with this tree.
+# Every step is continue-on-error so one failure does not hide the next.
+#
+# The plan called for a `workflow_dispatch` job in ci.yml, but GitHub only
+# dispatches a workflow whose default-branch copy already declares that
+# trigger, and ci.yml on main does not. A push trigger scoped to this branch
+# fires from the branch itself, which is the same diagnostic with a mechanism
+# that actually runs.
+name: Windows toolchain spike (temporary)
+
+on:
+  push:
+    branches: [claude/plan-windows-support]
+
+permissions: {}
+
+jobs:
+  spike:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1.9.2
+        with:
+          crystal: 1.20.3
+
+      - name: Toolchain versions
+        continue-on-error: true
+        run: |
+          crystal --version
+          shards --version
+
+      - name: Install dependencies
+        continue-on-error: true
+        run: shards install
+
+      - name: Build the binary (dynamic)
+        continue-on-error: true
+        run: crystal build src/agent_apropos.cr -o agent-apropos.exe --verbose
+
+      - name: Build the binary (static)
+        continue-on-error: true
+        run: crystal build src/agent_apropos.cr -o agent-apropos-static.exe --static
+
+      - name: Report linkage and smoke-test
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          foreach ($exe in @("agent-apropos.exe", "agent-apropos-static.exe")) {
+            if (-not (Test-Path $exe)) { Write-Host "== $exe : not produced"; continue }
+            Write-Host "== $exe : $((Get-Item $exe).Length) bytes"
+            & ".\$exe" --version
+            $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vswhere) {
+              $root = & $vswhere -latest -products * -property installationPath
+              $dumpbin = Get-ChildItem -Path "$root\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe `
+                -ErrorAction SilentlyContinue | Select-Object -First 1
+              if ($dumpbin) { & $dumpbin.FullName /DEPENDENTS $exe } else { Write-Host "dumpbin not found" }
+            } else { Write-Host "vswhere not found; skipping dependents" }
+          }
+
+      - name: Run the spec suite
+        continue-on-error: true
+        run: crystal spec
+
+      - name: Probe the stdlib primitives the port depends on
+        continue-on-error: true
+        run: crystal run .github/spike/probe.cr
