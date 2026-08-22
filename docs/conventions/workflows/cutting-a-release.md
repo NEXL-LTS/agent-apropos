@@ -32,10 +32,10 @@ steps of it race:
    several minutes — but do this step next, not after checking on anything else.
    `--generate-notes` is what produces the "What's Changed" + Full Changelog body
    every previous release has; the workflow never generates notes itself.
-5. **Wait for the build and verify the assets.** All four legs must go green
-   (`linux-x86_64`, `linux-arm64`, `darwin-arm64`, `darwin-x86_64`), each
-   attaching a binary plus its `.sha256` — eight assets. Confirm the release is
-   neither a draft nor a prerelease.
+5. **Wait for the build and verify the assets.** All five legs must go green
+   (`linux-x86_64`, `linux-arm64`, `windows-x86_64`, `darwin-arm64`,
+   `darwin-x86_64`), each attaching a binary plus its `.sha256` — ten assets.
+   Confirm the release is neither a draft nor a prerelease.
 
 **Why:** The tag is load-bearing in a way that is easy to get wrong once and
 then live with: it both starts the build and names the release, so a lightweight
@@ -58,5 +58,8 @@ is the right way to rehearse the pipeline without publishing.
 - The tag is annotated (`git for-each-ref refs/tags/vX.Y.Z --format='%(objecttype)'`
   reports `tag`, not `commit`).
 - The release body carries generated notes, not an empty body.
-- Eight assets are attached — four binaries, four `.sha256` — and the release is
-  not a draft or prerelease.
+- Ten assets are attached — five binaries, five `.sha256` — and the release is
+  not a draft or prerelease. The Windows binary is named
+  `agent-apropos-windows-x86_64.exe`; a missing one is what a silently failed
+  `build-windows` leg looks like, and `install.ps1` and the README both point
+  users at it.

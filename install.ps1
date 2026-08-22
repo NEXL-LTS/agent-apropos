@@ -26,11 +26,30 @@ function Die {
     exit 1
 }
 
+# The default is a script block, not a value: computing it eagerly would abort
+# the run when it cannot be computed (an absent LOCALAPPDATA on a service
+# account) even though the caller had overridden it and never needed it.
 function Get-Setting {
-    param([string] $Name, [string] $Default)
+    param([string] $Name, [scriptblock] $Default)
     $value = [Environment]::GetEnvironmentVariable($Name)
-    if ([string]::IsNullOrWhiteSpace($value)) { return $Default }
-    return $value
+    if (-not [string]::IsNullOrWhiteSpace($value)) { return $value }
+    return & $Default
+}
+
+# Windows PowerShell 5.1 leaves SecurityProtocol at the .NET default, which on a
+# host without SchUseStrongCrypto is TLS 1.0/1.1 — and GitHub requires 1.2, so
+# the download would fail with an SSL error the generic network message would
+# misattribute. pwsh 7 already negotiates 1.2+, so this only adds 1.2 where it
+# is missing.
+function Enable-Tls12 {
+    try {
+        $current = [Net.ServicePointManager]::SecurityProtocol
+        if (-not ($current -band [Net.SecurityProtocolType]::Tls12)) {
+            [Net.ServicePointManager]::SecurityProtocol = $current -bor [Net.SecurityProtocolType]::Tls12
+        }
+    } catch {
+        # A runtime that does not expose the setting already negotiates its own.
+    }
 }
 
 # A file:// URI is copied rather than requested, so the release workflow can
@@ -42,13 +61,19 @@ function Get-Remote {
     if ($parsed.IsFile) {
         Copy-Item -LiteralPath $parsed.LocalPath -Destination $Destination
     } else {
+        Enable-Tls12
         Invoke-WebRequest -Uri $Uri -OutFile $Destination -UseBasicParsing
     }
 }
 
-$repo = Get-Setting 'AGENT_APROPOS_REPO' 'NEXL-LTS/agent-apropos'
-$version = Get-Setting 'AGENT_APROPOS_VERSION' 'latest'
-$binDir = Get-Setting 'AGENT_APROPOS_BIN_DIR' (Join-Path $env:LOCALAPPDATA 'agent-apropos\bin')
+$repo = Get-Setting 'AGENT_APROPOS_REPO' { 'NEXL-LTS/agent-apropos' }
+$version = Get-Setting 'AGENT_APROPOS_VERSION' { 'latest' }
+$binDir = Get-Setting 'AGENT_APROPOS_BIN_DIR' {
+    if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        Die 'LOCALAPPDATA is not set, so there is no default install directory — set AGENT_APROPOS_BIN_DIR to a writable directory.'
+    }
+    Join-Path $env:LOCALAPPDATA 'agent-apropos\bin'
+}
 
 # --- Platform gate -----------------------------------------------------------
 # Windows ships a fully static x86_64 .exe. arm64 is deferred behind it, so an

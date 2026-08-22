@@ -19,6 +19,8 @@ module AgentApropos
 
     LOG_MAX_AGE = 7.days
 
+    LOG_MAX_FILES = 200
+
     SESSION_NOTICE = "agent-apropos is connected and running. It compiles " \
                      "this repo's coding conventions into a trigger index " \
                      "and automatically injects the ones relevant to " \
@@ -234,9 +236,14 @@ module AgentApropos
 
     private def prune_logs(fs : Filesystem, log_dir : Path, now : Time) : Nil
       cutoff = (now - LOG_MAX_AGE).to_unix
-      fs.glob(log_dir, "*.log").each do |file|
+      dated = fs.glob(log_dir, "*.log").compact_map do |file|
         stamp = Path[file].basename(".log").partition('-').first.to_i64?
-        fs.remove(file) if stamp && stamp < cutoff
+        {stamp, file} if stamp
+      end
+      keep = dated.sort_by! { |stamp, _| -stamp }.first(LOG_MAX_FILES - 1).to_set
+      dated.each do |entry|
+        stamp, file = entry
+        fs.remove(file) if stamp < cutoff || !keep.includes?(entry)
       end
     end
   end

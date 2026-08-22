@@ -155,12 +155,27 @@ jobs:
         run: '& ".\$env:ASSET" --version'
 
       # Same "<hash>  <filename>" format sha256sum(1) writes on the other legs,
-      # so install.sh's and install.ps1's verifiers read one shape.
+      # so install.sh's and install.ps1's verifiers read one shape. Written with
+      # an explicit LF: Set-Content would terminate the line with CRLF here, and
+      # `sha256sum -c` then reads the filename as "…exe\r" and fails to open it.
       - name: Checksum
         shell: pwsh
         run: |
           $hash = (Get-FileHash -Algorithm SHA256 $env:ASSET).Hash.ToLowerInvariant()
-          Set-Content -Path "$env:ASSET.sha256" -Value "$hash  $env:ASSET" -Encoding ascii
+          [IO.File]::WriteAllText("$PWD/$env:ASSET.sha256", "$hash  $env:ASSET`n")
+
+      # The .sha256 is consumed by sha256sum(1) on other platforms, so prove the
+      # bytes are what that tool accepts rather than trusting the writer.
+      - name: Verify the checksum file is LF-terminated and sha256sum-readable
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q $'\r' "$ASSET.sha256"; then
+            echo "ERROR: checksum file contains CR; sha256sum -c cannot read it:"
+            cat -A "$ASSET.sha256"
+            exit 1
+          fi
+          sha256sum -c "$ASSET.sha256"
 
       # Exercises install.ps1's real download/checksum/install logic end-to-end
       # against this leg's own freshly built artifact, with no published release

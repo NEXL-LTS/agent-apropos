@@ -109,14 +109,22 @@ jobs:
         with:
           crystal: 1.20.3
 
+      # Not `--production`: `crystal spec` below compiles spec/tool, which
+      # requires ameba, so this leg genuinely needs the dev dependency.
       - name: Install dependencies
         run: shards install
 
       # Statically linked, like the Linux musl legs: the dynamic Windows build
       # pulls in yaml.dll, libcrypto-3-x64.dll, pcre2-8.dll, gc.dll and
       # iconv-2.dll, none of which a stock Windows machine has.
+      #
+      # `crystal build` does not create its output directory, and bin/ is
+      # gitignored — so create it rather than depending on ameba's postinstall
+      # build having happened to make it first.
       - name: Release build (static)
-        run: crystal build --release --static src/agent_apropos.cr -o bin/agent-apropos.exe
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          crystal build --release --static src/agent_apropos.cr -o bin/agent-apropos.exe
 
       - name: Smoke test
         run: ./bin/agent-apropos.exe --version

@@ -289,6 +289,20 @@ describe AgentApropos::Hook do
       fs.removed.should eq([stale])
     end
 
+    it "keeps the log directory bounded by count, dropping the oldest entries" do
+      entries = (1..(AgentApropos::Hook::LOG_MAX_FILES + 5)).map do |index|
+        "#{REPO}/.cache/agent-apropos/logs/#{(NOW - index.minutes).to_unix}-#{index}.log"
+      end
+      fs = ExplodingFS.new(entries: entries)
+      invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
+
+      # The newest LOG_MAX_FILES - 1 survive, leaving room for the entry this
+      # invocation is about to write.
+      fs.removed.size.should eq(6)
+      fs.removed.should_not contain(entries.first)
+      fs.removed.should contain(entries.last)
+    end
+
     it "leaves a log-directory entry alone when its name carries no timestamp" do
       fs = ExplodingFS.new(entries: ["#{REPO}/.cache/agent-apropos/logs/notes.log"])
       invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
@@ -310,24 +324,40 @@ describe AgentApropos::Hook do
     end
   end
 
-  describe "Windows-shaped edit paths" do
-    root = Path.windows("C:\\projects\\foo")
+  # R4 / AE2: an agent reports the file it is editing using the host's own path
+  # syntax, which on Windows means a drive letter and backslashes. These drive
+  # the hook itself with a natively-shaped absolute path — `Path#join` inserts
+  # the host separator — so on Windows they are the backslash case and on POSIX
+  # they are its equivalent, with no platform branch either way.
+  describe "natively-shaped absolute edit paths" do
+    it "matches a POSIX-globbed rule against a natively separated absolute path" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      native = Path[REPO].join("src", "app.cr").to_s
+      code, stdout = invoke(:pre, pre_json(native), fs)
 
-    it "relativizes a backslash-separated absolute path to a POSIX glob match" do
-      relative = Path.windows("C:\\projects\\foo\\src\\bar.cr").expand(base: root)
-        .relative_to(root).to_posix.to_s
-      relative.should eq("src/bar.cr")
-      File.match?("src/**/*.cr", relative).should be_true
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
     end
 
-    it "relativizes a mixed-separator path the same as the fully-backslashed form" do
-      Path.windows("C:/projects/foo/src\\bar.cr").expand(base: root)
-        .relative_to(root).to_posix.to_s.should eq("src/bar.cr")
+    it "rejects a natively separated absolute path outside the repo root" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      native = Path[OUTSIDE].join("src", "app.cr").to_s
+      code, stdout = invoke(:pre, pre_json(native), fs)
+
+      code.should eq(0)
+      stdout.should be_empty
     end
 
-    it "relativizes a backslash-separated path outside the root to an escaping form" do
-      Path.windows("C:\\projects\\other\\x.cr").expand(base: root)
-        .relative_to(root).to_posix.to_s.should start_with("../")
+    # The hook accepts either separator on the host that has two of them, so a
+    # payload mixing them resolves the same as the fully native form. There is
+    # no POSIX equivalent to drive end-to-end, so this one pins the conversion
+    # `Hook#relativize` performs rather than the injection it feeds.
+    it "resolves a mixed-separator path the same as the fully-backslashed form" do
+      root = Path.windows("C:\\projects\\foo")
+      %w[C:\\projects\\foo\\src\\bar.cr C:/projects/foo/src\\bar.cr].each do |raw|
+        Path.windows(raw).expand(base: root).relative_to(root).to_posix.to_s
+          .should eq("src/bar.cr")
+      end
     end
   end
 
