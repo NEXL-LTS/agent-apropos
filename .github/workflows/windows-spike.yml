@@ -160,8 +160,10 @@ jobs:
             exit 1
           }
 
+      # `&` is required: PowerShell will not treat a variable-derived path as a
+      # command name on its own.
       - name: Smoke test
-        run: ./$env:ASSET --version
+        run: '& ".\$env:ASSET" --version'
 
       # Same "<hash>  <filename>" format sha256sum(1) writes on the other legs,
       # so install.sh's and install.ps1's verifiers read one shape.
