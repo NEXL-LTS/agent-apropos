@@ -19,7 +19,8 @@ even where the global Crystal cache is not writable.
 - `make lint` — run ameba (zero findings required)
 - `make dup` — check `src/**/*.cr` for code duplication (jscpd; zero clones required)
 - `make devcontainer-spec` — bats tests for `.devcontainer/initialize.sh` (deterministic, offline)
-- `make check` — lint + spec + dup + devcontainer-spec (the fast local gate)
+- `make installer-spec` — bats tests for `install.sh`'s platform gate (deterministic, offline)
+- `make check` — lint + spec + dup + devcontainer-spec + hooks-spec + installer-spec (the fast local gate)
 - `make coverage` — run specs under kcov and enforce the 100% line-coverage gate
 - `make mutate SUBJECT=src/agent_apropos/<module>.cr` — advisory mutation testing (see `docs/mutation-testing.md`)
 - `make e2e` (or `bash e2e/run.sh`) — the **live** end-to-end suite: this is what "e2e tests" means
@@ -37,7 +38,9 @@ even where the global Crystal cache is not writable.
 - Isolate all filesystem, stdin, and process I/O behind small injectable adapters so error paths are unit-testable. Do not call `STDIN`/`STDOUT`/`File` directly from logic modules; pass IO in.
 - `generate` output must be byte-stable across runs and platforms (sorted walks, LF endings, no timestamps). Determinism is a prerequisite for the `--check` drift gate.
 - Do not put anything in this file that a linter or formatter can enforce — that belongs in tooling. Formatting is enforced by `crystal tool format`; do not document style here.
-- Write Windows-aware path code (use `Path`, never hardcode `/`), even though the Windows binary ships later.
+- Write Windows-aware path code: use `Path`, never hardcode `/`, and hand a `Path`
+  (or `to_posix`) to anything that globs. Windows is a CI-verified target — `ci.yml`
+  builds and specs it — so a Windows-only break fails the build, not a later port.
 - Answer with the key ideas only, in as few words as carry them. State a conclusion and its one load-bearing reason; leave out supporting detail, alternatives considered, and exhaustive impact lists until asked. In design discussions, prefer a handful of short points over a structured document — the user will ask for depth on the parts they care about.
 
 ## Pull requests

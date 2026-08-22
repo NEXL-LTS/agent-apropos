@@ -50,17 +50,36 @@ macOS binary.
 
 ## Install
 
+Linux and macOS:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/NEXL-LTS/agent-apropos/main/install.sh | sh
 ```
 
-The installer resolves the latest release, verifies its SHA256 checksum, and
-installs `agent-apropos` to `$HOME/.local/bin` (override with `AGENT_APROPOS_BIN_DIR`; pin a tag
-with `AGENT_APROPOS_VERSION`). Ships fully static Linux x86_64/arm64 binaries and
-dynamically linked macOS x86_64/arm64 binaries (the installer picks the right
-one from `uname -s`/`uname -m`); Windows is on the roadmap. The macOS binaries
-depend on nothing beyond system frameworks — no Homebrew required — since the
-third-party libs Crystal's stdlib pulls in are statically linked at build time.
+Windows, from PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/NEXL-LTS/agent-apropos/main/install.ps1 | iex
+```
+
+Either installer resolves the latest release, verifies its SHA256 checksum, and
+installs the binary — to `$HOME/.local/bin` on Linux and macOS, or
+`%LOCALAPPDATA%\agent-apropos\bin` on Windows. Both honour the same overrides:
+`AGENT_APROPOS_BIN_DIR` for the install directory, `AGENT_APROPOS_VERSION` to pin
+a tag.
+
+Ships fully static Linux x86_64/arm64 and Windows x86_64 binaries, and
+dynamically linked macOS x86_64/arm64 binaries (`install.sh` picks the right one
+from `uname -s`/`uname -m`). The macOS binaries depend on nothing beyond system
+frameworks — no Homebrew required — since the third-party libs Crystal's stdlib
+pulls in are statically linked at build time. Windows arm64 is not shipped yet;
+build from source there.
+
+Windows notes: the hook wiring `init` writes is a bare `agent-apropos hook …`
+command, which both PowerShell and Git Bash resolve through `PATH` and
+`PATHEXT`, so nothing about it is Windows-specific. `init --claude-symlink`
+needs permission to create a symlink (Developer Mode, or an elevated shell); it
+reports the flag as unavailable and carries on where the OS refuses.
 
 From source (requires [Crystal](https://crystal-lang.org) ≥ 1.20):
 
@@ -289,7 +308,8 @@ Every command takes `--help`, `--repo-root <dir>` (default: walk up to the neare
 
 ## Roadmap
 
-Windows release leg; `--redup-after N` for re-injecting a rule every N edits;
+Windows arm64; package-manager distribution (WinGet, Scoop, an npm wrapper);
+`--redup-after N` for re-injecting a rule every N edits;
 Cursor/Copilot emitters from the same frontmatter; advisory lint-rule linkage
 (teaching messages that cite rule files); a `review` posting mode for CI (GitHub
 PR comments).
