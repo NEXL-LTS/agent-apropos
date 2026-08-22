@@ -31,48 +31,14 @@ describe AgentApropos::Filesystem::Real do
     end
   end
 
-  it "appends to a file, creating it and its parents on first write" do
+  it "globs through a base whose separators are not POSIX" do
     dir = File.tempname("agent-apropos-fs")
     fs = AgentApropos::Filesystem::Real.new
     begin
-      target = File.join(dir, "logs/hook.log")
-      fs.append(target, "one\n")
-      fs.append(target, "two\n")
-      File.read(target).should eq("one\ntwo\n")
-    ensure
-      FileUtils.rm_rf(dir)
-    end
-  end
+      Dir.mkdir_p(File.join(dir, "docs/conventions"))
+      File.write(File.join(dir, "docs/conventions/a.md"), "x\n")
 
-  it "refuses to append through a symlink" do
-    dir = File.tempname("agent-apropos-fs")
-    fs = AgentApropos::Filesystem::Real.new
-    begin
-      Dir.mkdir_p(dir)
-      outside = File.join(dir, "outside.log")
-      link = File.join(dir, "logs/hook.log")
-      Dir.mkdir_p(File.join(dir, "logs"))
-      File.symlink(outside, link)
-
-      expect_raises(AgentApropos::Filesystem::Error, /symlink/) do
-        fs.append(link, "pwned\n")
-      end
-      File.exists?(outside).should be_false
-    ensure
-      FileUtils.rm_rf(dir)
-    end
-  end
-
-  it "raises a non-symlink error when the append target can't be opened for another reason" do
-    dir = File.tempname("agent-apropos-fs")
-    fs = AgentApropos::Filesystem::Real.new
-    begin
-      target = File.join(dir, "actually-a-dir")
-      Dir.mkdir_p(target)
-
-      expect_raises(AgentApropos::Filesystem::Error, /failed to open/) do
-        fs.append(target, "pwned\n")
-      end
+      fs.glob(Path.windows(dir), "docs/**/*.md").size.should eq(1)
     ensure
       FileUtils.rm_rf(dir)
     end
@@ -119,6 +85,22 @@ describe AgentApropos::Filesystem::Real do
       fs.symlink("AGENTS.md", link)
       File.symlink?(link).should be_true
       File.readlink(link).should eq("AGENTS.md")
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
+
+  it "raises a Filesystem::Error when the OS refuses to create the symlink" do
+    dir = File.tempname("agent-apropos-fs")
+    fs = AgentApropos::Filesystem::Real.new
+    begin
+      Dir.mkdir_p(dir)
+      blocker = File.join(dir, "blocker")
+      File.write(blocker, "not a directory\n")
+
+      expect_raises(AgentApropos::Filesystem::Error, /symlink/) do
+        fs.symlink("AGENTS.md", File.join(blocker, "CLAUDE.md"))
+      end
     ensure
       FileUtils.rm_rf(dir)
     end

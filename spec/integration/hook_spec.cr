@@ -10,6 +10,14 @@ private def run_hook(binary : String, args : Array(String), payload : String) : 
   {status.exit_code, stdout.to_s}
 end
 
+# The payload fixtures are JSON, so splicing a raw Windows temp path in would
+# leave unescaped backslashes and fail to parse. Windows accepts the POSIX form
+# and the hook relativizes either — see the Windows-shaped path examples in
+# spec/agent_apropos/hook_spec.cr.
+private def json_path(*parts : String) : String
+  Path[*parts].to_posix.to_s
+end
+
 describe "agent-apropos hook (binary)" do
   binary = File.join(Dir.tempdir, "agent-apropos-hook-#{Process.pid}")
 
@@ -89,7 +97,7 @@ describe "agent-apropos hook (binary)" do
         "---\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nWrap writes in a transaction.\n")
 
       payload = File.read("spec/fixtures/hook_payloads/gemini_after_tool_write_file.json")
-        .gsub("db/migrate/001_create.cr", File.join(dir, "db/migrate/001_create.cr"))
+        .gsub("db/migrate/001_create.cr", json_path(dir, "db/migrate/001_create.cr"))
 
       code, output = run_hook(binary, ["hook", "post", "--repo-root", dir], payload)
       code.should eq(0)
@@ -107,7 +115,7 @@ describe "agent-apropos hook (binary)" do
         "---\npaths: [\"app/jobs/**\"]\n---\n# Jobs\n\nKeep jobs idempotent.\n")
 
       payload = File.read("spec/fixtures/hook_payloads/gemini_after_tool_replace.json")
-        .gsub("app/jobs/mailer_job.cr", File.join(dir, "app/jobs/mailer_job.cr"))
+        .gsub("app/jobs/mailer_job.cr", json_path(dir, "app/jobs/mailer_job.cr"))
 
       code, output = run_hook(binary, ["hook", "pre", "--repo-root", dir], payload)
       code.should eq(0)
@@ -131,7 +139,7 @@ describe "agent-apropos hook (binary)" do
         "---\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nWrap writes in a transaction.\n")
 
       payload = File.read("spec/fixtures/hook_payloads/copilot_post_tool_use_create.json")
-        .gsub("/repo", dir)
+        .gsub("/repo", json_path(dir))
 
       code, output = run_hook(binary, ["hook", "post", "--repo-root", dir], payload)
       code.should eq(0)
@@ -150,7 +158,7 @@ describe "agent-apropos hook (binary)" do
         "---\npaths: [\"app/jobs/**\"]\n---\n# Jobs\n\nKeep jobs idempotent.\n")
 
       payload = File.read("spec/fixtures/hook_payloads/copilot_post_tool_use_edit.json")
-        .gsub("/repo", dir)
+        .gsub("/repo", json_path(dir))
 
       code, output = run_hook(binary, ["hook", "pre", "--repo-root", dir], payload)
       code.should eq(0)
@@ -168,7 +176,7 @@ describe "agent-apropos hook (binary)" do
         "---\npaths: [\"app/jobs/**\"]\n---\n# Jobs\n\nKeep jobs idempotent.\n")
 
       payload = File.read("spec/fixtures/hook_payloads/copilot_post_tool_use_view.json")
-        .gsub("/repo", dir)
+        .gsub("/repo", json_path(dir))
 
       code, output = run_hook(binary, ["hook", "pre", "--repo-root", dir], payload)
       code.should eq(0)
@@ -196,7 +204,7 @@ describe "agent-apropos hook (binary)" do
         "---\npaths: [\"app/jobs/**\"]\n---\n# Jobs\n\nKeep jobs idempotent.\n")
 
       payload = File.read("spec/fixtures/hook_payloads/codex_pre_tool_use_apply_patch.json")
-        .gsub("/repo", dir)
+        .gsub("/repo", json_path(dir))
 
       code, output = run_hook(binary, ["hook", "pre", "--repo-root", dir], payload)
       code.should eq(0)
@@ -215,7 +223,7 @@ describe "agent-apropos hook (binary)" do
         "---\ncontents: ['\\bsum\\b']\n---\n# Comments\n\nExplain why, not what.\n")
 
       payload = File.read("spec/fixtures/hook_payloads/codex_post_tool_use_apply_patch.json")
-        .gsub("/repo", dir)
+        .gsub("/repo", json_path(dir))
 
       code, output = run_hook(binary, ["hook", "post", "--repo-root", dir], payload)
       code.should eq(0)

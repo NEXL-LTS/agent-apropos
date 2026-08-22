@@ -1,0 +1,4 @@
+# Normalize every text file to LF in the working tree on every platform, so a
+# Windows checkout produces the same bytes — and the same convention-doc
+# hashes — as a Linux one. `text=auto` leaves detected binaries untouched.
+* text=auto eol=lf

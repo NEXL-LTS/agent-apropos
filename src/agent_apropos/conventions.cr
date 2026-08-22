@@ -15,8 +15,13 @@ module AgentApropos
     end
 
     def self.parse(path : String, text : String) : Convention
-      frontmatter, body = Frontmatter.split(text)
-      new(path, Digest::SHA256.hexdigest(text), frontmatter || Frontmatter.new, body)
+      normalized = normalize_line_endings(text)
+      frontmatter, body = Frontmatter.split(normalized)
+      new(path, Digest::SHA256.hexdigest(normalized), frontmatter || Frontmatter.new, body)
+    end
+
+    private def self.normalize_line_endings(text : String) : String
+      text.gsub(/\r\n?/, "\n")
     end
 
     def scoped? : Bool

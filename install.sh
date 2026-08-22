@@ -25,8 +25,8 @@ die() {
 # --- Platform gate -----------------------------------------------------------
 # Linux ships fully static x86_64/arm64 binaries; macOS ships dynamically linked
 # (against system frameworks only — third-party deps are statically linked in)
-# arm64/x86_64 binaries. Windows is on the roadmap; until its release leg is
-# enabled, build from source.
+# arm64/x86_64 binaries. Windows ships a fully static x86_64 .exe, installed by
+# install.ps1 from PowerShell rather than by this script.
 os="$(uname -s)"
 arch="$(uname -m)"
 case "$os" in
@@ -44,7 +44,16 @@ case "$os" in
       *) die "unsupported architecture '$arch'; macOS ships x86_64/arm64 only (build from source: make install)." ;;
     esac
     ;;
-  *) die "unsupported OS '$os'; ships Linux and macOS binaries only (build from source: make install)." ;;
+  # Git Bash, MSYS2 and Cygwin all report a Windows-hosted POSIX shell. The
+  # native Windows binary exists, but installing it means placing an .exe
+  # somewhere the Windows PATH resolves — so name the installer that does that
+  # rather than reporting the OS as unsupported.
+  MINGW* | MSYS* | CYGWIN* | Windows_NT)
+    die "this is a Windows-hosted POSIX shell ('$os'); agent-apropos ships a native Windows binary.
+Install it from PowerShell instead:
+    irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex"
+    ;;
+  *) die "unsupported OS '$os'; ships Linux, macOS and Windows binaries only (build from source: make install)." ;;
 esac
 
 # --- Downloader --------------------------------------------------------------

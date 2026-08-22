@@ -107,8 +107,16 @@ devcontainer-spec: ## Run the bats tests for .devcontainer/initialize.sh
 hooks-spec: ## Run the bats tests for .claude/hooks/
 	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats .claude/hooks/tests
 
+# Deterministic bats tests for install.sh's platform gate. Same story as the two
+# suites above: offline and credential-free, so it belongs in `check`. The
+# network-dependent half of the installer is covered by the release workflow's
+# self-test against a freshly built artifact.
+.PHONY: installer-spec
+installer-spec: ## Run the bats tests for install.sh
+	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats tests
+
 .PHONY: check
-check: lint spec dup devcontainer-spec hooks-spec ## Lint + spec + duplication + devcontainer + hook checks (the fast local gate)
+check: lint spec dup devcontainer-spec hooks-spec installer-spec ## Lint + spec + duplication + devcontainer + hook + installer checks (the fast local gate)
 
 # End-to-end test: stands up a sample repo wired with agent-apropos's hooks and
 # proves agent-apropos injects conventions and steers a real `claude` run. Local/advisory —

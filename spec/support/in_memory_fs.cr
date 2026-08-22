@@ -4,48 +4,51 @@ require "../../src/agent_apropos/filesystem"
 # `File.match?` semantics as the real adapter, and writes/reads/removes mutate
 # an internal map so generate's disk effects are observable without touching
 # disk. `removed` records prune targets for assertions.
+#
+# Every path is keyed in POSIX form, so the examples' `/repo/...` literals match
+# whatever separators `Path#join` produced on the host — the production code
+# hands this double a native path, which is `\repo\...` on Windows.
 class InMemoryFS < AgentApropos::Filesystem
   getter files : Hash(String, String)
   getter removed : Array(String)
   getter symlinks : Hash(String, String)
 
-  def initialize(@files = {} of String => String)
+  def initialize(files = {} of String => String)
+    @files = files.transform_keys { |path| SpecPaths.key(path) }
     @removed = [] of String
     @symlinks = {} of String => String
   end
 
   def glob(base : Path, pattern : String) : Array(String)
-    full = base.join(pattern).to_s
+    full = base.join(pattern).to_posix.to_s
     @files.keys.select { |key| File.match?(full, key) }
   end
 
   def read(path : String) : String
-    @files[path]
+    @files[SpecPaths.key(path)]
   end
 
   def read?(path : String) : String?
-    @files[path]?
+    @files[SpecPaths.key(path)]?
   end
 
   def write(path : String, content : String) : Nil
-    @files[path] = content
-  end
-
-  def append(path : String, content : String) : Nil
-    @files[path] = "#{@files[path]?}#{content}"
+    @files[SpecPaths.key(path)] = content
   end
 
   def remove(path : String) : Nil
-    @removed << path
-    @files.reject! { |key, _| key == path || key.starts_with?("#{path}/") }
+    key = SpecPaths.key(path)
+    @removed << key
+    @files.reject! { |existing, _| existing == key || existing.starts_with?("#{key}/") }
   end
 
   def exists?(path : String) : Bool
-    @files.has_key?(path) || @symlinks.has_key?(path) ||
-      @files.each_key.any?(&.starts_with?("#{path}/"))
+    key = SpecPaths.key(path)
+    @files.has_key?(key) || @symlinks.has_key?(key) ||
+      @files.each_key.any?(&.starts_with?("#{key}/"))
   end
 
   def symlink(target : String, link_path : String) : Nil
-    @symlinks[link_path] = target
+    @symlinks[SpecPaths.key(link_path)] = target
   end
 end

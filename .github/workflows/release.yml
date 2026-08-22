@@ -12,8 +12,6 @@ on:
 
 permissions: {}
 
-# Roadmap leg (disabled until its own CI is green):
-#   - Windows x86_64 (Crystal Windows support is Preview — no production promise)
 jobs:
   build-linux:
     strategy:
@@ -96,6 +94,207 @@ jobs:
           files: |
             ${{ matrix.name }}
             ${{ matrix.name }}.sha256
+
+  # Windows x86_64. Fully static, like the Linux musl legs: the dynamic Windows
+  # build pulls in yaml.dll, libcrypto-3-x64.dll, pcre2-8.dll, gc.dll and
+  # iconv-2.dll, none of which a stock Windows machine has. arm64 is deferred
+  # behind x86_64 rather than rejected.
+  build-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: write # create the release and upload the built assets
+    env:
+      ASSET: agent-apropos-windows-x86_64.exe
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: crystal-lang/install-crystal@d8ef131ecec0352ce0e39b81b0a6d95def58fe2f # v1.9.2
+        with:
+          crystal: 1.20.3
+
+      - name: Build static binary
+        run: |
+          shards install --production
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          crystal build --release --static src/agent_apropos.cr -o $env:ASSET
+
+      # Proves the binary runs on a stock Windows install: every DLL it imports
+      # must be present in System32. A third-party dependency (the dynamic
+      # build's yaml/pcre2/gc/iconv/libcrypto) would fail this, as would a
+      # dynamically linked CRT.
+      - name: Verify static linkage
+        shell: pwsh
+        run: |
+          $vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere not found; cannot verify linkage" }
+          $root = & $vswhere -latest -products * -property installationPath
+          $dumpbin = Get-ChildItem -Path "$root\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe `
+            -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $dumpbin) { throw "dumpbin not found; cannot verify linkage" }
+
+          $dependents = & $dumpbin.FullName /DEPENDENTS $env:ASSET |
+            Select-String -Pattern '^\s+(\S+\.dll)$' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if (-not $dependents) { throw "dumpbin reported no dependencies; refusing to trust that" }
+
+          $missing = $dependents | Where-Object {
+            -not (Test-Path (Join-Path "$env:SystemRoot\System32" $_))
+          }
+          $dependents | ForEach-Object { Write-Host "  $_" }
+          if ($missing) {
+            Write-Host "ERROR: these imports are not present on a stock Windows install:"
+            $missing | ForEach-Object { Write-Host "  $_" }
+            exit 1
+          }
+
+      # `&` is required: PowerShell will not treat a variable-derived path as a
+      # command name on its own.
+      - name: Smoke test
+        run: '& ".\$env:ASSET" --version'
+
+      # Same "<hash>  <filename>" format sha256sum(1) writes on the other legs,
+      # so install.sh's and install.ps1's verifiers read one shape. Written with
+      # an explicit LF: Set-Content would terminate the line with CRLF here, and
+      # `sha256sum -c` then reads the filename as "…exe\r" and fails to open it.
+      - name: Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 $env:ASSET).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$PWD/$env:ASSET.sha256", "$hash  $env:ASSET`n")
+
+      # The .sha256 is consumed by sha256sum(1) on other platforms, so prove the
+      # bytes are what that tool accepts rather than trusting the writer.
+      - name: Verify the checksum file is LF-terminated and sha256sum-readable
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q $'\r' "$ASSET.sha256"; then
+            echo "ERROR: checksum file contains CR; sha256sum -c cannot read it:"
+            cat -A "$ASSET.sha256"
+            exit 1
+          fi
+          sha256sum -c "$ASSET.sha256"
+
+      # Exercises install.ps1's real download/checksum/install logic end-to-end
+      # against this leg's own freshly built artifact, with no published release
+      # and no networking: the script copies a file:// URI instead of requesting
+      # it, so a local directory stands in for GitHub at the same relative path.
+      - name: Test install.ps1 against this artifact
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'installer-selftest'
+          $serve = Join-Path $work 'serve/NEXL-LTS/agent-apropos/releases/latest/download'
+          New-Item -ItemType Directory -Force -Path $serve | Out-Null
+          Copy-Item $env:ASSET, "$env:ASSET.sha256" $serve
+          $local = Join-Path $work 'install.ps1'
+          (Get-Content install.ps1 -Raw).Replace(
+            'https://github.com', 'file:///' + ($work -replace '\\','/') + '/serve') |
+            Set-Content -Path $local
+          $env:AGENT_APROPOS_BIN_DIR = Join-Path $work 'bin'
+          & $local
+          & (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe') --version
+          if (Test-Path (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe.new')) {
+            throw "install.ps1 left its staging file behind"
+          }
+
+      - name: install.ps1 refuses a binary whose checksum does not match
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'installer-tampered'
+          $serve = Join-Path $work 'serve/NEXL-LTS/agent-apropos/releases/latest/download'
+          New-Item -ItemType Directory -Force -Path $serve | Out-Null
+          Copy-Item $env:ASSET, "$env:ASSET.sha256" $serve
+          Add-Content -Path (Join-Path $serve $env:ASSET) -Value 'tampered'
+          $local = Join-Path $work 'install.ps1'
+          (Get-Content install.ps1 -Raw).Replace(
+            'https://github.com', 'file:///' + ($work -replace '\\','/') + '/serve') |
+            Set-Content -Path $local
+          $env:AGENT_APROPOS_BIN_DIR = Join-Path $work 'bin'
+          & $local
+          if ($LASTEXITCODE -eq 0) { throw "install.ps1 accepted a tampered binary" }
+          if (Test-Path (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe')) {
+            throw "install.ps1 installed a tampered binary"
+          }
+          Write-Host "refused, as it should: exit $LASTEXITCODE"
+          # The step would otherwise inherit install.ps1's non-zero exit, which
+          # is the outcome this step is asserting rather than a failure.
+          exit 0
+
+      # Fail-closed: a binary that cannot execute must leave any working
+      # installation exactly as it was, rather than replacing it with the broken
+      # download. A zero-byte .exe is the cheapest thing that passes the
+      # checksum gate and still cannot run.
+      - name: install.ps1 keeps a working install when the download cannot run
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'installer-unrunnable'
+          $serve = Join-Path $work 'serve/NEXL-LTS/agent-apropos/releases/latest/download'
+          New-Item -ItemType Directory -Force -Path $serve | Out-Null
+          $broken = Join-Path $serve $env:ASSET
+          New-Item -ItemType File -Force -Path $broken | Out-Null
+          $hash = (Get-FileHash -Algorithm SHA256 $broken).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$serve/$env:ASSET.sha256", "$hash  $env:ASSET`n")
+
+          # A working install already in place, which must survive.
+          $binDir = Join-Path $work 'bin'
+          New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+          Copy-Item $env:ASSET (Join-Path $binDir 'agent-apropos.exe')
+
+          $local = Join-Path $work 'install.ps1'
+          (Get-Content install.ps1 -Raw).Replace(
+            'https://github.com', 'file:///' + ($work -replace '\\','/') + '/serve') |
+            Set-Content -Path $local
+          $env:AGENT_APROPOS_BIN_DIR = $binDir
+          & $local
+          if ($LASTEXITCODE -eq 0) { throw "install.ps1 accepted a binary that cannot run" }
+          if (Test-Path (Join-Path $binDir 'agent-apropos.exe.new')) {
+            throw "install.ps1 left its staging file behind"
+          }
+          & (Join-Path $binDir 'agent-apropos.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 clobbered the working installation" }
+          Write-Host "refused, and the existing install still runs"
+          exit 0
+
+      # The version override has to resolve a tagged path rather than
+      # /latest/download, which is a different URL shape — worth proving here
+      # rather than discovering it from a user report.
+      - name: install.ps1 honors the version and install-directory overrides
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'installer-overrides'
+          $serve = Join-Path $work 'serve/NEXL-LTS/agent-apropos/releases/download/v9.9.9'
+          New-Item -ItemType Directory -Force -Path $serve | Out-Null
+          Copy-Item $env:ASSET, "$env:ASSET.sha256" $serve
+          $local = Join-Path $work 'install.ps1'
+          (Get-Content install.ps1 -Raw).Replace(
+            'https://github.com', 'file:///' + ($work -replace '\\','/') + '/serve') |
+            Set-Content -Path $local
+          $env:AGENT_APROPOS_VERSION = 'v9.9.9'
+          $env:AGENT_APROPOS_BIN_DIR = Join-Path $work 'custom-bin'
+          & $local
+          & (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe') --version
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-apropos-windows-x86_64
+          path: |
+            agent-apropos-windows-x86_64.exe
+            agent-apropos-windows-x86_64.exe.sha256
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/')
+        # zizmor: ignore[superfluous-actions] the release legs attach to a
+        # single release; this action handles the create-or-update race that a
+        # hand-rolled `gh release` script would not.
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: |
+            agent-apropos-windows-x86_64.exe
+            agent-apropos-windows-x86_64.exe.sha256
 
   build-macos:
     strategy:

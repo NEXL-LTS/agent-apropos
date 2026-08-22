@@ -22,10 +22,11 @@ it. Protective rationale left here instead of as a triggered convention
 sits exactly where a stripped-out comment used to sit: invisible at the
 moment it matters, until an edit quietly undoes the thing it was
 protecting. `filesystem.cr`'s `O_NOFOLLOW` rationale was originally
-written here and had exactly this problem; it moved to
-`docs/conventions/filesystem-append.md`, scoped to `paths:
-["src/agent_apropos/filesystem.cr"]` + `contents: ['O_NOFOLLOW']`, once we
-noticed the trigger was obvious.
+written here and had exactly this problem; it moved to a convention scoped to
+`paths: ["src/agent_apropos/filesystem.cr"]` + `contents: ['O_NOFOLLOW']` once
+we noticed the trigger was obvious — and was deleted outright when the primitive
+it governed was retired for the Windows port, which is the other half of the
+same discipline: a convention outlives its subject only as a lie.
 
 **Watch out:** Not everything belongs as a convention. A doc spanning many
 files with no single precise trigger (e.g. `agent-dialects.md`, a

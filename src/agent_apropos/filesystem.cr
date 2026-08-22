@@ -13,8 +13,6 @@ module AgentApropos
 
     abstract def write(path : String, content : String) : Nil
 
-    abstract def append(path : String, content : String) : Nil
-
     abstract def remove(path : String) : Nil
 
     abstract def exists?(path : String) : Bool
@@ -23,7 +21,7 @@ module AgentApropos
 
     class Real < Filesystem
       def glob(base : Path, pattern : String) : Array(String)
-        Dir.glob(base.join(pattern).to_s)
+        Dir.glob(base.join(pattern).to_posix.to_s)
       end
 
       def read(path : String) : String
@@ -43,22 +41,6 @@ module AgentApropos
         File.rename(temp, path)
       end
 
-      def append(path : String, content : String) : Nil
-        Dir.mkdir_p(Path[path].dirname)
-        fd = LibC.open(path, LibC::O_WRONLY | LibC::O_APPEND | LibC::O_CREAT | LibC::O_NOFOLLOW,
-          File::DEFAULT_CREATE_PERMISSIONS.value)
-        if fd == -1
-          raise Error.new("refusing to append through a symlink: #{path}") if Errno.value == Errno::ELOOP
-          raise Error.new("failed to open #{path}: #{Errno.value}")
-        end
-        io = IO::FileDescriptor.new(fd)
-        begin
-          io.print(content)
-        ensure
-          io.close
-        end
-      end
-
       def remove(path : String) : Nil
         FileUtils.rm_rf(path)
       end
@@ -70,6 +52,8 @@ module AgentApropos
       def symlink(target : String, link_path : String) : Nil
         Dir.mkdir_p(Path[link_path].dirname)
         File.symlink(target, link_path)
+      rescue ex : File::Error
+        raise Error.new("symlink #{link_path} -> #{target} refused: #{ex.message}")
       end
     end
   end

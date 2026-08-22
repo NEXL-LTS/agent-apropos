@@ -11,6 +11,61 @@ private def run_agent_apropos(binary : String, args : Array(String)) : {Int32, S
   {status.exit_code, stdout.to_s}
 end
 
+# The wiring `init` writes is only useful if the binary actually accepts the
+# argument vector it names. Harvest the emitted commands and run each one as a
+# real subprocess rather than string-comparing them.
+private HOOK_COMMAND = /agent-apropos hook [a-z]+[^"]*/
+
+private def emitted_hook_commands(config : String) : Array(String)
+  config.scan(HOOK_COMMAND).map(&.[0].strip).uniq!.sort!
+end
+
+private def round_trip(command : String, argv : Array(String), dir : String,
+                       session : String, tool_name : String) : {Int32, String}
+  payload = {session_id: session, tool_name: tool_name, cwd: Path[dir].to_posix.to_s,
+             tool_input: {file_path: Path[dir, "app/jobs/m.cr"].to_posix.to_s}}.to_json
+  stdout = IO::Memory.new
+  status = Process.run(command, argv + ["--repo-root", dir],
+    input: IO::Memory.new(payload), output: stdout, error: stdout)
+  {status.exit_code, stdout.to_s}
+end
+
+# The emitted wiring names the binary rather than pathing to it, so resolving
+# that name is part of what has to work — through PATH on every platform, and
+# through PATHEXT as well on Windows, where the file on disk carries an
+# extension the wiring never mentions. Copies the built binary onto PATH under
+# the name the wiring uses, preserving whatever extension the compiler gave it.
+private def with_binary_on_path(binary : String, &)
+  dir = File.tempname("agent-apropos-onpath")
+  built = File.exists?(binary) ? binary : "#{binary}.exe"
+  copy = File.join(dir, "agent-apropos#{File.extname(built)}")
+  original = ENV["PATH"]
+  begin
+    Dir.mkdir_p(dir)
+    File.copy(built, copy)
+    ENV["PATH"] = "#{dir}#{Process::PATH_DELIMITER}#{original}"
+
+    # Assert which file the bare name resolves to before using it. A machine
+    # with agent-apropos already installed on PATH — this devcontainer, after
+    # `make install` — would otherwise answer instead, and the example would
+    # pass without ever exercising resolution of the copy.
+    resolved = Process.find_executable("agent-apropos")
+    resolved.should_not be_nil
+    File.same?(resolved.to_s, copy).should be_true
+
+    yield
+  ensure
+    ENV["PATH"] = original
+    FileUtils.rm_rf(dir)
+  end
+end
+
+private def wiring_repo(dir : String) : Nil
+  Dir.mkdir_p(File.join(dir, "docs/conventions"))
+  File.write(File.join(dir, "docs/conventions/jobs.md"),
+    "---\npaths: [\"app/jobs/**\"]\n---\n# Jobs\n\nKeep jobs idempotent.\n")
+end
+
 describe "agent-apropos init/lint/doctor/help (binary)" do
   binary = File.join(Dir.tempdir, "agent-apropos-lifecycle-#{Process.pid}")
 
@@ -148,6 +203,97 @@ describe "agent-apropos init/lint/doctor/help (binary)" do
       stdout.should contain("What agent-apropos is")
     ensure
       FileUtils.rm_rf(dir)
+    end
+  end
+
+  describe "emitted hook wiring resolves the binary" do
+    {
+      "claude"  => ".claude/settings.json",
+      "gemini"  => ".gemini/settings.json",
+      "copilot" => ".github/hooks/agent-apropos.json",
+      "codex"   => ".codex/hooks.json",
+    }.each do |tool, config|
+      it "runs every hook command #{tool}'s wiring names, and each injects" do
+        dir = File.tempname("agent-apropos-wiring-#{tool}")
+        begin
+          wiring_repo(dir)
+          run_agent_apropos(binary, ["init", "--tool", tool, "--repo-root", dir])[0].should eq(0)
+
+          commands = emitted_hook_commands(File.read(File.join(dir, config)))
+          commands.size.should be >= 2
+
+          commands.each_with_index do |command, index|
+            argv = command.split(' ')
+            argv.shift.should eq("agent-apropos")
+            code, stdout = round_trip(binary, argv, dir, "wiring-#{tool}-#{index}", "Edit")
+            code.should eq(0)
+            stdout.should contain("Keep jobs idempotent.")
+          end
+        ensure
+          FileUtils.rm_rf(dir)
+        end
+      end
+    end
+
+    # The per-agent examples above run the binary by its absolute path, which
+    # proves the CLI accepts the argument vector but not that the bare command
+    # name resolves. That is the property the shell-form wiring actually relies
+    # on, so it gets exercised by name here.
+    it "resolves the emitted command by name on PATH, not only by absolute path" do
+      dir = File.tempname("agent-apropos-wiring-onpath")
+      begin
+        wiring_repo(dir)
+        run_agent_apropos(binary, ["init", "--tool", "claude", "--repo-root", dir])[0].should eq(0)
+        commands = emitted_hook_commands(File.read(File.join(dir, ".claude/settings.json")))
+        commands.size.should be >= 2
+
+        with_binary_on_path(binary) do
+          commands.each_with_index do |command, index|
+            argv = command.split(' ')
+            argv.shift.should eq("agent-apropos")
+            code, stdout = round_trip("agent-apropos", argv, dir, "onpath-#{index}", "Edit")
+            code.should eq(0)
+            stdout.should contain("Keep jobs idempotent.")
+          end
+        end
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    # OpenCode spawns an argument array from JavaScript rather than emitting a
+    # shell command, so its resolution path is independent of PATHEXT and is
+    # checked against the reconstructed vector rather than a harvested string.
+    it "runs the argument vector the OpenCode plugin spawns, and each injects" do
+      dir = File.tempname("agent-apropos-wiring-opencode")
+      begin
+        wiring_repo(dir)
+        run_agent_apropos(binary, ["init", "--tool", "opencode", "--repo-root", dir])[0].should eq(0)
+
+        plugin = File.read(File.join(dir, ".opencode/plugins/agent-apropos.js"))
+        plugin.should contain(%q{Bun.spawn(["agent-apropos", "hook", sub, "--tool", "opencode"]})
+
+        ["pre", "post"].each do |sub|
+          code, stdout = round_trip(binary, ["hook", sub, "--tool", "opencode"],
+            dir, "wiring-opencode-#{sub}", "write")
+          code.should eq(0)
+          stdout.should contain("Keep jobs idempotent.")
+        end
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "exits zero and injects no convention when the wired repo has none to inject" do
+      dir = File.tempname("agent-apropos-wiring-bare")
+      begin
+        Dir.mkdir_p(dir)
+        code, stdout = round_trip(binary, ["hook", "pre"], dir, "wiring-bare", "Edit")
+        code.should eq(0)
+        stdout.should_not contain("Convention (")
+      ensure
+        FileUtils.rm_rf(dir)
+      end
     end
   end
 end

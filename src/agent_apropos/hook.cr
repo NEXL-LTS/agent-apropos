@@ -15,7 +15,11 @@ module AgentApropos
     extend self
 
     INDEX_RELATIVE = Path[".cache", "agent-apropos", "index.json"]
-    LOG_RELATIVE   = Path[".cache", "agent-apropos", "log"]
+    LOG_RELATIVE   = Path[".cache", "agent-apropos", "logs"]
+
+    LOG_MAX_AGE = 7.days
+
+    LOG_MAX_FILES = 200
 
     SESSION_NOTICE = "agent-apropos is connected and running. It compiles " \
                      "this repo's coding conventions into a trigger index " \
@@ -43,7 +47,7 @@ module AgentApropos
       execute(event, payload, root, stdout, fs, now, tool, allow_outside) if payload && root
       0
     rescue ex
-      log_failure(fs, override_root, verbose, ex)
+      log_failure(fs, override_root, verbose, now, ex)
       0
     end
 
@@ -217,10 +221,35 @@ module AgentApropos
       relative == ".." || relative.starts_with?("../")
     end
 
-    private def log_failure(fs : Filesystem, override_root : String?, verbose : Bool, ex : Exception) : Nil
+    private def log_failure(fs : Filesystem, override_root : String?, verbose : Bool,
+                            now : Time, ex : Exception) : Nil
       return unless verbose
-      dir = override_root ? Path[override_root] : Path[Dir.current]
-      fs.append(dir.join(LOG_RELATIVE).to_s, "agent-apropos hook: #{ex.message}\n")
+      log_dir = (override_root ? Path[override_root] : Path[Dir.current]).join(LOG_RELATIVE)
+      write_log(fs, log_dir, now, ex)
+      prune_logs(fs, log_dir, now)
+    rescue
+    end
+
+    private def write_log(fs : Filesystem, log_dir : Path, now : Time, ex : Exception) : Nil
+      fs.write(log_dir.join(log_name(now)).to_s, "agent-apropos hook: #{ex.message}\n")
+    rescue
+    end
+
+    private def log_name(now : Time) : String
+      "#{now.to_unix}-#{Random::Secure.hex(6)}.log"
+    end
+
+    private def prune_logs(fs : Filesystem, log_dir : Path, now : Time) : Nil
+      cutoff = (now - LOG_MAX_AGE).to_unix
+      dated = fs.glob(log_dir, "*.log").compact_map do |file|
+        stamp = Path[file].basename(".log").partition('-').first.to_i64?
+        {stamp, file} if stamp
+      end
+      keep = dated.sort_by! { |stamp, _| -stamp }.first(LOG_MAX_FILES).to_set
+      dated.each do |entry|
+        stamp, file = entry
+        fs.remove(file) if stamp < cutoff || !keep.includes?(entry)
+      end
     rescue
     end
   end
