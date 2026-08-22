@@ -73,3 +73,34 @@ jobs:
       - name: Probe the stdlib primitives the port depends on
         continue-on-error: true
         run: crystal run .github/spike/probe.cr
+
+      # KTD4: the Claude/Codex/Copilot/Gemini emitters write a bare command
+      # string. Prove both Windows shells resolve it to the .exe through PATH
+      # and PATHEXT, with no `.exe` in the wiring.
+      - name: Resolve a bare command name from PowerShell and Git Bash
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          if (-not (Test-Path agent-apropos.exe)) { Write-Host "no binary; skipping"; exit 0 }
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          Copy-Item agent-apropos.exe bin\agent-apropos.exe -Force
+          $env:PATH = "$PWD\bin;$env:PATH"
+          Write-Host "== pwsh, bare name"
+          agent-apropos --version
+          Write-Host "== pwsh, bare name with a hook payload"
+          '{"session_id":"s","tool_name":"Edit","cwd":"' + ($PWD -replace '\\','/') + '","tool_input":{"file_path":"src/app.cr"}}' `
+            | agent-apropos hook pre
+          Write-Host "== git bash, bare name"
+          & "C:\Program Files\Git\bin\bash.exe" -lc "export PATH=\"$($PWD -replace '\\','/')/bin:\$PATH\"; agent-apropos --version"
+
+      # KTD8: OpenCode's generated plugin spawns an argument array from Bun
+      # rather than a shell command, so PATHEXT resolution is not inherited.
+      # Answer it against the real runtime instead of assuming.
+      - name: Resolve an extensionless name through Bun.spawn
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          if (-not (Test-Path bin\agent-apropos.exe)) { Write-Host "no binary; skipping"; exit 0 }
+          npm install -g bun 2>&1 | Select-Object -Last 3
+          $env:PATH = "$PWD\bin;$env:PATH"
+          bun run .github/spike/bun-spawn.js
