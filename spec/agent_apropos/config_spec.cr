@@ -2,20 +2,35 @@ require "../spec_helper"
 
 private ROOT = Path["/repo"]
 
+# Single-quoted in YAML because a double-quoted scalar would treat a Windows
+# backslash as an escape.
+private OUTSIDE_DIR = SpecPaths.absolute("var", "conventions")
+
+private def outside_yaml : String
+  "conventions_dir: '#{OUTSIDE_DIR}'\n"
+end
+
+# Compared in POSIX form: `Path#join` inserts the host's own separator, so
+# `Path` equality against a `/`-written literal is a statement about the host
+# rather than about Config.
+private def conventions_dir(fs : AgentApropos::Filesystem, allow_outside : Bool = false) : String
+  AgentApropos::Config.conventions_dir(ROOT, fs, allow_outside).to_posix.to_s
+end
+
 describe AgentApropos::Config do
   describe ".conventions_dir" do
     it "defaults to docs/conventions when agent-apropos.yml is absent" do
-      AgentApropos::Config.conventions_dir(ROOT, InMemoryFS.new).should eq(Path["/repo/docs/conventions"])
+      conventions_dir(InMemoryFS.new).should eq("/repo/docs/conventions")
     end
 
     it "resolves a relative conventions_dir against repo_root" do
       fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: shared-conventions\n"})
-      AgentApropos::Config.conventions_dir(ROOT, fs).should eq(Path["/repo/shared-conventions"])
+      conventions_dir(fs).should eq("/repo/shared-conventions")
     end
 
     it "uses an absolute conventions_dir verbatim" do
-      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: /var/conventions\n"})
-      AgentApropos::Config.conventions_dir(ROOT, fs, allow_outside: true).should eq(Path["/var/conventions"])
+      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => outside_yaml})
+      AgentApropos::Config.conventions_dir(ROOT, fs, allow_outside: true).to_posix.to_s.should eq(OUTSIDE_DIR)
     end
 
     it "raises Config::Error when a relative conventions_dir escapes repo_root" do
@@ -26,7 +41,7 @@ describe AgentApropos::Config do
     end
 
     it "raises Config::Error when an absolute conventions_dir is outside repo_root" do
-      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: /var/conventions\n"})
+      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => outside_yaml})
       expect_raises(AgentApropos::Config::Error, /resolves outside the repo root/) do
         AgentApropos::Config.conventions_dir(ROOT, fs)
       end
@@ -34,17 +49,17 @@ describe AgentApropos::Config do
 
     it "allows an escaping conventions_dir when allow_outside is true" do
       fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n"})
-      AgentApropos::Config.conventions_dir(ROOT, fs, allow_outside: true).should eq(Path["/repo/../shared-conventions"])
+      conventions_dir(fs, allow_outside: true).should eq("/repo/../shared-conventions")
     end
 
     it "does not require allow_outside for a conventions_dir that stays under repo_root" do
       fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: docs/shared\n"})
-      AgentApropos::Config.conventions_dir(ROOT, fs).should eq(Path["/repo/docs/shared"])
+      conventions_dir(fs).should eq("/repo/docs/shared")
     end
 
     it "defaults when agent-apropos.yml has no conventions_dir key" do
       fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "other_key: whatever\n"})
-      AgentApropos::Config.conventions_dir(ROOT, fs).should eq(Path["/repo/docs/conventions"])
+      conventions_dir(fs).should eq("/repo/docs/conventions")
     end
 
     it "raises Config::Error on malformed YAML" do
@@ -70,7 +85,7 @@ describe AgentApropos::Config do
 
     it "falls back to .cache/agent-apropos.yml when agent-apropos.yml is absent" do
       fs = InMemoryFS.new({"/repo/.cache/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n"})
-      AgentApropos::Config.conventions_dir(ROOT, fs, allow_outside: true).should eq(Path["/repo/../shared-conventions"])
+      conventions_dir(fs, allow_outside: true).should eq("/repo/../shared-conventions")
     end
 
     it "prefers agent-apropos.yml over .cache/agent-apropos.yml when both are present" do
@@ -78,7 +93,7 @@ describe AgentApropos::Config do
         "/repo/agent-apropos.yml"        => "conventions_dir: ../root-conventions\n",
         "/repo/.cache/agent-apropos.yml" => "conventions_dir: ../fallback-conventions\n",
       })
-      AgentApropos::Config.conventions_dir(ROOT, fs, allow_outside: true).should eq(Path["/repo/../root-conventions"])
+      conventions_dir(fs, allow_outside: true).should eq("/repo/../root-conventions")
     end
 
     it "raises Config::Error on malformed YAML in the .cache/agent-apropos.yml fallback" do
@@ -105,7 +120,7 @@ describe AgentApropos::Config do
     end
 
     it "is true for an absolute conventions_dir outside repo_root" do
-      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: /var/conventions\n"})
+      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => outside_yaml})
       AgentApropos::Config.outside_repo?(ROOT, fs).should be_true
     end
   end

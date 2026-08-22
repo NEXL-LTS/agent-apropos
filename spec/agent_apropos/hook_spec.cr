@@ -2,9 +2,13 @@ require "../spec_helper"
 
 private NOW = Time.utc(2026, 7, 16, 12, 0, 0)
 
-private A_PATH      = "/repo/docs/conventions/a.md"
-private DB_PATH     = "/repo/docs/conventions/db.md"
-private MODELS_PATH = "/repo/docs/conventions/models.md"
+private REPO      = SpecPaths.absolute("repo")
+private ELSEWHERE = SpecPaths.absolute("elsewhere")
+private OUTSIDE   = SpecPaths.absolute("outside")
+
+private A_PATH      = "#{REPO}/docs/conventions/a.md"
+private DB_PATH     = "#{REPO}/docs/conventions/db.md"
+private MODELS_PATH = "#{REPO}/docs/conventions/models.md"
 
 private A_DOC      = "---\npaths: [\"src/**\"]\n---\n# A\n\nBody of A.\n"
 private DB_DOC     = "---\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nUse transactions carefully.\n"
@@ -62,26 +66,26 @@ private class ExplodingFS < AgentApropos::Filesystem
   end
 end
 
-private def pre_json(file_path : String, session_id : String? = "s", cwd : String? = "/repo") : String
+private def pre_json(file_path : String, session_id : String? = "s", cwd : String? = REPO) : String
   {session_id: session_id, tool_name: "Edit", cwd: cwd, tool_input: {file_path: file_path}}.to_json
 end
 
 private def write_json(file_path : String, content : String, session_id : String? = "s") : String
-  {session_id: session_id, tool_name: "Write", cwd: "/repo",
+  {session_id: session_id, tool_name: "Write", cwd: REPO,
    tool_input: {file_path: file_path, content: content}}.to_json
 end
 
-private def read_json(file_path : String, session_id : String? = "s", cwd : String? = "/repo") : String
+private def read_json(file_path : String, session_id : String? = "s", cwd : String? = REPO) : String
   {session_id: session_id, tool_name: "Read", cwd: cwd, tool_input: {file_path: file_path}}.to_json
 end
 
 private def partial_read_json(file_path : String, offset : Int32? = nil, limit : Int32? = nil) : String
-  {session_id: "s", tool_name: "Read", cwd: "/repo",
+  {session_id: "s", tool_name: "Read", cwd: REPO,
    tool_input: {file_path: file_path, offset: offset, limit: limit}}.to_json
 end
 
 private def invoke(event : Symbol, input : String, fs : AgentApropos::Filesystem,
-                   override : String? = "/repo", now : Time = NOW, verbose : Bool = false,
+                   override : String? = REPO, now : Time = NOW, verbose : Bool = false,
                    tool : String? = nil) : {Int32, String}
   stdout = IO::Memory.new
   reader = IO::Memory.new(input)
@@ -98,22 +102,22 @@ describe AgentApropos::Hook do
   describe ".pre" do
     it "injects a matching path-scoped rule before the edit" do
       fs = InMemoryFS.new({A_PATH => A_DOC, DB_PATH => DB_DOC})
-      code, stdout = invoke(:pre, pre_json("/repo/src/app.cr"), fs)
+      code, stdout = invoke(:pre, pre_json("#{REPO}/src/app.cr"), fs)
 
       code.should eq(0)
       stdout.should contain(%("hookEventName":"PreToolUse"))
       stdout.should contain("Convention (docs/conventions/a.md):")
       stdout.should contain("Body of A.")
-      fs.files.has_key?("/repo/.cache/agent-apropos/index.json").should be_true
-      fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_true
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/index.json").should be_true
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/sessions/s.json").should be_true
     end
 
     it "still injects a valid rule when a sibling doc is malformed and the index cache is cold" do
       fs = InMemoryFS.new({
-        A_PATH                          => A_DOC,
-        "/repo/docs/conventions/bad.md" => "---\npaths: not-a-list\n---\nBad\n",
+        A_PATH                            => A_DOC,
+        "#{REPO}/docs/conventions/bad.md" => "---\npaths: not-a-list\n---\nBad\n",
       })
-      code, stdout = invoke(:pre, pre_json("/repo/src/app.cr"), fs)
+      code, stdout = invoke(:pre, pre_json("#{REPO}/src/app.cr"), fs)
 
       code.should eq(0)
       stdout.should contain("Convention (docs/conventions/a.md):")
@@ -157,15 +161,15 @@ describe AgentApropos::Hook do
     end
 
     it "does not match a content rule against the pre-write file on disk" do
-      fs = InMemoryFS.new({DB_PATH => DB_DOC, "/repo/lib/x.cr" => "db.transaction do"})
-      input = %({"session_id":"s","tool_name":"Edit","cwd":"/repo","tool_input":{"file_path":"lib/x.cr"}})
+      fs = InMemoryFS.new({DB_PATH => DB_DOC, "#{REPO}/lib/x.cr" => "db.transaction do"})
+      input = %({"session_id":"s","tool_name":"Edit","cwd":"#{REPO}","tool_input":{"file_path":"lib/x.cr"}})
       code, stdout = invoke(:pre, input, fs)
       code.should eq(0)
       stdout.should_not contain("Convention (docs/conventions/db.md):")
     end
 
     it "still matches a path rule when the payload carries no written content" do
-      fs = InMemoryFS.new({A_PATH => A_DOC, "/repo/src/app.cr" => "existing"})
+      fs = InMemoryFS.new({A_PATH => A_DOC, "#{REPO}/src/app.cr" => "existing"})
       code, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
       code.should eq(0)
       stdout.should contain("Convention (docs/conventions/a.md):")
@@ -211,7 +215,7 @@ describe AgentApropos::Hook do
 
     it "uses an existing index and emits nothing when the source doc is unreadable" do
       index = AgentApropos::Index.build([AgentApropos::Convention.parse("docs/conventions/a.md", A_DOC)])
-      fs = InMemoryFS.new({"/repo/.cache/agent-apropos/index.json" => index.to_document})
+      fs = InMemoryFS.new({"#{REPO}/.cache/agent-apropos/index.json" => index.to_document})
       code, stdout = invoke(:pre, pre_json("src/app.cr", session_id: nil), fs)
       code.should eq(0)
       stdout.should be_empty
@@ -231,7 +235,7 @@ describe AgentApropos::Hook do
     it "records the triggering file and matched patterns as the cause" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, pre_json("src/app.cr"), fs, tool: "claude")
-      written = fs.files["/repo/.cache/agent-apropos/sessions/s.json"]
+      written = fs.files["#{REPO}/.cache/agent-apropos/sessions/s.json"]
       written.should contain(%("event": "PreToolUse"))
       written.should contain(%("file": "src/app.cr"))
       written.should contain(%("src/**"))
@@ -242,7 +246,7 @@ describe AgentApropos::Hook do
       code, stdout = invoke(:pre, pre_json("src/app.cr", session_id: nil), fs)
       code.should eq(0)
       stdout.should contain("Convention (docs/conventions/a.md):")
-      fs.files.has_key?("/repo/.cache/agent-apropos/index.json").should be_false
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/index.json").should be_false
     end
 
     it "fails open and stays silent on an internal error" do
@@ -258,7 +262,7 @@ describe AgentApropos::Hook do
       code, _ = invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
       code.should eq(0)
       path, content = fs.written.first
-      Path[path].parent.to_posix.to_s.should eq("/repo/.cache/agent-apropos/logs")
+      Path[path].parent.to_posix.to_s.should eq("#{REPO}/.cache/agent-apropos/logs")
       Path[path].extension.should eq(".log")
       content.should contain("agent-apropos hook:")
     end
@@ -278,21 +282,21 @@ describe AgentApropos::Hook do
     end
 
     it "prunes a log file older than the retention window and keeps a newer one" do
-      stale = "/repo/.cache/agent-apropos/logs/#{(NOW - 8.days).to_unix}-aaaaaa.log"
-      fresh = "/repo/.cache/agent-apropos/logs/#{(NOW - 1.day).to_unix}-bbbbbb.log"
+      stale = "#{REPO}/.cache/agent-apropos/logs/#{(NOW - 8.days).to_unix}-aaaaaa.log"
+      fresh = "#{REPO}/.cache/agent-apropos/logs/#{(NOW - 1.day).to_unix}-bbbbbb.log"
       fs = ExplodingFS.new(entries: [stale, fresh])
       invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
       fs.removed.should eq([stale])
     end
 
     it "leaves a log-directory entry alone when its name carries no timestamp" do
-      fs = ExplodingFS.new(entries: ["/repo/.cache/agent-apropos/logs/notes.log"])
+      fs = ExplodingFS.new(entries: ["#{REPO}/.cache/agent-apropos/logs/notes.log"])
       invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
       fs.removed.should be_empty
     end
 
     it "prunes nothing when not verbose, because nothing writes to the log directory" do
-      stale = "/repo/.cache/agent-apropos/logs/#{(NOW - 8.days).to_unix}-aaaaaa.log"
+      stale = "#{REPO}/.cache/agent-apropos/logs/#{(NOW - 8.days).to_unix}-aaaaaa.log"
       fs = ExplodingFS.new(entries: [stale])
       invoke(:pre, pre_json("src/app.cr"), fs)
       fs.removed.should be_empty
@@ -373,8 +377,8 @@ describe AgentApropos::Hook do
     end
 
     it "reads the file from disk when the payload has no content field" do
-      fs = InMemoryFS.new({DB_PATH => DB_DOC, "/repo/lib/x.cr" => "wrap in a transaction here"})
-      input = %({"session_id":"s","tool_name":"Write","cwd":"/repo","tool_input":{"file_path":"lib/x.cr"}})
+      fs = InMemoryFS.new({DB_PATH => DB_DOC, "#{REPO}/lib/x.cr" => "wrap in a transaction here"})
+      input = %({"session_id":"s","tool_name":"Write","cwd":"#{REPO}","tool_input":{"file_path":"lib/x.cr"}})
       code, stdout = invoke(:post, input, fs)
       code.should eq(0)
       stdout.should contain("Convention (docs/conventions/db.md):")
@@ -382,7 +386,7 @@ describe AgentApropos::Hook do
 
     it "emits nothing when there is neither content nor a file to read" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC})
-      input = %({"tool_name":"Write","cwd":"/repo","tool_input":{"file_path":"lib/gone.cr"}})
+      input = %({"tool_name":"Write","cwd":"#{REPO}","tool_input":{"file_path":"lib/gone.cr"}})
       code, stdout = invoke(:post, input, fs)
       code.should eq(0)
       stdout.should be_empty
@@ -390,7 +394,7 @@ describe AgentApropos::Hook do
 
     it "matches against every new_string of a batch edit" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC})
-      input = %({"session_id":"s","tool_name":"MultiEdit","cwd":"/repo","tool_input":) +
+      input = %({"session_id":"s","tool_name":"MultiEdit","cwd":"#{REPO}","tool_input":) +
               %({"file_path":"lib/x.cr","edits":[{"new_string":"noop"},{"new_string":"begin transaction"}]}})
       _, stdout = invoke(:post, input, fs)
       stdout.should contain("Convention (docs/conventions/db.md):")
@@ -414,7 +418,7 @@ describe AgentApropos::Hook do
     it "records a convention doc the agent read as already injected, so no write re-injects it" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, read_json("docs/conventions/a.md"), fs)
-      fs.files["/repo/.cache/agent-apropos/sessions/s.json"]
+      fs.files["#{REPO}/.cache/agent-apropos/sessions/s.json"]
         .should contain(%("path": "docs/conventions/a.md"))
 
       code, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
@@ -426,7 +430,7 @@ describe AgentApropos::Hook do
     it "does not suppress a rule when the read target is the generated skill wrapper, not the source doc" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, read_json(".claude/skills/a/SKILL.md"), fs)
-      fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_false
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/sessions/s.json").should be_false
 
       invoke(:pre, pre_json("src/app.cr"), fs)[1]
         .should contain("Convention (docs/conventions/a.md):")
@@ -437,26 +441,26 @@ describe AgentApropos::Hook do
       code, stdout = invoke(:pre, read_json("src/app.cr"), fs)
       code.should eq(0)
       stdout.should be_empty
-      fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_false
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/sessions/s.json").should be_false
     end
 
     it "does not suppress a doc read from outside the repo root, which relativizes away" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
-      invoke(:pre, read_json("/elsewhere/docs/conventions/a.md"), fs)
-      fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_false
+      invoke(:pre, read_json("#{ELSEWHERE}/docs/conventions/a.md"), fs)
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/sessions/s.json").should be_false
     end
 
     it "auto-detects the dialect, so a read is recognized without --tool" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, read_json("docs/conventions/a.md"), fs)
-      fs.files["/repo/.cache/agent-apropos/sessions/s.json"]
+      fs.files["#{REPO}/.cache/agent-apropos/sessions/s.json"]
         .should contain(%("path": "docs/conventions/a.md"))
     end
 
     it "does not suppress a rule when only part of the doc was read (offset)" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, partial_read_json("docs/conventions/a.md", offset: 40), fs)
-      fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_false
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/sessions/s.json").should be_false
 
       invoke(:pre, pre_json("src/app.cr"), fs)[1]
         .should contain("Convention (docs/conventions/a.md):")
@@ -465,7 +469,7 @@ describe AgentApropos::Hook do
     it "does not suppress a rule when only part of the doc was read (limit)" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       invoke(:pre, partial_read_json("docs/conventions/a.md", limit: 5), fs)
-      fs.files.has_key?("/repo/.cache/agent-apropos/sessions/s.json").should be_false
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/sessions/s.json").should be_false
     end
 
     it "suppresses from the post event too, which is where the read tools are wired" do
@@ -473,7 +477,7 @@ describe AgentApropos::Hook do
       code, stdout = invoke(:post, read_json("docs/conventions/a.md"), fs)
       code.should eq(0)
       stdout.should be_empty
-      fs.files["/repo/.cache/agent-apropos/sessions/s.json"]
+      fs.files["#{REPO}/.cache/agent-apropos/sessions/s.json"]
         .should contain(%("event": "PostToolUse"))
     end
 
@@ -541,7 +545,7 @@ describe AgentApropos::Hook do
       code, stdout = invoke(:pre, pre_json("docs/readme.md", session_id: "../../../../tmp/PWNED"), fs)
       code.should eq(0)
       stdout.should be_empty
-      fs.files.keys.each(&.should(start_with("/repo/")))
+      fs.files.keys.each(&.should(start_with("#{REPO}/")))
     end
 
     it "stays skipped on a second call with the same traversal session id (never gets stuck re-firing)" do
@@ -564,7 +568,7 @@ describe AgentApropos::Hook do
     it "matches a path-scoped rule from a write_file AfterTool payload" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
       input = %({"session_id":"s","hook_event_name":"AfterTool","tool_name":"write_file",) +
-              %("cwd":"/repo","tool_input":{"file_path":"src/app.cr","content":"puts 1"}})
+              %("cwd":"#{REPO}","tool_input":{"file_path":"src/app.cr","content":"puts 1"}})
       code, stdout = invoke(:pre, input, fs)
       code.should eq(0)
       stdout.should contain("Convention (docs/conventions/a.md):")
@@ -573,7 +577,7 @@ describe AgentApropos::Hook do
     it "matches a content-scoped rule from a replace AfterTool payload" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC})
       input = %({"session_id":"s","hook_event_name":"AfterTool","tool_name":"replace",) +
-              %("cwd":"/repo","tool_input":{"file_path":"lib/x.cr","old_string":"noop",) +
+              %("cwd":"#{REPO}","tool_input":{"file_path":"lib/x.cr","old_string":"noop",) +
               %("new_string":"db.transaction do"}})
       code, stdout = invoke(:post, input, fs)
       code.should eq(0)
@@ -591,8 +595,8 @@ describe AgentApropos::Hook do
   describe "Copilot CLI payload shape (flat additionalContext, no envelope)" do
     it "matches a path-scoped rule from an edit toolArgs payload and emits flat additionalContext" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
-      input = %({"sessionId":"s","toolName":"edit","cwd":"/repo",) +
-              %("toolArgs":"{\\"path\\":\\"/repo/src/app.cr\\"}"})
+      input = %({"sessionId":"s","toolName":"edit","cwd":"#{REPO}",) +
+              %("toolArgs":"{\\"path\\":\\"#{REPO}/src/app.cr\\"}"})
       code, stdout = invoke(:pre, input, fs)
       code.should eq(0)
       stdout.should contain("Convention (docs/conventions/a.md):")
@@ -602,8 +606,8 @@ describe AgentApropos::Hook do
 
     it "emits nothing for Copilot's view tool, which its dialect marks a read" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
-      input = %({"sessionId":"s","toolName":"view","cwd":"/repo",) +
-              %("toolArgs":"{\\"path\\":\\"/repo/src/app.cr\\"}"})
+      input = %({"sessionId":"s","toolName":"view","cwd":"#{REPO}",) +
+              %("toolArgs":"{\\"path\\":\\"#{REPO}/src/app.cr\\"}"})
       code, stdout = invoke(:pre, input, fs)
       code.should eq(0)
       stdout.should be_empty
@@ -611,8 +615,8 @@ describe AgentApropos::Hook do
 
     it "matches a content-scoped rule from a create toolArgs payload's file_text" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC})
-      input = %({"sessionId":"s","toolName":"create","cwd":"/repo",) +
-              %("toolArgs":"{\\"path\\":\\"/repo/lib/x.cr\\",\\"file_text\\":\\"db.transaction do\\"}"})
+      input = %({"sessionId":"s","toolName":"create","cwd":"#{REPO}",) +
+              %("toolArgs":"{\\"path\\":\\"#{REPO}/lib/x.cr\\",\\"file_text\\":\\"db.transaction do\\"}"})
       code, stdout = invoke(:post, input, fs)
       code.should eq(0)
       stdout.should contain("Convention (docs/conventions/db.md):")
@@ -621,7 +625,7 @@ describe AgentApropos::Hook do
 
     it "still emits the hookSpecificOutput envelope for a non-Copilot payload (no regression)" do
       fs = InMemoryFS.new({A_PATH => A_DOC})
-      code, stdout = invoke(:pre, pre_json("/repo/src/app.cr"), fs)
+      code, stdout = invoke(:pre, pre_json("#{REPO}/src/app.cr"), fs)
       code.should eq(0)
       stdout.should contain(%("hookSpecificOutput"))
       JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s
@@ -636,14 +640,14 @@ describe AgentApropos::Hook do
   describe "files outside the repo root" do
     it "emits nothing for a pathless content rule matching a write outside the repo root" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC})
-      input = write_json("/home/user/.copilot/session-state/x/plan.md", "start a transaction")
+      input = write_json("#{OUTSIDE}/.copilot/session-state/x/plan.md", "start a transaction")
       code, stdout = invoke(:post, input, fs)
       code.should eq(0)
       stdout.should be_empty
     end
 
     it "emits nothing for a rule matching an edit outside the repo root" do
-      code, stdout = invoke(:pre, pre_json("/etc/passwd"), InMemoryFS.new)
+      code, stdout = invoke(:pre, pre_json("#{OUTSIDE}/passwd"), InMemoryFS.new)
       code.should eq(0)
       stdout.should be_empty
     end

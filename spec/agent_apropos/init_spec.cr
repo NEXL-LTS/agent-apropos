@@ -113,7 +113,8 @@ describe AgentApropos::Init do
     end
 
     it "fails closed for an absolute conventions_dir outside repo_root without --allow-outside-repo" do
-      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: /var/conventions\n"})
+      outside = SpecPaths.absolute("var", "conventions")
+      fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: '#{outside}'\n"})
       code, _, stderr = run_init(fs)
       code.should eq(1)
       stderr.should contain("resolves outside the repo root")
