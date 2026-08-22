@@ -13,15 +13,19 @@ private class FakeFS < AgentApropos::Filesystem
   end
 
   def read(path : String) : String
-    @files[path]
+    @files[key(path)]
   end
 
   def read?(path : String) : String?
-    @files[path]?
+    @files[key(path)]?
   end
 
   def write(path : String, content : String) : Nil
-    @files[path] = content
+    @files[key(path)] = content
+  end
+
+  private def key(path : String) : String
+    Path[path].to_posix.to_s
   end
 
   def remove(path : String) : Nil
