@@ -15,7 +15,7 @@ class InMemoryFS < AgentApropos::Filesystem
   end
 
   def glob(base : Path, pattern : String) : Array(String)
-    full = base.join(pattern).to_s
+    full = base.join(pattern).to_posix.to_s
     @files.keys.select { |key| File.match?(full, key) }
   end
 

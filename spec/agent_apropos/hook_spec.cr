@@ -306,6 +306,27 @@ describe AgentApropos::Hook do
     end
   end
 
+  describe "Windows-shaped edit paths" do
+    root = Path.windows("C:\\projects\\foo")
+
+    it "relativizes a backslash-separated absolute path to a POSIX glob match" do
+      relative = Path.windows("C:\\projects\\foo\\src\\bar.cr").expand(base: root)
+        .relative_to(root).to_posix.to_s
+      relative.should eq("src/bar.cr")
+      File.match?("src/**/*.cr", relative).should be_true
+    end
+
+    it "relativizes a mixed-separator path the same as the fully-backslashed form" do
+      Path.windows("C:/projects/foo/src\\bar.cr").expand(base: root)
+        .relative_to(root).to_posix.to_s.should eq("src/bar.cr")
+    end
+
+    it "relativizes a backslash-separated path outside the root to an escaping form" do
+      Path.windows("C:\\projects\\other\\x.cr").expand(base: root)
+        .relative_to(root).to_posix.to_s.should start_with("../")
+    end
+  end
+
   describe ".post" do
     it "injects a repo-wide content-scoped rule when written content matches" do
       fs = InMemoryFS.new({A_PATH => A_DOC, DB_PATH => DB_DOC})

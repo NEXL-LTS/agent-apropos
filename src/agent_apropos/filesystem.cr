@@ -21,7 +21,7 @@ module AgentApropos
 
     class Real < Filesystem
       def glob(base : Path, pattern : String) : Array(String)
-        Dir.glob(base.join(pattern).to_s)
+        Dir.glob(base.join(pattern).to_posix.to_s)
       end
 
       def read(path : String) : String

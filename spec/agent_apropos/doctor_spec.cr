@@ -69,6 +69,12 @@ describe AgentApropos::Doctor do
   end
 
   describe "agent-apropos check" do
+    it "reports the resolved path verbatim, including an executable extension" do
+      env = FakeEnv.new({"agent-apropos" => "C:/Users/dev/.local/bin/agent-apropos.exe"})
+      _, stdout = run_doctor(InMemoryFS.new, env)
+      stdout.should contain("ok    agent-apropos: on PATH at C:/Users/dev/.local/bin/agent-apropos.exe")
+    end
+
     it "warns when agent-apropos is not on PATH" do
       _, stdout = run_doctor(InMemoryFS.new, FakeEnv.new)
       stdout.should contain("warn  agent-apropos: not found on PATH")

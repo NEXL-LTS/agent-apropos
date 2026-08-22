@@ -31,6 +31,19 @@ describe AgentApropos::Filesystem::Real do
     end
   end
 
+  it "globs through a base whose separators are not POSIX" do
+    dir = File.tempname("agent-apropos-fs")
+    fs = AgentApropos::Filesystem::Real.new
+    begin
+      Dir.mkdir_p(File.join(dir, "docs/conventions"))
+      File.write(File.join(dir, "docs/conventions/a.md"), "x\n")
+
+      fs.glob(Path.windows(dir), "docs/**/*.md").size.should eq(1)
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
+
   it "removes a directory tree and is a no-op when the target is absent" do
     dir = File.tempname("agent-apropos-fs")
     fs = AgentApropos::Filesystem::Real.new
