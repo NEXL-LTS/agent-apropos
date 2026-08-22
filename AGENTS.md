@@ -20,7 +20,8 @@ even where the global Crystal cache is not writable.
 - `make dup` — check `src/**/*.cr` for code duplication (jscpd; zero clones required)
 - `make devcontainer-spec` — bats tests for `.devcontainer/initialize.sh` (deterministic, offline)
 - `make installer-spec` — bats tests for `install.sh`'s platform gate (deterministic, offline)
-- `make check` — lint + spec + dup + devcontainer-spec + hooks-spec + installer-spec (the fast local gate)
+- `make plans-check` — fail if any plan doc is committed under `docs/plans/` (plans are deleted in the PR that implements them); `make plans-spec` runs its bats tests
+- `make check` — lint + spec + dup + devcontainer-spec + hooks-spec + installer-spec + plans checks (the fast local gate)
 - `make coverage` — run specs under kcov and enforce the 100% line-coverage gate
 - `make mutate SUBJECT=src/agent_apropos/<module>.cr` — advisory mutation testing (see `docs/mutation-testing.md`)
 - `make e2e` (or `bash e2e/run.sh`) — the **live** end-to-end suite: this is what "e2e tests" means

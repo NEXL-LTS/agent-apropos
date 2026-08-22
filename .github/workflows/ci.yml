@@ -193,6 +193,51 @@ jobs:
       - name: Check for code duplication (src/**/*.cr)
         run: npm run lint:dup
 
+  # docs/plans/ is scratch space for in-flight plan documents: a plan is written,
+  # implemented, and then deleted in the PR that lands the work. This gate fails
+  # the build if one is committed, so a stale plan can't sit on main describing a
+  # design the merged code has already moved past. It reads the git index, not the
+  # working tree, so an untracked plan on a contributor's machine is unaffected.
+  #
+  # Its own job because it needs none of the Crystal toolchain — bolted onto
+  # `test` the gate would wait on the compiler install and the coverage run.
+  plans:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check no plan doc is committed under docs/plans/
+        run: ./scripts/check-plans-empty.sh
+
+      # The gate's own bats suite runs here too, so a change to it is covered by
+      # the same job it guards. Ubuntu ships an older bats without
+      # bats_load_library and no helper libraries, so both come from pinned
+      # releases — the same versions .devcontainer/Dockerfile installs, keeping
+      # CI and the devcontainer on one bats.
+      - name: Install bats and its helper libraries
+        env:
+          BATS_CORE_VERSION: v1.11.1
+          BATS_SUPPORT_VERSION: v0.3.0
+          BATS_ASSERT_VERSION: v2.1.0
+        run: |
+          git clone --depth 1 --branch "$BATS_CORE_VERSION" \
+            https://github.com/bats-core/bats-core.git /tmp/bats-core
+          sudo /tmp/bats-core/install.sh /usr/local
+          rm -rf /tmp/bats-core
+          sudo mkdir -p /usr/local/lib/bats
+          sudo git clone --depth 1 --branch "$BATS_SUPPORT_VERSION" \
+            https://github.com/bats-core/bats-support.git /usr/local/lib/bats/bats-support
+          sudo git clone --depth 1 --branch "$BATS_ASSERT_VERSION" \
+            https://github.com/bats-core/bats-assert.git /usr/local/lib/bats/bats-assert
+
+      # Via make, so CI and a contributor's `make plans-spec` can't drift.
+      - name: Spec (scripts/check-plans-empty.sh)
+        run: make plans-spec
+
   # Build the devcontainer image so a change to .devcontainer/Dockerfile (e.g.
   # the crystal/kcov/bats toolchain) can't break the dev environment unnoticed.
   # The image is loaded and smoke-checked to confirm the tools it installs are
