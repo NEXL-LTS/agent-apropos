@@ -16,7 +16,19 @@ dir = File.tempname("apropos-spike")
 Dir.mkdir_p(File.join(dir, "docs", "conventions"))
 File.write(File.join(dir, "docs", "conventions", "a.md"), "---\npaths: [\"src/**\"]\n---\nbody\n")
 
-probe("Dir.glob(**/*.md)") { Dir.glob(File.join(dir, "docs", "**", "*.md")).size }
+probe("Dir.glob(String pattern, native seps)") do
+  Dir.glob(Path[dir].join("docs", "**/*.md").to_s).size
+end
+probe("Dir.glob(Path pattern)") { Dir.glob(Path[dir].join("docs", "**/*.md")).size }
+probe("Dir.glob(String pattern, to_posix)") do
+  Dir.glob(Path[dir].join("docs", "**/*.md").to_posix.to_s).size
+end
+probe("Path#join keeps the pattern verbatim") { Path[dir].join("docs", "**/*.md").to_s }
+probe("Dir.glob(*/SKILL.md via Path)") do
+  Dir.mkdir_p(File.join(dir, ".claude", "skills", "ship"))
+  File.write(File.join(dir, ".claude", "skills", "ship", "SKILL.md"), "x")
+  Dir.glob(Path[dir].join(".claude", "skills", "*/SKILL.md")).size
+end
 probe("Path#relative_to + to_posix") do
   Path[File.join(dir, "docs", "conventions", "a.md")].relative_to(Path[dir]).to_posix.to_s
 end
@@ -46,5 +58,15 @@ probe("Process.find_executable(\"git\")") { Process.find_executable("git").inspe
 probe("Process.find_executable(\"sh\")") { Process.find_executable("sh").inspect }
 probe("File::DEFAULT_CREATE_PERMISSIONS") { File::DEFAULT_CREATE_PERMISSIONS.value }
 probe("Time.utc / Time::Span arithmetic") { (Time.utc - 7.days).to_unix }
+probe("backslash abs path relative_to + to_posix") do
+  Path[File.join(dir, "src", "bar.cr")].expand.relative_to(Path[dir]).to_posix.to_s
+end
+probe("File.match?(POSIX glob, POSIX relpath)") { File.match?("src/**/*.cr", "src/bar.cr") }
+probe("symlink over an existing link raises") do
+  File.symlink(File.join(dir, "t2"), File.join(dir, "link"))
+  "no error raised"
+rescue ex
+  "#{ex.class}: #{ex.message}"
+end
 
 FileUtils.rm_rf(dir)
