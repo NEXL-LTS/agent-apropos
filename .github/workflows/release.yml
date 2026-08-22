@@ -117,6 +117,7 @@ jobs:
       - name: Build static binary
         run: |
           shards install --production
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           crystal build --release --static src/agent_apropos.cr -o $env:ASSET
 
       # Proves the binary runs on a stock Windows install: every DLL it imports

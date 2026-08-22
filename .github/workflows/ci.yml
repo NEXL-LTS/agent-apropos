@@ -127,9 +127,13 @@ jobs:
       # Self-check: the repo dogfoods the standard, so the Windows binary must
       # agree byte-for-byte with the Linux one about its own generated wrappers.
       # This is the drift gate for the line-ending normalization.
+      # PowerShell does not stop a multi-command block on a non-zero native
+      # exit, and the step inherits only the last one — so the drift gate has
+      # to be checked explicitly or a stale wrapper would pass here.
       - name: Self-check (generate --check && lint)
         run: |
           ./bin/agent-apropos.exe generate --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./bin/agent-apropos.exe lint
 
   # Validates that markdown links and heading anchors across the committed docs
