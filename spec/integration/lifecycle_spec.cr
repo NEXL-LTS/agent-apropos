@@ -20,14 +20,44 @@ private def emitted_hook_commands(config : String) : Array(String)
   config.scan(HOOK_COMMAND).map(&.[0].strip).uniq!.sort!
 end
 
-private def round_trip(binary : String, argv : Array(String), dir : String,
+private def round_trip(command : String, argv : Array(String), dir : String,
                        session : String, tool_name : String) : {Int32, String}
   payload = {session_id: session, tool_name: tool_name, cwd: Path[dir].to_posix.to_s,
              tool_input: {file_path: Path[dir, "app/jobs/m.cr"].to_posix.to_s}}.to_json
   stdout = IO::Memory.new
-  status = Process.run(binary, argv + ["--repo-root", dir],
+  status = Process.run(command, argv + ["--repo-root", dir],
     input: IO::Memory.new(payload), output: stdout, error: stdout)
   {status.exit_code, stdout.to_s}
+end
+
+# The emitted wiring names the binary rather than pathing to it, so resolving
+# that name is part of what has to work — through PATH on every platform, and
+# through PATHEXT as well on Windows, where the file on disk carries an
+# extension the wiring never mentions. Copies the built binary onto PATH under
+# the name the wiring uses, preserving whatever extension the compiler gave it.
+private def with_binary_on_path(binary : String, &)
+  dir = File.tempname("agent-apropos-onpath")
+  built = File.exists?(binary) ? binary : "#{binary}.exe"
+  copy = File.join(dir, "agent-apropos#{File.extname(built)}")
+  original = ENV["PATH"]
+  begin
+    Dir.mkdir_p(dir)
+    File.copy(built, copy)
+    ENV["PATH"] = "#{dir}#{Process::PATH_DELIMITER}#{original}"
+
+    # Assert which file the bare name resolves to before using it. A machine
+    # with agent-apropos already installed on PATH — this devcontainer, after
+    # `make install` — would otherwise answer instead, and the example would
+    # pass without ever exercising resolution of the copy.
+    resolved = Process.find_executable("agent-apropos")
+    resolved.should_not be_nil
+    File.same?(resolved.to_s, copy).should be_true
+
+    yield
+  ensure
+    ENV["PATH"] = original
+    FileUtils.rm_rf(dir)
+  end
 end
 
 private def wiring_repo(dir : String) : Nil
@@ -202,6 +232,32 @@ describe "agent-apropos init/lint/doctor/help (binary)" do
         ensure
           FileUtils.rm_rf(dir)
         end
+      end
+    end
+
+    # The per-agent examples above run the binary by its absolute path, which
+    # proves the CLI accepts the argument vector but not that the bare command
+    # name resolves. That is the property the shell-form wiring actually relies
+    # on, so it gets exercised by name here.
+    it "resolves the emitted command by name on PATH, not only by absolute path" do
+      dir = File.tempname("agent-apropos-wiring-onpath")
+      begin
+        wiring_repo(dir)
+        run_agent_apropos(binary, ["init", "--tool", "claude", "--repo-root", dir])[0].should eq(0)
+        commands = emitted_hook_commands(File.read(File.join(dir, ".claude/settings.json")))
+        commands.size.should be >= 2
+
+        with_binary_on_path(binary) do
+          commands.each_with_index do |command, index|
+            argv = command.split(' ')
+            argv.shift.should eq("agent-apropos")
+            code, stdout = round_trip("agent-apropos", argv, dir, "onpath-#{index}", "Edit")
+            code.should eq(0)
+            stdout.should contain("Keep jobs idempotent.")
+          end
+        end
+      ensure
+        FileUtils.rm_rf(dir)
       end
     end
 

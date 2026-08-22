@@ -123,12 +123,36 @@ try {
     }
 
     # --- Install -------------------------------------------------------------
+    # Staged, not installed in place: the binary is smoke-tested where it will
+    # live (so it is tested across the same filesystem and policy as the real
+    # target) but under a temporary name, and only replaces the target once it
+    # has run. A binary that cannot execute therefore leaves any working
+    # installation exactly as it was, which is what failing closed means here.
     $target = Join-Path $binDir 'agent-apropos.exe'
+    $staged = "$target.new"
     try {
         New-Item -ItemType Directory -Force -Path $binDir | Out-Null
-        Copy-Item -LiteralPath $downloaded -Destination $target -Force
+        Copy-Item -LiteralPath $downloaded -Destination $staged -Force
     } catch {
         Die "failed to install to $binDir (set AGENT_APROPOS_BIN_DIR to a writable directory). ($($_.Exception.Message))"
+    }
+
+    try {
+        & $staged --version | Out-Null
+        $ran = ($LASTEXITCODE -eq 0)
+    } catch {
+        $ran = $false
+    }
+    if (-not $ran) {
+        Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
+        Die "the downloaded binary failed to run, so nothing was installed (wrong architecture, a corrupt download, or a blocked file). Any existing $target is untouched."
+    }
+
+    try {
+        Move-Item -LiteralPath $staged -Destination $target -Force
+    } catch {
+        Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
+        Die "failed to replace $target — it may be running. Close any agent-apropos process and re-run. ($($_.Exception.Message))"
     }
     Write-Host ">> installed agent-apropos to $target"
 
@@ -140,8 +164,6 @@ try {
         Write-Host "     [Environment]::SetEnvironmentVariable('Path', `"$binDir;`" + [Environment]::GetEnvironmentVariable('Path','User'), 'User')"
     }
 
-    # Fail closed: a binary that cannot execute (wrong architecture, a corrupt
-    # download, a blocked file) is a broken install, not a success.
     & $target --version
     if ($LASTEXITCODE -ne 0) {
         Die "installed binary at $target failed to run — the install is broken (wrong architecture or a corrupt download)."

@@ -195,6 +195,9 @@ jobs:
           $env:AGENT_APROPOS_BIN_DIR = Join-Path $work 'bin'
           & $local
           & (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe') --version
+          if (Test-Path (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe.new')) {
+            throw "install.ps1 left its staging file behind"
+          }
 
       - name: install.ps1 refuses a binary whose checksum does not match
         shell: pwsh
@@ -217,6 +220,41 @@ jobs:
           Write-Host "refused, as it should: exit $LASTEXITCODE"
           # The step would otherwise inherit install.ps1's non-zero exit, which
           # is the outcome this step is asserting rather than a failure.
+          exit 0
+
+      # Fail-closed: a binary that cannot execute must leave any working
+      # installation exactly as it was, rather than replacing it with the broken
+      # download. A zero-byte .exe is the cheapest thing that passes the
+      # checksum gate and still cannot run.
+      - name: install.ps1 keeps a working install when the download cannot run
+        shell: pwsh
+        run: |
+          $work = Join-Path $env:RUNNER_TEMP 'installer-unrunnable'
+          $serve = Join-Path $work 'serve/NEXL-LTS/agent-apropos/releases/latest/download'
+          New-Item -ItemType Directory -Force -Path $serve | Out-Null
+          $broken = Join-Path $serve $env:ASSET
+          New-Item -ItemType File -Force -Path $broken | Out-Null
+          $hash = (Get-FileHash -Algorithm SHA256 $broken).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText("$serve/$env:ASSET.sha256", "$hash  $env:ASSET`n")
+
+          # A working install already in place, which must survive.
+          $binDir = Join-Path $work 'bin'
+          New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+          Copy-Item $env:ASSET (Join-Path $binDir 'agent-apropos.exe')
+
+          $local = Join-Path $work 'install.ps1'
+          (Get-Content install.ps1 -Raw).Replace(
+            'https://github.com', 'file:///' + ($work -replace '\\','/') + '/serve') |
+            Set-Content -Path $local
+          $env:AGENT_APROPOS_BIN_DIR = $binDir
+          & $local
+          if ($LASTEXITCODE -eq 0) { throw "install.ps1 accepted a binary that cannot run" }
+          if (Test-Path (Join-Path $binDir 'agent-apropos.exe.new')) {
+            throw "install.ps1 left its staging file behind"
+          }
+          & (Join-Path $binDir 'agent-apropos.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 clobbered the working installation" }
+          Write-Host "refused, and the existing install still runs"
           exit 0
 
       # The version override has to resolve a tagged path rather than

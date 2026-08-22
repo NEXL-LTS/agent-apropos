@@ -31,7 +31,7 @@ private class ExplodingFS < AgentApropos::Filesystem
   getter removed = [] of String
 
   def initialize(@write_raises : Bool = false, @raise_reads : Bool = true,
-                 @entries = [] of String)
+                 @entries = [] of String, @remove_raises : Bool = false)
   end
 
   def glob(base : Path, pattern : String) : Array(String)
@@ -55,6 +55,7 @@ private class ExplodingFS < AgentApropos::Filesystem
   end
 
   def remove(path : String) : Nil
+    raise "prune boom" if @remove_raises
     @removed << path
   end
 
@@ -296,9 +297,7 @@ describe AgentApropos::Hook do
       fs = ExplodingFS.new(entries: entries)
       invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
 
-      # The newest LOG_MAX_FILES - 1 survive, leaving room for the entry this
-      # invocation is about to write.
-      fs.removed.size.should eq(6)
+      fs.removed.size.should eq(5)
       fs.removed.should_not contain(entries.first)
       fs.removed.should contain(entries.last)
     end
@@ -314,6 +313,17 @@ describe AgentApropos::Hook do
       fs = ExplodingFS.new(entries: [stale])
       invoke(:pre, pre_json("src/app.cr"), fs)
       fs.removed.should be_empty
+    end
+
+    it "still writes the diagnostic when pruning the log directory fails" do
+      stale = "#{REPO}/.cache/agent-apropos/logs/#{(NOW - 8.days).to_unix}-aaaaaa.log"
+      fs = ExplodingFS.new(entries: [stale], remove_raises: true)
+      code, stdout = invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
+
+      code.should eq(0)
+      stdout.should be_empty
+      fs.written.size.should eq(1)
+      fs.written.first.last.should contain("agent-apropos hook:")
     end
 
     it "swallows a logging failure (best-effort log)" do

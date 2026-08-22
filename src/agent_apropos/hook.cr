@@ -225,7 +225,12 @@ module AgentApropos
                             now : Time, ex : Exception) : Nil
       return unless verbose
       log_dir = (override_root ? Path[override_root] : Path[Dir.current]).join(LOG_RELATIVE)
+      write_log(fs, log_dir, now, ex)
       prune_logs(fs, log_dir, now)
+    rescue
+    end
+
+    private def write_log(fs : Filesystem, log_dir : Path, now : Time, ex : Exception) : Nil
       fs.write(log_dir.join(log_name(now)).to_s, "agent-apropos hook: #{ex.message}\n")
     rescue
     end
@@ -240,11 +245,12 @@ module AgentApropos
         stamp = Path[file].basename(".log").partition('-').first.to_i64?
         {stamp, file} if stamp
       end
-      keep = dated.sort_by! { |stamp, _| -stamp }.first(LOG_MAX_FILES - 1).to_set
+      keep = dated.sort_by! { |stamp, _| -stamp }.first(LOG_MAX_FILES).to_set
       dated.each do |entry|
         stamp, file = entry
         fs.remove(file) if stamp < cutoff || !keep.includes?(entry)
       end
+    rescue
     end
   end
 end
