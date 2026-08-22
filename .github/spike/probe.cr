@@ -69,4 +69,31 @@ rescue ex
   "#{ex.class}: #{ex.message}"
 end
 
+# The exact chain Conventions.walk and Hook.relativize run against an
+# in-memory root, which is where the remaining Windows spec failures live.
+puts
+puts "-- in-memory root chain (root is Path[\"/repo\"]) --"
+root = Path["/repo"]
+probe("root.absolute?") { root.absolute? }
+probe("conventions base") { root.join("docs/conventions").to_s }
+probe("glob pattern (to_posix)") { root.join("docs/conventions").join("**/*.md").to_posix.to_s }
+probe("File.match? doc key") do
+  File.match?(root.join("docs/conventions").join("**/*.md").to_posix.to_s,
+    "/repo/docs/conventions/a.md")
+end
+probe("within_repo? relative") do
+  root.join("docs/conventions").normalize.relative_to(root.normalize).to_posix.to_s
+end
+probe("relativize(\"src/app.cr\")") do
+  path = Path["src/app.cr"]
+  absolute = path.absolute? ? path : root.join(path)
+  absolute.expand.relative_to(root).to_posix.to_s
+end
+probe("relativize(\"/repo/src/app.cr\")") do
+  path = Path["/repo/src/app.cr"]
+  absolute = path.absolute? ? path : root.join(path)
+  absolute.expand.relative_to(root).to_posix.to_s
+end
+probe("Dir.current") { Dir.current }
+
 FileUtils.rm_rf(dir)
