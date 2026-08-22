@@ -14,13 +14,9 @@ class InMemoryFS < AgentApropos::Filesystem
   getter symlinks : Hash(String, String)
 
   def initialize(files = {} of String => String)
-    @files = files.transform_keys { |path| InMemoryFS.key(path) }
+    @files = files.transform_keys { |path| SpecPaths.key(path) }
     @removed = [] of String
     @symlinks = {} of String => String
-  end
-
-  def self.key(path : String) : String
-    Path[path].to_posix.to_s
   end
 
   def glob(base : Path, pattern : String) : Array(String)
@@ -29,30 +25,30 @@ class InMemoryFS < AgentApropos::Filesystem
   end
 
   def read(path : String) : String
-    @files[InMemoryFS.key(path)]
+    @files[SpecPaths.key(path)]
   end
 
   def read?(path : String) : String?
-    @files[InMemoryFS.key(path)]?
+    @files[SpecPaths.key(path)]?
   end
 
   def write(path : String, content : String) : Nil
-    @files[InMemoryFS.key(path)] = content
+    @files[SpecPaths.key(path)] = content
   end
 
   def remove(path : String) : Nil
-    key = InMemoryFS.key(path)
+    key = SpecPaths.key(path)
     @removed << key
     @files.reject! { |existing, _| existing == key || existing.starts_with?("#{key}/") }
   end
 
   def exists?(path : String) : Bool
-    key = InMemoryFS.key(path)
+    key = SpecPaths.key(path)
     @files.has_key?(key) || @symlinks.has_key?(key) ||
       @files.each_key.any?(&.starts_with?("#{key}/"))
   end
 
   def symlink(target : String, link_path : String) : Nil
-    @symlinks[InMemoryFS.key(link_path)] = target
+    @symlinks[SpecPaths.key(link_path)] = target
   end
 end

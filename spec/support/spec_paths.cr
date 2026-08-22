@@ -17,4 +17,11 @@ module SpecPaths
   def absolute(*parts : String) : String
     ANCHOR.join(*parts).to_posix.to_s
   end
+
+  # The POSIX form of a path an in-memory `Filesystem` double was handed. The
+  # code under test builds paths with `Path#join`, which inserts the host's own
+  # separator, so a double that keys on the raw string finds nothing on Windows.
+  def key(path : String) : String
+    Path[path].to_posix.to_s
+  end
 end

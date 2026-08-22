@@ -53,8 +53,7 @@ $binDir = Get-Setting 'AGENT_APROPOS_BIN_DIR' (Join-Path $env:LOCALAPPDATA 'agen
 # --- Platform gate -----------------------------------------------------------
 # Windows ships a fully static x86_64 .exe. arm64 is deferred behind it, so an
 # arm64 host is told to build rather than handed an x86_64 binary.
-$architecture = @($env:PROCESSOR_ARCHITECTURE, $env:PROCESSOR_ARCHITEW6432) -contains 'AMD64'
-if (-not $architecture) {
+if (-not (@($env:PROCESSOR_ARCHITECTURE, $env:PROCESSOR_ARCHITEW6432) -contains 'AMD64')) {
     Die "unsupported architecture '$env:PROCESSOR_ARCHITECTURE'; Windows ships x86_64 only (build from source: crystal build --release --static src/agent_apropos.cr)."
 }
 $asset = 'agent-apropos-windows-x86_64.exe'
