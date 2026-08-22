@@ -111,12 +111,25 @@ hooks-spec: ## Run the bats tests for .claude/hooks/
 # suites above: offline and credential-free, so it belongs in `check`. The
 # network-dependent half of the installer is covered by the release workflow's
 # self-test against a freshly built artifact.
+#
+# Named per suite rather than `bats tests`, so tests/ can hold more than one.
 .PHONY: installer-spec
 installer-spec: ## Run the bats tests for install.sh
-	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats tests
+	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats tests/install_sh.bats
+
+.PHONY: plans-spec
+plans-spec: ## Run the bats tests for scripts/check-plans-empty.sh
+	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats tests/check_plans_empty.bats
+
+# Gate on docs/plans/ holding no committed plan: a plan is deleted in the PR
+# that implements it. Only tracked files count, so writing a plan doesn't fail
+# the local gate while you're still writing it.
+.PHONY: plans-check
+plans-check: ## Fail if any plan doc is committed under docs/plans/
+	./scripts/check-plans-empty.sh
 
 .PHONY: check
-check: lint spec dup devcontainer-spec hooks-spec installer-spec ## Lint + spec + duplication + devcontainer + hook + installer checks (the fast local gate)
+check: lint spec dup devcontainer-spec hooks-spec installer-spec plans-spec plans-check ## Lint + spec + duplication + devcontainer + hook + installer + plans checks (the fast local gate)
 
 # End-to-end test: stands up a sample repo wired with agent-apropos's hooks and
 # proves agent-apropos injects conventions and steers a real `claude` run. Local/advisory —
