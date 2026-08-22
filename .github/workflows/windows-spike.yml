@@ -91,7 +91,9 @@ jobs:
           '{"session_id":"s","tool_name":"Edit","cwd":"' + ($PWD -replace '\\','/') + '","tool_input":{"file_path":"src/app.cr"}}' `
             | agent-apropos hook pre
           Write-Host "== git bash, bare name"
-          & "C:\Program Files\Git\bin\bash.exe" -lc "export PATH=\"$($PWD -replace '\\','/')/bin:\$PATH\"; agent-apropos --version"
+          $posix = ($PWD.Path -replace '\\','/') + "/bin"
+          $env:APROPOS_BIN = $posix
+          & "C:\Program Files\Git\bin\bash.exe" -c 'PATH="$APROPOS_BIN:$PATH" agent-apropos --version'
 
       # KTD8: OpenCode's generated plugin spawns an argument array from Bun
       # rather than a shell command, so PATHEXT resolution is not inherited.
