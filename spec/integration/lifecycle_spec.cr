@@ -11,6 +11,31 @@ private def run_agent_apropos(binary : String, args : Array(String)) : {Int32, S
   {status.exit_code, stdout.to_s}
 end
 
+# The wiring `init` writes is only useful if the binary actually accepts the
+# argument vector it names. Harvest the emitted commands and run each one as a
+# real subprocess rather than string-comparing them.
+private HOOK_COMMAND = /agent-apropos hook [a-z]+[^"]*/
+
+private def emitted_hook_commands(config : String) : Array(String)
+  config.scan(HOOK_COMMAND).map(&.[0].strip).uniq!.sort!
+end
+
+private def round_trip(binary : String, argv : Array(String), dir : String,
+                       session : String, tool_name : String) : {Int32, String}
+  payload = {session_id: session, tool_name: tool_name, cwd: Path[dir].to_posix.to_s,
+             tool_input: {file_path: Path[dir, "app/jobs/m.cr"].to_posix.to_s}}.to_json
+  stdout = IO::Memory.new
+  status = Process.run(binary, argv + ["--repo-root", dir],
+    input: IO::Memory.new(payload), output: stdout, error: stdout)
+  {status.exit_code, stdout.to_s}
+end
+
+private def wiring_repo(dir : String) : Nil
+  Dir.mkdir_p(File.join(dir, "docs/conventions"))
+  File.write(File.join(dir, "docs/conventions/jobs.md"),
+    "---\npaths: [\"app/jobs/**\"]\n---\n# Jobs\n\nKeep jobs idempotent.\n")
+end
+
 describe "agent-apropos init/lint/doctor/help (binary)" do
   binary = File.join(Dir.tempdir, "agent-apropos-lifecycle-#{Process.pid}")
 
@@ -148,6 +173,71 @@ describe "agent-apropos init/lint/doctor/help (binary)" do
       stdout.should contain("What agent-apropos is")
     ensure
       FileUtils.rm_rf(dir)
+    end
+  end
+
+  describe "emitted hook wiring resolves the binary" do
+    {
+      "claude"  => ".claude/settings.json",
+      "gemini"  => ".gemini/settings.json",
+      "copilot" => ".github/hooks/agent-apropos.json",
+      "codex"   => ".codex/hooks.json",
+    }.each do |tool, config|
+      it "runs every hook command #{tool}'s wiring names, and each injects" do
+        dir = File.tempname("agent-apropos-wiring-#{tool}")
+        begin
+          wiring_repo(dir)
+          run_agent_apropos(binary, ["init", "--tool", tool, "--repo-root", dir])[0].should eq(0)
+
+          commands = emitted_hook_commands(File.read(File.join(dir, config)))
+          commands.size.should be >= 2
+
+          commands.each_with_index do |command, index|
+            argv = command.split(' ')
+            argv.shift.should eq("agent-apropos")
+            code, stdout = round_trip(binary, argv, dir, "wiring-#{tool}-#{index}", "Edit")
+            code.should eq(0)
+            stdout.should contain("Keep jobs idempotent.")
+          end
+        ensure
+          FileUtils.rm_rf(dir)
+        end
+      end
+    end
+
+    # OpenCode spawns an argument array from JavaScript rather than emitting a
+    # shell command, so its resolution path is independent of PATHEXT and is
+    # checked against the reconstructed vector rather than a harvested string.
+    it "runs the argument vector the OpenCode plugin spawns, and each injects" do
+      dir = File.tempname("agent-apropos-wiring-opencode")
+      begin
+        wiring_repo(dir)
+        run_agent_apropos(binary, ["init", "--tool", "opencode", "--repo-root", dir])[0].should eq(0)
+
+        plugin = File.read(File.join(dir, ".opencode/plugins/agent-apropos.js"))
+        plugin.should contain(%q{Bun.spawn(["agent-apropos", "hook", sub, "--tool", "opencode"]})
+
+        ["pre", "post"].each do |sub|
+          code, stdout = round_trip(binary, ["hook", sub, "--tool", "opencode"],
+            dir, "wiring-opencode-#{sub}", "write")
+          code.should eq(0)
+          stdout.should contain("Keep jobs idempotent.")
+        end
+      ensure
+        FileUtils.rm_rf(dir)
+      end
+    end
+
+    it "exits zero and injects no convention when the wired repo has none to inject" do
+      dir = File.tempname("agent-apropos-wiring-bare")
+      begin
+        Dir.mkdir_p(dir)
+        code, stdout = round_trip(binary, ["hook", "pre"], dir, "wiring-bare", "Edit")
+        code.should eq(0)
+        stdout.should_not contain("Convention (")
+      ensure
+        FileUtils.rm_rf(dir)
+      end
     end
   end
 end
