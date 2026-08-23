@@ -99,5 +99,97 @@ describe AgentApropos::Matcher do
     it "is false for a malformed glob (unterminated character set)" do
       AgentApropos::Matcher.valid_glob?("src/[").should be_false
     end
+
+    # The verdict must not depend on where matching stopped. "![" used to pass
+    # because `!` is a literal that mismatched the substituted sample on the
+    # first character, so the parser returned before it ever reached the `[`.
+    it "gives the same verdict to an unterminated bracket whatever precedes it" do
+      AgentApropos::Matcher.valid_glob?("![").should eq(AgentApropos::Matcher.valid_glob?("[abc"))
+      AgentApropos::Matcher.valid_glob?("![").should be_false
+    end
+
+    it "is false for an unterminated bracket behind any leading literal" do
+      ["!", "^", "-", ",", "}"].each do |lead|
+        AgentApropos::Matcher.valid_glob?("#{lead}[").should be_false
+      end
+    end
+
+    it "is false for a character set that only looks closed" do
+      AgentApropos::Matcher.valid_glob?("[]").should be_false
+      AgentApropos::Matcher.valid_glob?("[[").should be_false
+      AgentApropos::Matcher.valid_glob?("[a\\]").should be_false
+    end
+
+    it "is false for a trailing backslash with nothing to escape" do
+      AgentApropos::Matcher.valid_glob?("a\\").should be_false
+      AgentApropos::Matcher.valid_glob?("\\").should be_false
+    end
+
+    it "keeps a negated character class valid" do
+      AgentApropos::Matcher.valid_glob?("[!a]").should be_true
+      AgentApropos::Matcher.valid_glob?("[^a-z]").should be_true
+    end
+
+    it "keeps the globs this repo's own conventions declare valid" do
+      ["src/**", "**/*.cr", "docs/**/*.md", "[a-z]*.cr", "spec/**", "app/jobs/**",
+       "{a,b}", "a{b,c}d", "\\[literal]", "[]]", "[a\\]b]", "[-a]", "[a-]"].each do |pattern|
+        AgentApropos::Matcher.valid_glob?(pattern).should be_true
+      end
+    end
+
+    it "is false once brace nesting passes the depth the matcher supports" do
+      AgentApropos::Matcher.valid_glob?("{" * 10 + "a" + "}" * 10).should be_true
+      AgentApropos::Matcher.valid_glob?("{" * 11 + "a" + "}" * 11).should be_false
+    end
+
+    # The verdict is a claim about the pattern, so it must not turn on where
+    # some path happened to stop matching it. Two properties over a
+    # brute-forced pattern space say that: a pattern the matcher can be shown
+    # to reject is always invalid, and a leading run of literals never changes
+    # the answer — which is exactly what "![" got wrong.
+    describe "over a brute-forced pattern space" do
+      alphabet = ["a", "*", "?", "[", "]", "!", "^", "-", "\\", "{", "}", ",", "/"]
+      patterns = alphabet.dup
+      2.times do
+        patterns += patterns.flat_map { |prefix| alphabet.map { |letter| "#{prefix}#{letter}" } }
+      end
+      patterns.uniq!
+
+      path_alphabet = ["a", "z", "[", "]", "!", "^", "-", "{", "}", ",", "/", "."]
+      paths = path_alphabet + path_alphabet.flat_map { |head| path_alphabet.map { |tail| "#{head}#{tail}" } }
+
+      it "rejects every pattern File.match? can be shown to reject" do
+        rejected = 0
+
+        patterns.each do |pattern|
+          raised = paths.any? do |path|
+            begin
+              File.match?(pattern, path)
+              false
+            rescue File::BadPatternError
+              true
+            end
+          end
+          next unless raised
+
+          rejected += 1
+          AgentApropos::Matcher.valid_glob?(pattern)
+            .should be_false, "valid_glob?(#{pattern.inspect}) accepted a pattern File.match? rejects"
+        end
+
+        rejected.should be > 100
+      end
+
+      it "gives the same verdict however many literals lead the pattern" do
+        patterns.each do |pattern|
+          verdict = AgentApropos::Matcher.valid_glob?(pattern)
+
+          ["a", "z", "!", "^", "-", ",", "}", "/", "."].each do |lead|
+            AgentApropos::Matcher.valid_glob?("#{lead}#{pattern}")
+              .should eq(verdict), "a leading #{lead.inspect} changed the verdict for #{pattern.inspect}"
+          end
+        end
+      end
+    end
   end
 end
