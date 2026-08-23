@@ -1,0 +1,281 @@
+# Crystal mutation operators for universalmutator's regex generator.
+#
+# This file is a TRANSLITERATION, not a design. Every operator class below is
+# carried over from a rules file universalmutator ships; the Crystal column is
+# only a change of syntax. That is deliberate: a 100% mutation score against
+# operators we invented ourselves would attest to less, because the same blind
+# spot that shaped the code would have shaped the operators. Adding or removing
+# an operator class is therefore a reviewed change, not an implementation
+# choice — and every shipped rules file is accounted for below, either by a
+# SOURCE block that carries it across or by one that records why Crystal has no
+# counterpart. `tests/mutate_rules.bats` enforces that accounting.
+#
+# Format: `<python regex>`, then a literal arrow, then `<replacement>`,
+# applied line by line. Two
+# replacements are sentinels: DO_NOT_MUTATE skips the whole line, and
+# SKIP_MUTATING_REST skips from the match position to end of line.
+#
+# The runner (scripts/mutate.sh) passes this file with `--only`, so these rules
+# are the entire operator set — universal.rules is NOT also loaded.
+
+DO_NOT_MUTATE ==> DO_NOT_MUTATE
+
+# SOURCE: c_like.rules, java.rules, python.rules, r.rules, solidity.rules
+# Lines that carry no behaviour. `#include`/`import` become `require`; the
+# `//` and `#` comment skips become Crystal's `#`, with a lookahead so string
+# interpolation (`#{...}`) is not mistaken for a comment. Decorator/annotation
+# lines (java's `@.+`) are Crystal's `@[Annotation]`.
+(^\s*require\s) ==> DO_NOT_MUTATE
+(^\s*#) ==> DO_NOT_MUTATE
+(^\s*@\[) ==> DO_NOT_MUTATE
+#(?!\{) ==> SKIP_MUTATING_REST
+
+# SOURCE: universal.rules — arithmetic operator replacement.
+# Crystal adds `//` (floor division) and `**` (exponent) to the C set; both are
+# folded in here rather than given a class of their own, since fortran.rules
+# already ships `**` as an arithmetic operator.
+\+ ==> -
+\+ ==> *
+\+ ==> /
+\+ ==> %
+\+ ==> **
+-([^>]) ==> +\1
+-([^>]) ==> *\1
+-([^>]) ==> /\1
+-([^>]) ==> %\1
+-([^>]) ==> **\1
+\*\* ==> +
+\*\* ==> -
+\*\* ==> *
+\*\* ==> /
+([^\*])\*([^\*]) ==> \1+\2
+([^\*])\*([^\*]) ==> \1-\2
+([^\*])\*([^\*]) ==> \1/\2
+([^\*])\*([^\*]) ==> \1%\2
+([^\*/])/([^\*/]) ==> \1+\2
+([^\*/])/([^\*/]) ==> \1-\2
+([^\*/])/([^\*/]) ==> \1*\2
+([^\*/])/([^\*/]) ==> \1%\2
+([^\*/])/([^\*/]) ==> \1//\2
+// ==> /
+% ==> +
+% ==> -
+% ==> *
+% ==> /
+
+# SOURCE: universal.rules — unary-minus deletion. The `[^>]` guard keeps `->`
+# (a proc literal in Crystal, as it is an arrow elsewhere) intact.
+-([^>]) ==> \1
+
+# SOURCE: universal.rules — assignment-operator replacement. `x += 1` becoming
+# `x =+ 1` is `x = +1`: the accumulate is dropped but the line still parses,
+# because Crystal has unary `+` and `-` like C does.
+\+= ==> =+
+-= ==> =-
+
+# SOURCE: universal.rules — increment/decrement swap (`++`/`--`).
+# NO CRYSTAL COUNTERPART: Crystal has no increment or decrement operator; `x++`
+# is a parse error, so every mutant this class could produce is uncompilable.
+
+# SOURCE: universal.rules — relational operator replacement. The guards are
+# wider than the shipped ones because Crystal spells more things with angle
+# brackets: `=>` (hash and rescue), `->` (proc), `<<` and `>>` (shift and
+# heredoc), `<=>` (comparison), and `class Foo < Bar` (inheritance).
+!= ==> ==
+!= ==> <=
+!= ==> >=
+!= ==> >
+!= ==> <
+([^!<>=])==([^=]) ==> \1!=\2
+([^!<>=])==([^=]) ==> \1<=\2
+([^!<>=])==([^=]) ==> \1>=\2
+([^!<>=])==([^=]) ==> \1>\2
+([^!<>=])==([^=]) ==> \1<\2
+([^<])>=([^=]) ==> \1==\2
+([^<])>=([^=]) ==> \1!=\2
+([^<])>=([^=]) ==> \1<\2
+([^<])>=([^=]) ==> \1>\2
+<=([^>]) ==> ==\1
+<=([^>]) ==> !=\1
+<=([^>]) ==> <\1
+<=([^>]) ==> >\1
+([^<=])<([^<=]) ==> \1>\2
+([^<=])<([^<=]) ==> \1==\2
+([^<=])<([^<=]) ==> \1<=\2
+([^<=])<([^<=]) ==> \1>=\2
+([^<=])<([^<=]) ==> \1!=\2
+([^-=<>])>([^=>]) ==> \1<\2
+([^-=<>])>([^=>]) ==> \1==\2
+([^-=<>])>([^=>]) ==> \1>=\2
+([^-=<>])>([^=>]) ==> \1<=\2
+([^-=<>])>([^=>]) ==> \1!=\2
+
+# SOURCE: javascript.rules — strict-equality swap (`===` to `!==`).
+# Crystal spells case-equality `===` and has no `!==`, so the counterpart is a
+# demotion to `==`, which is what `!==` is in a language that lacks it.
+=== ==> ==
+
+# SOURCE: universal.rules — numeric literal replacement.
+(\D)(\d+)(\D) ==> \g<1>0\3
+(\D)(\d+)(\D) ==> \g<1>1\3
+(\D)(\d+)(\D) ==> \g<1>-1\3
+(\D)(\d+)(\D) ==> \1(\2+1)\3
+(\D)(\d+)(\D) ==> \1(\2-1)\3
+
+# SOURCE: universal.rules, lisp.rules, python.rules — logical operator
+# replacement and negation deletion. Crystal has no `and`/`or` keyword forms,
+# so lisp's and python's word operators collapse onto the symbol forms.
+&& ==> ||
+\|\| ==> &&
+! ==>
+
+# SOURCE: universal.rules — bitwise operator replacement.
+([^&])&([^&]) ==> \1|\2
+([^|])\|([^|]) ==> \1&\2
+
+# SOURCE: go.rules, java.rules, javascript.rules, swift.rules — short-circuit
+# operand forcing. Identical in Crystal; `true`/`false` are spelled the same.
+&& .* ==> && true
+\|\| .* ==> || false
+^(\s*).* && ==> \1true &&
+^(\s*).* \|\| ==> \1false ||
+
+# SOURCE: rust.rules, swift.rules, python.rules, lisp.rules — boolean literal
+# swap. lisp's `T`/`nil` pair is the same class in a language with `true`.
+true ==> false
+false ==> true
+
+# SOURCE: c_like.rules, python.rules, solidity.rules — conditional negation and
+# forcing. Crystal has no parentheses around a condition and adds the inverted
+# keywords `unless` and `until`, so each shipped form gets a keyword-led
+# Crystal counterpart covering both the block and the modifier position.
+(^\s*)if (.+)\n ==> \1if !(\2)\n
+(^\s*)if (.+)\n ==> \1if true\n
+(^\s*)if (.+)\n ==> \1if false\n
+(^\s*)unless (.+)\n ==> \1unless !(\2)\n
+(^\s*)unless (.+)\n ==> \1unless true\n
+(^\s*)unless (.+)\n ==> \1unless false\n
+(^\s*)while (.+)\n ==> \1while !(\2)\n
+(^\s*)until (.+)\n ==> \1until !(\2)\n
+\bif (.+)\n ==> if !(\1)\n
+\bunless (.+)\n ==> unless !(\1)\n
+\bif ==> unless
+\bunless ==> if
+\bwhile ==> until
+\buntil ==> while
+
+# SOURCE: universal.rules — loop-to-conditional weakening (`while` to `if`).
+\bwhile ==> if
+\buntil ==> if
+
+# SOURCE: c_like.rules — `else` deletion, which folds the alternative branch
+# into the consequent.
+(^\s*)else\n ==> \1
+(^\s*)else$ ==> \1
+
+# SOURCE: universal.rules — loop-control statement insertion. C's `break;` and
+# `continue;` lose the semicolon, and `continue` is spelled `next`.
+(^\s*)(\S+.*)\n ==> \1\2\n\1break\n
+(^\s*)(\S+.*)\n ==> \1\2\n\1next\n
+
+# SOURCE: python.rules — `continue`/`break` swap.
+\bcontinue\b ==> break
+\bbreak\b ==> next
+\bnext\b ==> break
+
+# SOURCE: python.rules, c_like.rules — statement deletion. python replaces the
+# line with `pass`; c_like comments it out. Crystal has no `pass`, so the
+# comment form is the one that carries over. The lookahead excludes lines that
+# open or close a block: deleting one of those can only ever be a parse error,
+# and each rejected mutant costs a compile.
+(^\s*)(?!(?:end|else|elsif|when|in|rescue|ensure|begin|module|class|struct|enum|def|macro|lib|union|annotation|abstract|private|protected|case|loop)\b)(?!.*\bdo\b\s*(?:\|[^|]*\|)?\s*$)(?!.*\bthen$)(\S.*)\n ==> \1# \2\n
+
+# SOURCE: python.rules — `return` value replacement. python returns `None`;
+# Crystal returns `nil`. Paired with statement deletion above, this is what
+# strips an early-return guard.
+(^\s*)return\b.*\n ==> \1return nil\n
+
+# SOURCE: universal.rules — string literal emptying.
+".+" ==> ""
+
+# SOURCE: python.rules, swift.rules — collection literal emptying and element
+# dropping, for `[...]` only.
+\[.+\] ==> [] of typeof(nil)
+\[.*, ==> [
+,.*\] ==> ]
+,.+, ==> ,
+
+# SOURCE: python.rules, swift.rules — `{...}` collection emptying.
+# NO CRYSTAL COUNTERPART: `{}` is not an empty Hash or Tuple in Crystal (`{} of
+# K => V` is required), and `{...}` is also the short block form, so the shipped
+# regexes would mostly rewrite blocks into parse errors rather than into empty
+# collections.
+
+# SOURCE: python.rules — single-quoted string emptying (`'.+'` to `''`).
+# NO CRYSTAL COUNTERPART: `'x'` is a Char literal in Crystal and `''` is a parse
+# error, so this class has no compilable Crystal form.
+
+# SOURCE: universal.rules — argument order swapping.
+([,\(\[\{])([^=,\)\}\]]+),([^=,\)\}\]]+)([,\)\]\}]) ==>  \1\3,\2\4
+([,\(\[\{])([^,=\)\]\}]+)=([^,=\)\]\}]+),([^,=\)\]\}]+)=([^,=\)\]\}]+)([,\)\]\}]) ==> \1\4=\3,\2=\5\6
+([,\(\[\{])([^,:\)\]\}]+): ([^,\)\]\}]+),([^,:\)\]\}]+): ([^,\)\]\}]+)([,\)\]\}]) ==> \1\4: \3,\2: \5\6
+
+# SOURCE: cpp.rules — library-call substitution: swapping a call for its
+# nearest neighbour in the same family. Crystal's Enumerable spells the same
+# families with `?`-suffixed predicates and `_by` selectors.
+\bany\? ==> all?
+\bany\? ==> none?
+\ball\? ==> any?
+\ball\? ==> none?
+\bnone\? ==> any?
+\bnone\? ==> all?
+\bmin_by\b ==> max_by
+\bmax_by\b ==> min_by
+\bunshift\b ==> push
+\bpush\b ==> unshift
+\bsum\b ==> product
+\bproduct\b ==> sum
+\.at\(.*\) ==> .at(0)
+
+# SOURCE: universal.rules — `min`/`max` swap.
+\bmin\b ==> max
+\bmax\b ==> min
+
+# SOURCE: universal.rules — `begin`/`end` swap.
+# NO CRYSTAL COUNTERPART: `begin` and `end` delimit blocks in Crystal rather
+# than naming positions the way the shipped rule's C-family targets use them.
+# Swapping them can only unbalance the parse, never produce a program that
+# compiles and behaves differently, so the class would spend one compile per
+# line of every file for no reachable mutant.
+
+# SOURCE: java.rules — `synchronized` removal.
+# NO CRYSTAL COUNTERPART: Crystal has no `synchronized` keyword; mutual
+# exclusion is a library type (`Mutex`), not a modifier on a declaration.
+
+# SOURCE: go.rules — `defer` removal.
+# NO CRYSTAL COUNTERPART: Crystal has no `defer`; the equivalent is an
+# `ensure` block, which the statement-deletion class above already reaches.
+
+# SOURCE: swift.rules — `var` to `let`.
+# NO CRYSTAL COUNTERPART: Crystal has no mutability keyword on a local binding.
+
+# SOURCE: solidity.rules, vyper.rules, fe.rules, tact.rules, func.rules,
+# tolk.rules, ton_common.rules — contract-language operators (visibility and
+# mutability modifiers, `msg.sender`/`tx.origin`, ether and time units,
+# storage classes, `selfdestruct`/`revert` insertion).
+# NO CRYSTAL COUNTERPART: these name constructs of the EVM and TON contract
+# languages that have no general-purpose Crystal equivalent.
+
+# SOURCE: fortran.rules — `.lt.`/`.LT.` style relational and logical operators.
+# NO CRYSTAL COUNTERPART: this is fortran's spelling of the relational and
+# logical classes already carried above in their symbol form.
+
+# SOURCE: lisp.rules — `T`/`nil` swap and word-form `and`/`or`/`not`.
+# NO CRYSTAL COUNTERPART BEYOND THE ABOVE: carried by the boolean-literal and
+# logical-operator classes; Crystal has no word-form logical operators.
+
+# SOURCE: r.rules — `#` comment skip. Carried in the DO_NOT_MUTATE block above.
+
+# SOURCE: c.rules, none.rules, vyper.rules, fe.rules — all four ship empty.
+# `vyper` and `fe` compose python.rules and solidity.rules instead of adding
+# operators of their own, and both of those are accounted for above.
