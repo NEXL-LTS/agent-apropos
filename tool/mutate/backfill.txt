@@ -23,10 +23,8 @@ src/agent_apropos/version.cr
 src/agent_apropos/repo_root.cr
 src/agent_apropos/environment.cr
 src/agent_apropos/agents.cr
-src/agent_apropos/rendering.cr
 src/agent_apropos/filesystem.cr
 src/agent_apropos/git.cr
-src/agent_apropos/agents/agent.cr
 src/agent_apropos/skills.cr
 src/agent_apropos/config.cr
 src/agent_apropos/conventions.cr

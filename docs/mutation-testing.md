@@ -98,14 +98,25 @@ block, or declined with a `# NO CRYSTAL COUNTERPART` reason. `make
 mutate-rules-spec` enforces that accounting. Adding or removing an operator
 class is a reviewed change.
 
-The stock universal rules produce C-shaped output: on
-`src/agent_apropos/matcher.cr` they generated 145 mutants of which 16 compiled,
-an 11.0% pass rate, so nine mutants in ten were a wasted compile. The Crystal
-rules currently measure **54.5%** on the same module (304 of 558). What still
-holds that number down is loop-control statement insertion: `break` and `next`
-are only legal inside a loop or a block, so the class spends a compile per line
-in straight-line code and yields nothing there. It is carried anyway — the class
-is the engine's, not ours to drop because it is inconvenient on one module.
+Every mutant that fails the compile gate is a compile spent for nothing, so the
+rate that matters is how many generated mutants are Crystal at all. The stock
+rules produce C-shaped output; measured against the same module and the same
+gate the runner uses, the Crystal rules roughly double it:
+
+| Module | Crystal rules | Stock rules |
+|---|---|---|
+| `src/agent_apropos/matcher.cr` | 26% | 13% |
+| `src/agent_apropos/index.cr` | 14% | 10% |
+
+`make mutate-rules-spec` re-measures both sides of the first row on every run,
+so the claim cannot go stale.
+
+What holds the number down is loop-control statement insertion: `break` and
+`next` are legal only inside a loop or a block, so on straight-line code that
+class spends a compile per line and yields nothing — about two in five generated
+mutants. It is carried anyway. The class is the engine's, and dropping an
+operator because it is inconvenient on our code is exactly the self-selection
+the transliteration rule exists to prevent.
 
 ## Backfilling
 

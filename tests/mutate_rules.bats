@@ -22,6 +22,19 @@ setup() {
 
   command -v mutate >/dev/null 2>&1 ||
     fail "the mutation engine is not on PATH; see tool/mutate/requirements.txt"
+
+  # The pass-rate case mutates a real source file in place: the engine swaps
+  # each mutant in, runs the gate, and swaps the original back. A case that ends
+  # between those two steps would leave a mutant in the working tree, so keep
+  # our own copy and put it back whatever happens.
+  SUBJECT="src/agent_apropos/matcher.cr"
+  cp "$ROOT/$SUBJECT" "$BATS_TEST_TMPDIR/subject.bak"
+}
+
+teardown() {
+  if [ -f "$BATS_TEST_TMPDIR/subject.bak" ]; then
+    cp "$BATS_TEST_TMPDIR/subject.bak" "$ROOT/$SUBJECT"
+  fi
 }
 
 # Generate every mutant for $1 (a file written into the fixture dir), with no
@@ -38,6 +51,17 @@ generate() {
 }
 
 mutants() { cat "$OUT"/*.cr; }
+
+# The whole-number percentage of generated mutants that survive the compile
+# gate, for one subject and one gate command. Extra arguments select the rule
+# set; with none, the engine loads its own shipped defaults.
+pass_rate() {
+  local subject="$1" gate="$2"
+  shift 2
+  rm -f "$OUT"/*.cr
+  mutate "$subject" --mutantDir "$OUT" --noFastCheck --cmd "$gate" "$@" |
+    sed -n 's/^Valid Percentage: \([0-9]*\).*/\1/p' | tail -1
+}
 
 @test "every rules line the engine parses is a rule the engine accepts" {
   cat >"$FIXTURE_DIR/plain.cr" <<'CR'
@@ -107,8 +131,8 @@ end
 CR
   generate loopy2.cr
 
-  assert_regex "$(mutants)" '^ *break$'
-  assert_regex "$(mutants)" '^ *next$'
+  grep -qE '^[[:space:]]+break$' "$OUT"/*.cr || fail "no mutant inserted a bare break"
+  grep -qE '^[[:space:]]+next$' "$OUT"/*.cr || fail "no mutant inserted a bare next"
 }
 
 # R2's accounting rule: an operator class is carried across or its absence is
@@ -137,25 +161,26 @@ CR
   [ "$carried" -gt "$declined" ] || fail "expected more carried classes than declined ones"
 }
 
-# The measured compile-gate pass rate. The stock universal rules produce
-# C-shaped output that Crystal mostly rejects — 11.0% valid on this module,
-# 16 of 145. The floor here is the number the Crystal rules actually deliver,
-# with headroom; docs/mutation-testing.md records the current measurement and
-# what still holds it down.
+# The reason the rules file exists: the engine's stock rules are C-shaped, so
+# most of what they generate is not Crystal and dies at the compile gate — every
+# rejected mutant is a compile spent for nothing. Both sides are measured here
+# in the same run, against the same module and the same gate the runner uses
+# (scripts/mutate.sh), so the comparison cannot drift into comparing two
+# different things. docs/mutation-testing.md records the current numbers.
 @test "the Crystal rules beat the stock rules' compile-gate pass rate" {
-  local subject="$ROOT/src/agent_apropos/matcher.cr"
-  local log="$BATS_TEST_TMPDIR/gate.log"
+  local subject="$SUBJECT"
+  local spec_target="spec/agent_apropos/matcher_spec.cr"
+  local gate crystal_rate stock_rate
 
   cd "$ROOT"
-  run mutate "$subject" --only "$RULES" --mutantDir "$OUT" --noFastCheck \
-    --cmd "crystal tool format - < $subject > /dev/null 2>&1 && crystal build --no-codegen $subject > /dev/null 2>&1"
-  assert_success
-  printf '%s\n' "$output" >"$log"
+  gate="crystal tool format - < $subject > /dev/null 2>&1"
+  gate="$gate && crystal build --no-codegen $spec_target > /dev/null 2>&1"
 
-  local percent
-  percent="$(sed -n 's/^Valid Percentage: \([0-9]*\).*/\1/p' "$log" | tail -1)"
-  [ -n "$percent" ] || fail "the engine reported no pass rate: $(tail -5 "$log")"
+  crystal_rate="$(pass_rate "$subject" "$gate" --only "$RULES")"
+  stock_rate="$(pass_rate "$subject" "$gate")"
 
-  echo "compile-gate pass rate: ${percent}% (stock universal rules: 11%)"
-  [ "$percent" -gt 20 ] || fail "pass rate fell to ${percent}%, at or below the 20% floor"
+  echo "compile-gate pass rate: Crystal rules ${crystal_rate}%, stock rules ${stock_rate}%" >&3
+
+  [ "$crystal_rate" -ge $((stock_rate * 3 / 2)) ] ||
+    fail "Crystal rules at ${crystal_rate}% no longer beat stock rules (${stock_rate}%) by half again"
 }

@@ -13,6 +13,16 @@ describe AgentApropos::Rendering do
       AgentApropos::Rendering.context([] of {String, String}).should eq("")
     end
 
+    # The cap is a context budget, so the number that matters is whether a
+    # realistic convention doc still arrives whole. Nine thousand characters is
+    # longer than any doc in docs/conventions/.
+    it "renders a realistic convention doc in full rather than summarizing it" do
+      rendered = AgentApropos::Rendering.context([{"docs/conventions/long.md", "w" * 9_000}])
+
+      rendered.should_not contain("summarized to fit the context budget")
+      rendered.should end_with("w" * 9_000)
+    end
+
     it "labels a document with its path and keeps the body verbatim" do
       AgentApropos::Rendering.context([{"docs/conventions/specs.md", "Write the spec first."}])
         .should eq("Convention (docs/conventions/specs.md):\n\nWrite the spec first.")
@@ -24,9 +34,13 @@ describe AgentApropos::Rendering do
         {"docs/conventions/b.md", "Second rule."},
       ])
 
+      # The separator is spelled out rather than referenced: a reader of the
+      # injected context has only this rule to tell one convention from the
+      # next, so what it looks like is the behaviour, not an implementation
+      # detail that may follow the constant.
       rendered.should eq(
-        "Convention (docs/conventions/a.md):\n\nFirst rule." +
-        AgentApropos::Rendering::SEPARATOR +
+        "Convention (docs/conventions/a.md):\n\nFirst rule." \
+        "\n\n---\n\n" \
         "Convention (docs/conventions/b.md):\n\nSecond rule."
       )
     end
@@ -46,7 +60,12 @@ describe AgentApropos::Rendering do
     it "summarizes to the first paragraph and cites the path once past the cap" do
       rendered = AgentApropos::Rendering.context([{"docs/conventions/big.md", oversized_body}])
 
-      rendered.should start_with("Several conventions matched but were summarized")
+      # The whole sentence, because its second half is the actionable part: it
+      # is what tells the agent the bodies were cut and where to read them.
+      rendered.should start_with(
+        "Several conventions matched but were summarized to fit the context budget; " \
+        "read the cited files for the full text.\n\n"
+      )
       rendered.should contain("Convention (docs/conventions/big.md): intro paragraph")
       rendered.should contain("(Read the full rule in docs/conventions/big.md.)")
       rendered.should_not contain("xxxx")

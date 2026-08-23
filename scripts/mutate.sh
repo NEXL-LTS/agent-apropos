@@ -178,10 +178,14 @@ check_ignore_list() {
   done < <(list_entries "$IGNORE_FILE")
 }
 
-# How many lines of $2 have exactly $1 as their trimmed text.
+# How many lines of $2 have exactly $1 as their trimmed text. The wanted text
+# goes through the environment rather than `awk -v`, which expands backslash
+# escapes in the value it is handed — so a source line containing `\n` would
+# arrive as a real newline and match nothing.
 occurrences_of() {
-  awk -v want="$1" '{ line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line); if (line == want) n++ }
-                    END { print n + 0 }' "$2"
+  WANTED_LINE="$1" awk '{ line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line)
+                          if (line == ENVIRON["WANTED_LINE"]) n++ }
+                        END { print n + 0 }' "$2"
 }
 
 ignored_mutant() {
@@ -287,6 +291,11 @@ restore_sources() {
     if [ -f "$backup" ]; then cp "$backup" "$src"; fi
   done <"$restore_list"
   rm -rf "$workdir"
+  # The engine writes its scratch mutant and its own source backup into the
+  # working tree and does not always clear them, so a run would otherwise leave
+  # untracked files behind for the next `git add` to pick up.
+  rm -f .tmp_mutant.*.cr .um.mutant_output.* src/**/*.um.backup.* 2>/dev/null || true
+  find src -name '*.um.backup.*' -delete 2>/dev/null || true
 }
 trap restore_sources EXIT
 trap 'exit 130' INT

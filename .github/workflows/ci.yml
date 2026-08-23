@@ -277,6 +277,11 @@ jobs:
   mutation:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # A line-scoped run is a couple of minutes. The expensive case is R17's
+    # widening: changing a backfilled module's spec mutates that module in full,
+    # which on a 100-line module is tens of minutes. This bound is a backstop
+    # against a runaway run, not the expected cost.
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:

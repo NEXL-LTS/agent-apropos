@@ -120,9 +120,27 @@ describe AgentApropos::Matcher do
       AgentApropos::Matcher.valid_glob?("[a\\]").should be_false
     end
 
+    # "[]" is not an empty set: the matcher reads that first "]" as the set's
+    # first member, so the set never closes. Behind a literal that stops the
+    # match walk, nothing else is left to notice.
+    it "is false for [] however early the match walk stops" do
+      AgentApropos::Matcher.valid_glob?("\\a[]").should be_false
+      AgentApropos::Matcher.valid_glob?("{[]").should be_false
+      AgentApropos::Matcher.valid_glob?("[]]]").should be_true
+    end
+
     it "is false for a trailing backslash with nothing to escape" do
       AgentApropos::Matcher.valid_glob?("a\\").should be_false
       AgentApropos::Matcher.valid_glob?("\\").should be_false
+    end
+
+    # Well-formedness is the only question this answers. The matcher accepts an
+    # empty pattern (it simply matches nothing), and lint already reports an
+    # empty `paths:` entry through its "matches no tracked file" check, with a
+    # message that says what is actually wrong.
+    it "calls the empty pattern well-formed, leaving lint to reject it as useless" do
+      AgentApropos::Matcher.valid_glob?("").should be_true
+      AgentApropos::Matcher.path_match?("", "anything").should be_false
     end
 
     it "keeps a negated character class valid" do
@@ -150,7 +168,7 @@ describe AgentApropos::Matcher do
     describe "over a brute-forced pattern space" do
       alphabet = ["a", "*", "?", "[", "]", "!", "^", "-", "\\", "{", "}", ",", "/"]
       patterns = alphabet.dup
-      2.times do
+      3.times do
         patterns += patterns.flat_map { |prefix| alphabet.map { |letter| "#{prefix}#{letter}" } }
       end
       patterns.uniq!

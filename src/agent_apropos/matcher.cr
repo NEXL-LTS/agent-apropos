@@ -32,61 +32,21 @@ module AgentApropos
       path_hits = matching_paths(paths, path)
       return nil if path_hits.empty? && !paths.empty?
 
-      return nil if content.nil? && !contents.empty?
       content_hits = content ? matching_contents(contents, content) : [] of String
       return nil if content_hits.empty? && !contents.empty?
 
       path_hits + content_hits
     end
 
-    MAX_BRACE_DEPTH = 10
+    WELL_FORMED_GLOB = /\A(?:[^\[\\]|\\[\s\S]|\[\^?(?:\\[\s\S]|[^\\])(?:\\[\s\S]|[^\]\\])*\])*\z/
 
     def valid_glob?(pattern : String) : Bool
-      chars = pattern.chars
-      index = 0
-      brace_depth = 0
+      return false unless WELL_FORMED_GLOB.matches?(pattern)
 
-      while index < chars.size
-        char = chars[index]
-        brace_depth += 1 if char == '{'
-        brace_depth -= 1 if char == '}' && brace_depth > 0
-        return false if brace_depth > MAX_BRACE_DEPTH
-
-        index = next_index_after(chars, index, char)
-        return false if index > chars.size
-      end
-
+      File.match?(pattern, pattern)
       true
-    end
-
-    private def next_index_after(chars : Array(Char), index : Int32, char : Char) : Int32
-      case char
-      when '\\' then index + 2
-      when '['  then past_character_set(chars, index) || chars.size + 1
-      else           index + 1
-      end
-    end
-
-    private def past_character_set(chars : Array(Char), open : Int32) : Int32?
-      index = open + 1
-      index += 1 if chars[index]? == '^'
-
-      first = true
-      while index < chars.size && (first || chars[index] != ']')
-        index = past_member(chars, index)
-        index = past_member(chars, index + 1) if range_separator?(chars, index)
-        first = false
-      end
-
-      index < chars.size ? index + 1 : nil
-    end
-
-    private def range_separator?(chars : Array(Char), index : Int32) : Bool
-      index + 1 < chars.size && chars[index] == '-' && chars[index + 1] != ']'
-    end
-
-    private def past_member(chars : Array(Char), index : Int32) : Int32
-      chars[index]? == '\\' ? index + 2 : index + 1
+    rescue File::BadPatternError
+      false
     end
 
     def compile(source : String) : Regex
