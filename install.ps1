@@ -129,7 +129,13 @@ try {
     # has run. A binary that cannot execute therefore leaves any working
     # installation exactly as it was, which is what failing closed means here.
     $target = Join-Path $binDir 'agent-apropos.exe'
-    $staged = "$target.new"
+    # The staging name must keep .exe LAST. Given a path whose extension is not
+    # an executable one, PowerShell does not run it as a program and does not
+    # error either — it hands the file to the shell as a document, so nothing
+    # executes, no output appears, and $LASTEXITCODE is never set. The earlier
+    # `$target.new` therefore failed the smoke test below on every platform run,
+    # no matter how sound the binary was.
+    $staged = Join-Path $binDir 'agent-apropos.new.exe'
     try {
         New-Item -ItemType Directory -Force -Path $binDir | Out-Null
         Copy-Item -LiteralPath $downloaded -Destination $staged -Force
@@ -137,15 +143,27 @@ try {
         Die "failed to install to $binDir (set AGENT_APROPOS_BIN_DIR to a writable directory). ($($_.Exception.Message))"
     }
 
+    # Cleared first so "never set" is distinguishable from "set to 0" — that is
+    # the signature of a staged file the shell refused to execute, and reporting
+    # it as an exit code would misdescribe it.
+    $why = $null
+    $global:LASTEXITCODE = $null
     try {
         & $staged --version | Out-Null
-        $ran = ($LASTEXITCODE -eq 0)
+        if ($null -eq $LASTEXITCODE) {
+            $ran = $false
+            $why = "$staged was not executed as a program at all"
+        } else {
+            $ran = ($LASTEXITCODE -eq 0)
+            if (-not $ran) { $why = "exit code $LASTEXITCODE" }
+        }
     } catch {
         $ran = $false
+        $why = $_.Exception.Message
     }
     if (-not $ran) {
         Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
-        Die "the downloaded binary failed to run, so nothing was installed (wrong architecture, a corrupt download, or a blocked file). Any existing $target is untouched."
+        Die "the downloaded binary failed to run, so nothing was installed (wrong architecture, a corrupt download, or a blocked file). Any existing $target is untouched. ($why)"
     }
 
     try {
