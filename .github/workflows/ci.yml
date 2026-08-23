@@ -129,6 +129,34 @@ jobs:
       - name: Smoke test
         run: ./bin/agent-apropos.exe --version
 
+      # install.ps1's happy path was previously exercised only by release.yml's
+      # tagged run, so a staging bug in it could not fail a PR — it failed the
+      # release. Run it here too, against this leg's own build: the script
+      # copies a file:// URI instead of requesting one, so a local directory
+      # stands in for GitHub at the same relative path.
+      - name: Test install.ps1 against this build
+        shell: pwsh
+        run: |
+          $asset = 'agent-apropos-windows-x86_64.exe'
+          $work = Join-Path $env:RUNNER_TEMP 'installer-selftest'
+          $serve = Join-Path $work 'serve/NEXL-LTS/agent-apropos/releases/latest/download'
+          New-Item -ItemType Directory -Force -Path $serve | Out-Null
+          Copy-Item -LiteralPath 'bin/agent-apropos.exe' -Destination (Join-Path $serve $asset) -Force
+          $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $serve $asset)).Hash.ToLowerInvariant()
+          [IO.File]::WriteAllText((Join-Path $serve "$asset.sha256"), "$hash  $asset`n")
+          $local = Join-Path $work 'install.ps1'
+          (Get-Content install.ps1 -Raw).Replace(
+            'https://github.com', 'file:///' + ($work -replace '\\','/') + '/serve') |
+            Set-Content -Path $local
+          $env:AGENT_APROPOS_BIN_DIR = Join-Path $work 'bin'
+          & $local
+          if ($LASTEXITCODE -ne 0) { throw "install.ps1 exited $LASTEXITCODE" }
+          & (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe') --version
+          if ($LASTEXITCODE -ne 0) { throw "installed binary failed to run" }
+          if (Test-Path (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.new.exe')) {
+            throw "install.ps1 left its staging file behind"
+          }
+
       - name: Specs
         run: crystal spec
 

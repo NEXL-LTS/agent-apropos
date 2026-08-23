@@ -195,7 +195,7 @@ jobs:
           $env:AGENT_APROPOS_BIN_DIR = Join-Path $work 'bin'
           & $local
           & (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe') --version
-          if (Test-Path (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe.new')) {
+          if (Test-Path (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.new.exe')) {
             throw "install.ps1 left its staging file behind"
           }
 
@@ -249,7 +249,7 @@ jobs:
           $env:AGENT_APROPOS_BIN_DIR = $binDir
           & $local
           if ($LASTEXITCODE -eq 0) { throw "install.ps1 accepted a binary that cannot run" }
-          if (Test-Path (Join-Path $binDir 'agent-apropos.exe.new')) {
+          if (Test-Path (Join-Path $binDir 'agent-apropos.new.exe')) {
             throw "install.ps1 left its staging file behind"
           }
           & (Join-Path $binDir 'agent-apropos.exe') --version
