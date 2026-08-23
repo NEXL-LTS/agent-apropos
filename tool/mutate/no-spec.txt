@@ -1,0 +1,13 @@
+# Tracked source files with no sibling spec, and why.
+#
+# The gate picks the spec to run from the source path, so that mapping has to be
+# total: `src/a/b.cr` is covered by `spec/a/b_spec.cr`. A file lands here only
+# when it carries no mutable construct — a bare record, an empty subclass — so a
+# sibling spec would assert nothing. Everything else gets the spec (R15, KTD11).
+#
+# Tab-separated: <source path>  <reason>
+#
+# An entry naming a file that is no longer tracked fails the run as stale.
+src/agent_apropos.cr	binary entry point: one delegating line, driven end to end by the integration specs as a subprocess. Already the coverage gate's one documented exclusion (scripts/coverage.sh).
+src/agent_apropos/check.cr	a bare `record` declaration with no method body to mutate.
+src/agent_apropos/errors.cr	an empty exception subclass with no method body to mutate.
