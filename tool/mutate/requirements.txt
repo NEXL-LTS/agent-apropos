@@ -1,0 +1,16 @@
+# Mutation engine pin for the mutation-score gate (scripts/mutate.sh).
+#
+# Install with --require-hashes --no-deps:
+#
+#   python3 -m pip install --require-hashes --no-deps -r tool/mutate/requirements.txt
+#
+# --no-deps is deliberate. universalmutator's setup.py declares `comby` and
+# `Levenshtein`, but neither is reachable from the regex-rules path this repo
+# uses: `comby` backs the --comby generator (declined — see the plan's Key
+# Decisions; its language table has no Crystal matcher) and `Levenshtein` backs
+# the mutant-ranking helper binaries. `tabulate` is the one third-party module
+# the regex path imports, so it is pinned here explicitly instead.
+universalmutator==1.14.1 \
+    --hash=sha256:c2bb39fd143c22d905dd3f8c5d151308f5b7726887a1b3429f894b0e1ebf3b01
+tabulate==0.10.0 \
+    --hash=sha256:f0b0622e567335c8fabaaa659f1b33bcb6ddfe2e496071b743aa113f8774f2d3

@@ -122,6 +122,23 @@ RUN git clone --depth 1 --branch "${BATS_CORE_VERSION}" \
     rm -rf /usr/local/lib/bats/*/.git
 ENV BATS_LIB_PATH=/usr/local/lib/bats
 
+# universalmutator — the engine behind the mutation gate (scripts/mutate.sh).
+# Ubuntu 24.04's python3 ships without pip and marks the system environment
+# externally managed (PEP 668), so the engine gets its own venv and its entry
+# points are linked onto PATH. Versions and hashes live in the requirements
+# file, which is installed with --no-deps: the regex-rules path this repo uses
+# imports only tabulate, while universalmutator's declared comby/Levenshtein
+# dependencies belong to generators and ranking tools we do not run.
+COPY tool/mutate/requirements.txt /tmp/mutate-requirements.txt
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends python3-venv && \
+    rm -rf /var/lib/apt/lists/* && \
+    python3 -m venv /opt/mutate && \
+    /opt/mutate/bin/pip install --no-cache-dir --require-hashes --no-deps \
+        -r /tmp/mutate-requirements.txt && \
+    ln -s /opt/mutate/bin/mutate /usr/local/bin/mutate && \
+    rm /tmp/mutate-requirements.txt
+
 WORKDIR /workspace
 
 # Create user with matching UID/GID. Ubuntu 24.04 ships with a default
