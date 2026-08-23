@@ -33,12 +33,9 @@ BACKFILL_FILE="tool/mutate/backfill.txt"
 # untimed run would hang the job instead of failing it, so every mutant spec run
 # is bounded and a timeout counts as killed (KTD5): a spec that hangs on the
 # mutant has distinguished it from the original just as surely as one that
-# fails. Sized for headroom over a healthy run, not for a slow one: a mutant
-# that takes an order of magnitude longer than the original has already
-# announced itself.
-# Sized against a healthy run of each target — a sibling spec is seconds, the
-# whole suite tens of seconds — so a mutant an order of magnitude slower has
-# already announced itself.
+# fails. Each bound is sized against a healthy run of its target — a sibling
+# spec is seconds, the whole suite tens of seconds — so a mutant an order of
+# magnitude slower has already announced itself.
 MUTANT_SIBLING_TIMEOUT=30
 MUTANT_SUITE_TIMEOUT=180
 
@@ -523,7 +520,9 @@ for i in "${!targets[@]}"; do
 done
 
 pending="$(backfill_pending | tr '\n' ' ')"
-[ -n "$pending" ] && echo "mutation gate: not yet backfilled to 100%: ${pending%% }"
+if [ -n "$pending" ]; then
+  echo "mutation gate: not yet backfilled to 100%: ${pending% }"
+fi
 
 echo "mutation gate: ${generated} mutants generated, ${killed} killed, ${#survivors[@]} surviving"
 
