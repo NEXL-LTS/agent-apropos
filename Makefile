@@ -6,9 +6,6 @@
 CRYSTAL_CACHE_DIR ?= $(CURDIR)/.cache/crystal
 export CRYSTAL_CACHE_DIR
 
-CRYTIC_VERSION := ~> 9.0
-MUTATION_TARGETS := matcher frontmatter index session_state review
-
 # Where `make install` drops the binary. Default to the per-user bin dir that is
 # already on PATH in the devcontainer; override with `make install PREFIX=/usr/local`.
 PREFIX ?= $(HOME)/.local
@@ -59,36 +56,17 @@ coverage: ## Run specs under kcov and enforce the coverage gate
 dup: ## Check src/**/*.cr for code duplication (jscpd; zero clones required)
 	npm run lint:dup
 
-# Mutation testing is advisory-only and never gates CI. Crytic is
-# installed on demand into the gitignored .crytic/ so it stays out of the main
-# dependency graph. If it fails to build against the target Crystal, this target
-# prints the manual-mutation checklist instead of failing.
+# Mutation gate: fails when a mutant survives on the lines the current change
+# touched. Deliberately NOT part of `check` — `check` is the fast local gate,
+# and a mutation run is minutes, not seconds. CI blocks on the same script.
 #
 # Usage:
-#   make mutate SUBJECT=src/agent_apropos/matcher.cr
-#   make mutate                      # lists the recommended mutation targets
+#   make mutate                        # the changed lines, same as CI
+#   make mutate ARGS="--base main"     # against a different base
+#   make mutate ARGS="src/agent_apropos/index.cr"   # a whole file (backfill sweep)
 .PHONY: mutate
-mutate: .crytic/bin/crytic ## Run crytic on SUBJECT=<file> (advisory; see docs/mutation-testing.md)
-ifndef SUBJECT
-	@echo "Usage: make mutate SUBJECT=src/agent_apropos/<module>.cr"
-	@echo "Recommended mutation targets (pure logic):"
-	@for m in $(MUTATION_TARGETS); do echo "  src/agent_apropos/$$m.cr"; done
-else
-	./.crytic/bin/crytic test -s $(SUBJECT)
-endif
-
-# Build crytic on demand. On failure, fall back to the documented manual
-# mutation workflow rather than breaking the developer's build.
-.crytic/bin/crytic:
-	@echo ">> installing crytic ($(CRYTIC_VERSION)) into .crytic/ ..."
-	@mkdir -p .crytic
-	@printf 'name: agent-apropos-mutation\nversion: 0.1.0\ncrystal: ">= 1.20"\ndependencies:\n  crytic:\n    github: hanneskaeufler/crytic\n    version: %s\n' '$(CRYTIC_VERSION)' > .crytic/shard.yml
-	@cd .crytic && shards install || { \
-		echo ""; \
-		echo "!! crytic failed to build against this Crystal toolchain."; \
-		echo "!! Fall back to a manual mutation session — see docs/mutation-testing.md."; \
-		exit 1; \
-	}
+mutate: ## Run the mutation gate on the changed lines (see docs/mutation-testing.md)
+	./scripts/mutate.sh $(ARGS)
 
 # Deterministic bats tests for the devcontainer's host-side initializeCommand
 # (.devcontainer/initialize.sh). Offline and credential-free, unlike the live
@@ -117,6 +95,20 @@ hooks-spec: ## Run the bats tests for .claude/hooks/
 installer-spec: ## Run the bats tests for install.sh
 	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats tests/install_sh.bats
 
+# The runner's own bats suite. Offline and stub-driven — no engine, no
+# compiler — so it belongs in `check` alongside the other shell suites.
+.PHONY: mutate-spec
+mutate-spec: ## Run the bats tests for scripts/mutate.sh
+	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats tests/mutate.bats
+
+# The rules' bats suite drives the real engine and the real compiler, because
+# what the rules produce against Crystal source is the thing under test. That
+# makes it minutes rather than seconds, so it stays out of `check` and runs in
+# the mutation CI job instead.
+.PHONY: mutate-rules-spec
+mutate-rules-spec: ## Run the bats tests for tool/mutate/crystal.rules (slow; needs the engine)
+	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats tests/mutate_rules.bats
+
 .PHONY: plans-spec
 plans-spec: ## Run the bats tests for scripts/check-plans-empty.sh
 	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats tests/check_plans_empty.bats
@@ -129,7 +121,7 @@ plans-check: ## Fail if any plan doc is committed under docs/plans/
 	./scripts/check-plans-empty.sh
 
 .PHONY: check
-check: lint spec dup devcontainer-spec hooks-spec installer-spec plans-spec plans-check ## Lint + spec + duplication + devcontainer + hook + installer + plans checks (the fast local gate)
+check: lint spec dup devcontainer-spec hooks-spec installer-spec mutate-spec plans-spec plans-check ## Lint + spec + duplication + devcontainer + hook + installer + mutation-runner + plans checks (the fast local gate)
 
 # End-to-end test: stands up a sample repo wired with agent-apropos's hooks and
 # proves agent-apropos injects conventions and steers a real `claude` run. Local/advisory —
@@ -141,4 +133,4 @@ e2e: ## Run the end-to-end test (needs claude CLI; skips live phases without it)
 
 .PHONY: clean
 clean: ## Remove build artifacts and local caches
-	rm -rf bin lib .shards .crytic .cache coverage
+	rm -rf bin lib .shards .cache coverage

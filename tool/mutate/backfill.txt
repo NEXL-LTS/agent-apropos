@@ -1,0 +1,45 @@
+# Modules not yet at a 100% mutation score, in sweep order.
+#
+# The per-PR gate only mutates the lines a change touched, so existing code
+# reaches the repo-wide standard through sweeps run outside the gate — one
+# module per PR (R7). This list is the progress report: a module leaves it in
+# the PR that brings it to zero survivors, so the list shrinking is visible in
+# the diff and the backfill cannot silently stall (KTD13).
+#
+# Order is the five pure-logic modules first — a survivor there is most likely a
+# real defect — then the remainder by ascending file size, so the early sweeps
+# give real survivor-rate data cheaply (KTD9).
+#
+# Until a module leaves this list, changing only its spec file does not widen
+# the gate to the whole module: that widening (R17) is what stops a backfilled
+# module's assertions from being deleted, and there is nothing yet to protect.
+#
+# An entry naming a file that no longer exists fails the run as stale.
+src/agent_apropos/frontmatter.cr
+src/agent_apropos/index.cr
+src/agent_apropos/session_state.cr
+src/agent_apropos/review.cr
+src/agent_apropos/version.cr
+src/agent_apropos/repo_root.cr
+src/agent_apropos/environment.cr
+src/agent_apropos/agents.cr
+src/agent_apropos/rendering.cr
+src/agent_apropos/filesystem.cr
+src/agent_apropos/git.cr
+src/agent_apropos/agents/agent.cr
+src/agent_apropos/skills.cr
+src/agent_apropos/config.cr
+src/agent_apropos/conventions.cr
+src/agent_apropos/doctor.cr
+src/agent_apropos/agents/copilot.cr
+src/agent_apropos/agents/codex.cr
+src/agent_apropos/generate.cr
+src/agent_apropos/hooks/payload.cr
+src/agent_apropos/agents/opencode.cr
+src/agent_apropos/agents/gemini.cr
+src/agent_apropos/lint.cr
+src/agent_apropos/agents/claude.cr
+src/agent_apropos/hook.cr
+src/agent_apropos/help.cr
+src/agent_apropos/init.cr
+src/agent_apropos/cli.cr
