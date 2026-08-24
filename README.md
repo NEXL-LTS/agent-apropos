@@ -322,10 +322,12 @@ scoped guidance, delivered by agent-apropos's own hooks. Use `make`:
 - `make deps` — install shard and npm dependencies
 - `make build` — build the debug binary; `make release` for the release build
 - `make install` — build and install to `$PREFIX/bin` (default `$HOME/.local`)
-- `make check` — lint + spec + dup (the fast local gate)
+- `make check` — lint + spec + dup + the shell suites (the fast local gate)
 - `make coverage` — specs under kcov with the 100% line-coverage gate
+- `make mutate` — the mutation gate on the lines you changed (blocking in CI)
 
-Development is spec-first, coverage is 100%, and ameba runs zero-findings. See
+Development is spec-first, coverage is 100%, ameba runs zero-findings, and a
+surviving mutant on a changed line fails the build. See
 [`AGENTS.md`](./AGENTS.md) and [`docs/conventions/`](./docs/conventions/).
 
 ## License
