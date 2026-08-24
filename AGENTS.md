@@ -34,7 +34,7 @@ even where the global Crystal cache is not writable.
 
 ## Universal rules
 
-- Development is spec-first: write the failing spec, then the implementation. Every milestone ends green — specs pass, coverage 100%, ameba clean.
+- Development is spec-first: write the failing spec, then the implementation. Every milestone ends green — specs pass, coverage 100%, ameba clean, and `make mutate` reports no survivor on the lines you changed. Coverage says a line ran; the mutation gate says a spec noticed what it did, and `make check` does not run it.
 - Hook code paths must **fail open**: on any internal error, exit 0 and emit nothing. A conventions tool must never block or break an edit. Never let an exception escape a `hook` subcommand.
 - Isolate all filesystem, stdin, and process I/O behind small injectable adapters so error paths are unit-testable. Do not call `STDIN`/`STDOUT`/`File` directly from logic modules; pass IO in.
 - `generate` output must be byte-stable across runs and platforms (sorted walks, LF endings, no timestamps). Determinism is a prerequisite for the `--check` drift gate.

@@ -23,6 +23,14 @@ invalid, though both are unterminated brackets — a mutation run found it in 34
 seconds. Reaching for the assertion first is what would have frozen that bug
 into the suite as intended behaviour.
 
+**What a justification looks like:** a justification says why the behaviour is
+right, in terms someone could disagree with. "`valid_glob?` returns the same
+verdict for `"!["` and `"[abc"` because a validity verdict must not depend on
+where matching stopped" is a justification. "`valid_glob?` returns false for
+`"!["`" is a restatement of the code with an assertion wrapped round it, and it
+is what freezes a bug in place. If the sentence would still be true when the
+behaviour was wrong, it is not a justification.
+
 **Watch out:** The gate mutates only the lines your change touched, so it is
 usually a couple of minutes, not the whole suite. Changing the spec file of a
 module that is already at 100% mutates that module in full — deleting an
@@ -32,9 +40,13 @@ script; this convention only asks you to see it before CI does.
 
 ## Verify
 
-- Every survivor on the changed lines is resolved by a code fix, a justified
-  pinning example, or a reviewed `tool/mutate/ignore.txt` entry.
-- A survivor cleared with a new spec has a written justification that the
-  current behaviour is intended, on the example that pins it.
-- A survivor resolved by fixing the code names the fix in the commit body.
-- No spec was added whose only purpose is to execute a line.
+Each of these is checkable from the diff alone, because that is all a reviewer
+of the change has:
+
+- Every new or changed example's description says what behaviour is right, not
+  which line it reaches.
+- Any new entry in `tool/mutate/ignore.txt`, `no-spec.txt`, or `backfill.txt`
+  carries a reason a reviewer can disagree with, and the diff shows what it
+  exempts.
+- A source fix in the diff is named in the commit body.
+- No example in the diff calls a function without asserting on its result.

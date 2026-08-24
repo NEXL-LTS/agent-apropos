@@ -22,3 +22,9 @@
 /node_modules/
 
 /tmp/
+
+# universalmutator scratch files. The runner clears these on exit, but a
+# SIGKILLed run cannot, and an untracked .cr at the repo root is confusing.
+/.tmp_mutant.*.cr
+/.um.mutant_output.*
+*.um.backup.*

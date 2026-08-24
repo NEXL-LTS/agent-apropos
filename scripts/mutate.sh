@@ -16,7 +16,7 @@
 #
 #   --base <ref>   compare against this ref instead of the PR base
 #   <source-file>  mutate these files in full, ignoring the diff (backfill
-#                  sweeps, per R7 — not what CI runs)
+#                  sweeps — not what CI runs)
 #
 # See docs/mutation-testing.md for the survivor rule and the ignore-list policy.
 set -euo pipefail
@@ -31,7 +31,7 @@ BACKFILL_FILE="tool/mutate/backfill.txt"
 
 # A mutated guard or loop bound can produce a mutant that never terminates. An
 # untimed run would hang the job instead of failing it, so every mutant spec run
-# is bounded and a timeout counts as killed (KTD5): a spec that hangs on the
+# is bounded and a timeout counts as killed: a spec that hangs on the
 # mutant has distinguished it from the original just as surely as one that
 # fails. Each bound is sized against a healthy run of its target — a sibling
 # spec is seconds, the whole suite tens of seconds — so a mutant an order of
@@ -83,6 +83,17 @@ command -v mutate >/dev/null 2>&1 ||
   die "the mutation engine is not on PATH; install it with
   python3 -m pip install --require-hashes --no-deps -r tool/mutate/requirements.txt"
 
+# Without these two, every spec run would fail on a missing command and the
+# baseline check would report the suite as red — a misdiagnosis, not a gate
+# result. Both are GNU/util-linux tools, which is part of why the gate is
+# Linux-only.
+for tool in setsid timeout; do
+  command -v "$tool" >/dev/null 2>&1 ||
+    die "$tool is not on PATH; the mutation gate needs it to bound and reap a mutant's spec run"
+done
+
+[ -f "$RULES" ] || die "$RULES is missing; the engine would silently generate nothing without it"
+
 # --------------------------------------------------------------------------
 # Reviewed lists
 #
@@ -133,7 +144,7 @@ check_sibling_specs() {
 }
 
 # Modules still to be brought to a 100% mutation score, in sweep order. A module
-# leaves the list in the PR that backfills it (KTD13), so the list shrinking is
+# leaves the list in the PR that backfills it, so the list shrinking is
 # the progress report.
 backfill_pending() { list_entries "$BACKFILL_FILE" | cut -d'	' -f1; }
 
@@ -154,7 +165,7 @@ backfilled() {
 }
 
 # Ignore-list entries are keyed on source path, the original and mutated text,
-# and the occurrence index of that original text within the file (KTD3). Mutant
+# and the occurrence index of that original text within the file. Mutant
 # numbering shifts with rule order and line numbers shift with any edit above
 # them, so neither is stable; the text pair alone is stable but not unique, and
 # without the occurrence index one reviewed entry would exempt every identical
@@ -217,10 +228,15 @@ resolve_base() {
 
 # Per-file changed lines, as "<path> <line>" pairs. Deleted files and pure
 # deletions contribute nothing: there is no line left to mutate.
+# `--no-ext-diff --no-textconv` and the explicit prefixes pin the output shape:
+# an external diff driver, a textconv filter, or diff.noprefix in the caller's
+# git config would otherwise change the text this parser reads, and a parse that
+# finds no files looks exactly like a change that touched none.
 changed_lines() {
   local merge_base="$1"
   shift
-  git diff --unified=0 "$merge_base" -- "$@" |
+  git diff --unified=0 --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ \
+    "$merge_base" -- "$@" |
     awk '
       /^\+\+\+ / { file = substr($0, 7); if ($2 == "/dev/null") file = ""; next }
       /^@@ / && file != "" {
@@ -232,19 +248,35 @@ changed_lines() {
     '
 }
 
+# True when the unified diff carries at least one `+++ b/<path>` header, which
+# is the one line `changed_lines` needs to attribute a hunk to a file.
+diff_names_a_file() {
+  local merge_base="$1"
+  shift
+  git diff --unified=0 --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ \
+    "$merge_base" -- "$@" | grep -q '^+++ b/'
+}
+
 changed_files_matching() {
   local merge_base="$1"
   shift
-  git diff --name-only --diff-filter=d "$merge_base" -- "$@"
+  git diff --name-only --no-ext-diff --diff-filter=d "$merge_base" -- "$@"
 }
 
 # --------------------------------------------------------------------------
 # Mutant bookkeeping
 # --------------------------------------------------------------------------
 
-# The mutant differs from the source in exactly one replaced line, so the first
-# differing line number is the mutated line, and the replacement spans as many
-# lines as the mutant gained.
+# The engine records the line it mutated for every mutant it writes, so read it
+# from the log rather than inferring it. Inference by first-difference is wrong
+# for an insertion mutant whose inserted statement happens to equal the line
+# below it: the files then first differ one line later than they were mutated.
+mutant_line_from_log() {
+  local log="$1" mutant="$2"
+  sed -n "s|^PROCESSING MUTANT: \([0-9]*\):.*\[written to ${mutant//|/\|}\].*|\1|p" "$log" | head -n1
+}
+
+# Fallback for a log line the engine wrapped or reformatted.
 mutant_line() {
   awk 'NR == FNR { original[FNR] = $0; next }
        $0 != original[FNR] { print FNR; exit }' "$1" "$2"
@@ -282,24 +314,49 @@ restore_list="$workdir/restore"
 # so does an interrupt between our own copy-in and copy-back. Register every
 # file we are about to overwrite and put it back on any exit path, so an
 # interrupted run never leaves a mutant in the working tree.
+# Every step here is non-fatal and the original exit status is restored at the
+# end. A `cp` that fails under `set -e` would otherwise abort the loop, leaving
+# every file registered after it still holding a mutant — and a failing cleanup
+# command would replace a clean run's exit 0 with its own status.
 restore_sources() {
+  local status=$?
   local src backup
   while IFS=$'\t' read -r src backup; do
-    if [ -f "$backup" ]; then cp "$backup" "$src"; fi
-  done <"$restore_list"
-  rm -rf "$workdir"
+    if [ -f "$backup" ]; then cp "$backup" "$src" || echo "error: could not restore $src from $backup" >&2; fi
+  done <"$restore_list" || true
+  rm -rf "$workdir" || true
   # The engine writes its scratch mutant and its own source backup into the
   # working tree and does not always clear them, so a run would otherwise leave
-  # untracked files behind for the next `git add` to pick up.
-  rm -f .tmp_mutant.*.cr .um.mutant_output.* src/**/*.um.backup.* 2>/dev/null || true
-  find src -name '*.um.backup.*' -delete 2>/dev/null || true
+  # untracked files behind for the next `git add` to pick up. Scoped to this
+  # run's pid, so a concurrent run's scratch is left alone.
+  rm -f ".tmp_mutant.$engine_pid_glob.cr" ".um.mutant_output.$engine_pid_glob" 2>/dev/null || true
+  find src -name "*.um.backup.$engine_pid_glob" -delete 2>/dev/null || true
+  exit "$status"
 }
-trap restore_sources EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
+# The engine derives its scratch-file names from its own pid, which is a child of
+# this shell, so this glob covers this run's children and not another run's.
+engine_pid_glob='*'
+
+# Reap the spec process group before leaving, so an interrupt does not orphan a
+# compiled spec binary that outlives the run.
+interrupt() {
+  local status="$1"
+  if [ -n "$spec_leader" ]; then kill -KILL -- -"$spec_leader" 2>/dev/null || true; fi
+  exit "$status"
+}
+spec_leader=""
+
+trap restore_sources EXIT
+trap 'interrupt 130' INT
+trap 'interrupt 143' TERM
+
+# Keyed on the path itself rather than a flattened form: `tr '/' '_'` maps both
+# src/a/b.cr and src/a_b.cr onto one name, and a collision there would restore
+# one module's source over another's.
 protect() {
-  local src="$1" backup="$workdir/backup.$(printf '%s' "$src" | tr '/' '_')"
+  local src="$1" backup="$workdir/backup/$src"
+  mkdir -p "$(dirname "$backup")"
   cp "$src" "$backup"
   printf '%s\t%s\n' "$src" "$backup" >>"$restore_list"
   printf '%s' "$backup"
@@ -310,12 +367,12 @@ spec_target_for() {
   spec="$(sibling_spec_for "$1")"
   [ -f "$spec" ] && { printf '%s' "$spec"; return 0; }
   # No sibling: fall back to the whole suite rather than scoring every mutant
-  # killed against nothing. R15's check keeps this to reviewed exemptions.
+  # killed against nothing. The sibling-spec check keeps this to exemptions.
   printf 'spec'
 }
 
 # The full suite is the arbiter for a mutant that survived its sibling spec
-# (KTD12) and for a module with no sibling at all, so it has to be green on
+# and for a module with no sibling at all, so it has to be green on
 # unmutated source before either use — otherwise a red tree would score every
 # survivor killed. Checked once, on first need.
 full_suite_checked=""
@@ -335,6 +392,9 @@ ensure_full_suite_green() {
 # mutant would otherwise leak one spinning process per timeout and slowly starve
 # the run. Putting the whole thing in its own session means the group can be
 # signalled as a unit once it is done, however it ended.
+# Returns 0 when the spec passed, 1 when it failed, and 124 when it was cut off
+# by the timeout. The caller needs those apart: a timeout counts as killed, but a
+# run where most mutants time out is a degraded run rather than a strong result.
 run_spec() {
   local target="$1" limit="${2:-}" status=0
   local -a command=(crystal spec)
@@ -346,26 +406,39 @@ run_spec() {
   fi
 
   setsid timeout --kill-after=5s "$limit" "${command[@]}" >/dev/null 2>&1 &
-  local leader=$!
-  wait "$leader" || status=$?
-  kill -KILL -- -"$leader" 2>/dev/null || true
+  spec_leader=$!
+  wait "$spec_leader" || status=$?
+  kill -KILL -- -"$spec_leader" 2>/dev/null || true
+  spec_leader=""
   return "$status"
 }
 
 # Two stages, cheapest first. `crystal tool format -` parses without compiling
-# (~20ms) and rejects the mutants that are not even syntactically Crystal; the
-# no-codegen build of the spec target (~1s) rejects the rest (KTD4). Gating on
-# the spec target rather than the binary entry point matters: a mutant the
-# binary never instantiates would otherwise reach the kill run and fail to
-# compile there, which the run cannot tell apart from being killed.
+# (~20ms) and rejects the mutants that are not even syntactically Crystal; a
+# no-codegen build (~1s) rejects the rest. Gating on the spec target rather than
+# the binary entry point matters: a mutant the binary never instantiates would
+# otherwise reach the kill run and fail to compile there, which the run cannot
+# tell apart from being killed.
+#
+# The whole-suite fallback has no single spec file to build, and `crystal build`
+# on the spec directory fails with "Is a directory" — which the engine reads as
+# "this mutant does not compile", so every mutant would be discarded and the
+# module would be silently ungated. Build the binary entry point instead: it is
+# a real file, and it transitively requires every module the fallback covers.
+ENTRY_POINT="src/agent_apropos.cr"
+
 compile_gate_cmd() {
+  local source="$1" target="$2"
+  [ "$target" = "spec" ] && target="$ENTRY_POINT"
   printf 'crystal tool format - < %q > /dev/null 2>&1 && crystal build --no-codegen %q > /dev/null 2>&1' \
-    "$1" "$2"
+    "$source" "$target"
 }
 
 survivors=()
 generated=0
+valid=0
 killed=0
+timed_out=0
 
 mutate_file() {
   local src="$1" lines_file="${2:-}"
@@ -383,7 +456,7 @@ mutate_file() {
       die "$spec_target does not pass against unmutated source; fix the suite before running the gate"
   fi
 
-  mutant_dir="$workdir/mutants/$(printf '%s' "$src" | tr '/' '_')"
+  mutant_dir="$workdir/mutants/$src"
   mkdir -p "$mutant_dir"
 
   backup="$(protect "$src")"
@@ -392,30 +465,51 @@ mutate_file() {
     --cmd "$(compile_gate_cmd "$src" "$spec_target")")
   [ -n "$lines_file" ] && gen_args+=(--lines "$lines_file")
 
-  mutate "${gen_args[@]}" >"$mutant_dir/generate.log" 2>&1 || true
+  # The engine's own failure must not read as "this file had nothing to mutate".
+  # Its exit status alone is not enough: a missing or unparseable rules file
+  # makes it print COULD NOT FIND RULE FILE and exit 0, which would leave the
+  # gate reporting a clean pass over zero work. So require its success marker
+  # and reject its error markers too.
+  local engine_status=0
+  mutate "${gen_args[@]}" >"$mutant_dir/generate.log" 2>&1 || engine_status=$?
   cp "$backup" "$src"
+
+  [ "$engine_status" -eq 0 ] ||
+    die "the mutation engine exited $engine_status on $src; see $mutant_dir/generate.log"
+  grep -q 'MUTANTS GENERATED BY RULES' "$mutant_dir/generate.log" ||
+    die "the mutation engine generated nothing on $src; see $mutant_dir/generate.log"
+  ! grep -qE 'COULD NOT FIND RULE FILE|FAILED TO COMPILE RULE|WARNING: Applying mutation raised|DOES NOT MATCH EXPECTED FORMAT' \
+    "$mutant_dir/generate.log" ||
+    die "$RULES did not load cleanly; see $mutant_dir/generate.log"
 
   generated=$((generated + $(grep -c '^PROCESSING MUTANT:' "$mutant_dir/generate.log" || true)))
 
   for mutant in "$mutant_dir"/*.cr; do
     [ -f "$mutant" ] || continue
 
-    line="$(mutant_line "$backup" "$mutant")"
+    line="$(mutant_line_from_log "$mutant_dir/generate.log" "$mutant")"
+    [ -n "$line" ] || line="$(mutant_line "$backup" "$mutant")"
     [ -n "$line" ] || continue
     original="$(trimmed_line "$backup" "$line")"
     mutated="$(mutant_text "$backup" "$mutant" "$line")"
     occurrence="$(occurrence_index "$backup" "$line")"
 
+    valid=$((valid + 1))
     cp "$mutant" "$src"
-    if run_spec "$spec_target"; then
+    local status=0
+    run_spec "$spec_target" || status=$?
+    [ "$status" -eq 124 ] && timed_out=$((timed_out + 1))
+    if [ "$status" -eq 0 ]; then
       # Survived its sibling spec. Scoping the kill run to the sibling
       # over-reports and never under-reports, because a mutant killed only by a
       # non-sibling spec survives the narrower run — so re-check against the
-      # whole suite before failing the gate (KTD12). A full-suite kill counts.
+      # whole suite before failing the gate. A full-suite kill counts.
       cp "$backup" "$src"
       ensure_full_suite_green
       cp "$mutant" "$src"
-      if [ "$spec_target" != "spec" ] && run_spec spec; then
+      # When the sibling run WAS the whole suite there is nothing wider left to
+      # ask, so the mutant is already a confirmed survivor.
+      if [ "$spec_target" = "spec" ] || run_spec spec; then
         cp "$backup" "$src"
         if ignored_mutant "$src" "$occurrence" "$original" "$mutated"; then
           killed=$((killed + 1))
@@ -451,8 +545,42 @@ if [ "${#stale[@]}" -gt 0 ]; then
   exit 2
 fi
 
+# `targets` holds the files to mutate; `target_lines` holds each one's line set,
+# where an empty string means "the whole file". Both helpers keep the two arrays
+# in step, which is the only invariant this pair has.
 declare -a targets=()
 declare -a target_lines=()
+
+target_index() {
+  local i
+  for i in "${!targets[@]}"; do
+    if [ "${targets[$i]}" = "$1" ]; then printf '%s' "$i"; return 0; fi
+  done
+  return 1
+}
+
+add_line_to_target() {
+  local file="$1" line="$2" index
+  if index="$(target_index "$file")"; then
+    # An empty line set means the whole file is already in scope; adding a line
+    # to it would narrow the scope rather than widen it.
+    [ -n "${target_lines[$index]}" ] &&
+      target_lines[index]="${target_lines[$index]} $line"
+    return 0
+  fi
+  targets+=("$file")
+  target_lines+=("$line")
+}
+
+widen_target_to_whole_file() {
+  local file="$1" index
+  if index="$(target_index "$file")"; then
+    target_lines[index]=""
+    return 0
+  fi
+  targets+=("$file")
+  target_lines+=("")
+}
 
 if [ "${#explicit_files[@]}" -gt 0 ]; then
   for file in "${explicit_files[@]}"; do
@@ -469,20 +597,26 @@ else
     die "no base ref: pass --base <ref>, or set GITHUB_BASE_REF, or configure origin/HEAD"
   fi
 
-  # Changed source lines (R5, KTD2).
+  # Changed source lines, derived from the merge base rather than the base tip so
+  # an out-of-date branch does not get mutants for lines it never touched.
   while IFS=' ' read -r file line; do
     [ -n "$file" ] || continue
-    found=""
-    for i in "${!targets[@]}"; do
-      [ "${targets[$i]}" = "$file" ] && { target_lines[$i]="${target_lines[$i]} $line"; found="yes"; }
-    done
-    [ -n "$found" ] && continue
-    targets+=("$file")
-    target_lines+=("$line")
+    add_line_to_target "$file" "$line"
   done < <(changed_lines "$merge_base" 'src/*.cr')
 
+  # `--name-only` does not go through the hunk parser, so comparing the two is
+  # how a broken parse shows up as an error instead of as a silent clean pass.
+  # The test is the diff's text shape, not whether any line was added: a change
+  # that only deletes lines legitimately yields no lines to mutate.
+  if [ -n "$(changed_files_matching "$merge_base" 'src/*.cr')" ] &&
+    ! diff_names_a_file "$merge_base" 'src/*.cr'; then
+    die "source files changed under src/, but the diff carries no '+++ b/<path>' header for any of
+  them, so no line set can be derived. The diff output is not in the form this runner parses —
+  check diff.external, GIT_EXTERNAL_DIFF, and any 'diff' gitattribute on those paths."
+  fi
+
   # A changed spec file for an already-backfilled module widens the scope to
-  # that whole module (R17): deleting an assertion changes no source line, so a
+  # that whole module: deleting an assertion changes no source line, so a
   # gate that only sees changed source lines would wave it through.
   while IFS= read -r spec; do
     [ -n "$spec" ] || continue
@@ -490,13 +624,7 @@ else
     module="${module%_spec.cr}.cr"
     [ -f "$module" ] || continue
     backfilled "$module" || continue
-    replaced=""
-    for i in "${!targets[@]}"; do
-      [ "${targets[$i]}" = "$module" ] && { target_lines[$i]=""; replaced="yes"; }
-    done
-    [ -n "$replaced" ] && continue
-    targets+=("$module")
-    target_lines+=("")
+    widen_target_to_whole_file "$module"
   done < <(changed_files_matching "$merge_base" 'spec/*_spec.cr')
 fi
 
@@ -524,7 +652,19 @@ if [ -n "$pending" ]; then
   echo "mutation gate: not yet backfilled to 100%: ${pending% }"
 fi
 
-echo "mutation gate: ${generated} mutants generated, ${killed} killed, ${#survivors[@]} surviving"
+# `generated` counts every candidate the rules produced; `valid` counts the ones
+# that survived the compile gate and were actually run. Reporting only the first
+# would hide a run where everything was discarded.
+summary="mutation gate: ${generated} mutants generated, ${valid} compiled, ${killed} killed, ${#survivors[@]} surviving"
+[ "$timed_out" -gt 0 ] && summary="$summary (${timed_out} killed by timeout)"
+echo "$summary"
+
+# A run where most mutants only died by timing out has not tested much; it has
+# mostly measured a slow machine, and calling that a pass would be the same
+# false green the gate exists to prevent.
+if [ "$timed_out" -ge 5 ] && [ $((timed_out * 5)) -gt "$valid" ]; then
+  die "${timed_out} of ${valid} mutants died only by timing out; the run is too degraded to trust"
+fi
 
 if [ "${#survivors[@]}" -gt 0 ]; then
   {

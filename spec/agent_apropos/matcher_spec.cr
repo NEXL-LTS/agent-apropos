@@ -167,8 +167,12 @@ describe AgentApropos::Matcher do
     # the answer — which is exactly what "![" got wrong.
     describe "over a brute-forced pattern space" do
       alphabet = ["a", "*", "?", "[", "]", "!", "^", "-", "\\", "{", "}", ",", "/"]
+      # Three characters, not four. This spec is matcher.cr's sibling, so the
+      # mutation gate re-runs it once per surviving mutant — a second of extra
+      # work here is paid hundreds of times there. The one four-character shape
+      # this space would have caught has its own named example above.
       patterns = alphabet.dup
-      3.times do
+      2.times do
         patterns += patterns.flat_map { |prefix| alphabet.map { |letter| "#{prefix}#{letter}" } }
       end
       patterns.uniq!

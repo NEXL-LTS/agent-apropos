@@ -326,9 +326,14 @@ jobs:
           sudo git clone --depth 1 --branch "$BATS_ASSERT_VERSION" \
             https://github.com/bats-core/bats-assert.git /usr/local/lib/bats/bats-assert
 
-      # The rules' own suite: it needs the engine and the compiler, so this is
-      # the only job that can run it. The runner's stub-driven suite runs in
-      # `make check` and needs neither.
+      # Both of the gate's own suites. The runner's suite is stub-driven and also
+      # runs in `make check`, but no CI job runs `make check`, so without this
+      # step the script guarding every merge would have no CI coverage at all.
+      - name: Spec (scripts/mutate.sh)
+        run: make mutate-spec
+
+      # The rules' suite needs the engine and the compiler, so this is the only
+      # job that can run it.
       - name: Spec (tool/mutate/crystal.rules)
         run: make mutate-rules-spec
 

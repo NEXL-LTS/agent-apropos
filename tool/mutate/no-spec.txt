@@ -3,7 +3,7 @@
 # The gate picks the spec to run from the source path, so that mapping has to be
 # total: `src/a/b.cr` is covered by `spec/a/b_spec.cr`. A file lands here only
 # when it carries no mutable construct — a bare record, an empty subclass — so a
-# sibling spec would assert nothing. Everything else gets the spec (R15, KTD11).
+# sibling spec would assert nothing. Everything else gets the spec.
 #
 # Tab-separated: <source path>  <reason>
 #
