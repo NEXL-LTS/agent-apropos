@@ -140,7 +140,7 @@ CR
   printf 'a ==> b\n' >"$REPO/tool/mutate/crystal.rules"
   : >"$REPO/tool/mutate/ignore.txt"
   : >"$REPO/tool/mutate/no-spec.txt"
-  : >"$REPO/tool/mutate/backfill.txt"
+  printf 'src/lib/thing.cr\n' >"$REPO/tool/mutate/clean.txt"
   printf '# docs\n' >"$REPO/docs/readme.md"
 
   git -C "$REPO" add -A
@@ -183,14 +183,15 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   assert_output --partial 'nothing to mutate'
 }
 
-@test "a newly added source file has every one of its lines mutated" {
+@test "a newly added source file is mutated in full" {
   printf 'one\ntwo\nthree\n' >"$REPO/src/lib/fresh.cr"
   commit_all
 
   run_gate --base "$BASE"
 
   assert_success
-  assert_equal "$(tr -d ' \n' <"$STUB_LINES_SEEN")" "123"
+  assert_output --partial 'src/lib/fresh.cr (whole file'
+  assert_output --partial '3 mutants generated'
 }
 
 @test "a changed source line is mutated and a killed mutant passes the gate" {
@@ -350,14 +351,14 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   [[ "$stderr" == *'no longer a tracked source file'* ]] || fail "expected a stale-exemption error: $stderr"
 }
 
-@test "a backfill-list entry naming a module that no longer exists is reported as stale" {
-  printf 'src/lib/gone.cr\n' >"$REPO/tool/mutate/backfill.txt"
+@test "a clean-list entry naming a file that no longer exists is reported as stale" {
+  printf 'src/lib/gone.cr\n' >>"$REPO/tool/mutate/clean.txt"
   commit_all
 
   run_gate --base "$BASE"
 
   assert_failure 2
-  [[ "$stderr" == *'no longer exists'* ]] || fail "expected a stale-backfill error: $stderr"
+  [[ "$stderr" == *'no longer exists'* ]] || fail "expected a stale-clean-list error: $stderr"
 }
 
 @test "a module with no sibling spec falls back to the whole suite" {
@@ -397,37 +398,79 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 
 # --- spec-file changes ------------------------------------------------------
 
-@test "changing a backfilled module's spec mutates that module in full" {
+@test "changing a module's spec mutates that module in full" {
   printf 'it works, harder\n' >"$REPO/spec/lib/thing_spec.cr"
   commit_all
 
   run_gate --base "$BASE"
 
   assert_success
-  assert_output --partial 'src/lib/thing.cr (whole file)'
+  assert_output --partial 'src/lib/thing.cr (whole file; its spec changed)'
   assert_output --partial '3 mutants generated'
 }
 
-@test "changing an un-backfilled module's spec generates no mutants" {
-  printf 'src/lib/thing.cr\n' >"$REPO/tool/mutate/backfill.txt"
+# The widening has no condition: a module whose spec changed is mutated in full
+# whether or not it already carries a clean record.
+@test "changing the spec of a file with no clean record still mutates it in full" {
+  : >"$REPO/tool/mutate/clean.txt"
   printf 'it works, harder\n' >"$REPO/spec/lib/thing_spec.cr"
   commit_all
 
   run_gate --base "$BASE"
 
   assert_success
-  assert_output --partial 'nothing to mutate'
+  assert_output --partial 'src/lib/thing.cr (whole file'
 }
 
-@test "the modules still awaiting a backfill are named in the report" {
-  printf 'src/lib/thing.cr\n' >"$REPO/tool/mutate/backfill.txt"
+# The boy-scout rule: touch a file with no clean record and the whole file is in
+# scope, so bringing it to zero survivors is part of the change.
+@test "a changed file with no clean record is mutated in full" {
+  : >"$REPO/tool/mutate/clean.txt"
   printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
   commit_all
 
   run_gate --base "$BASE"
 
   assert_success
-  assert_output --partial 'not yet backfilled to 100%: src/lib/thing.cr'
+  assert_output --partial 'src/lib/thing.cr (whole file; no 100% record yet)'
+  assert_output --partial '3 mutants generated'
+}
+
+@test "a changed file with a clean record is mutated by changed lines only" {
+  printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
+  commit_all
+
+  run_gate --base "$BASE"
+
+  assert_success
+  assert_output --partial 'src/lib/thing.cr (1 changed lines)'
+  assert_equal "$(tr -d ' \n' <"$STUB_LINES_SEEN")" "2"
+}
+
+# Earning the record has to be visible, or nobody adds the entry and every later
+# change to that file keeps paying whole-file cost.
+@test "a file that reaches zero survivors is named for the clean list" {
+  : >"$REPO/tool/mutate/clean.txt"
+  printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
+  commit_all
+
+  run_gate --base "$BASE"
+
+  assert_success
+  assert_output --partial 'Record them in tool/mutate/clean.txt'
+  assert_output --partial '  src/lib/thing.cr'
+}
+
+@test "a file with survivors is not named for the clean list" {
+  export STUB_SIBLING_SURVIVES=1
+  : >"$REPO/tool/mutate/clean.txt"
+  printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
+  commit_all
+
+  run_gate --base "$BASE"
+
+  assert_failure 1
+  refute_output --partial 'Record them in'
 }
 
 # --- the engine's own failures ---------------------------------------------
@@ -495,6 +538,8 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 
 @test "two changed source files are both mutated" {
   printf 'it works\n' >"$REPO/spec/lib/second_spec.cr"
+  printf 'src/lib/second.cr\n' >>"$REPO/tool/mutate/clean.txt"
+  printf 'def narrow(value)\n  value - 1\nend\n' >"$REPO/src/lib/second.cr"
   git -C "$REPO" add -A && git -C "$REPO" commit --quiet -m 'sibling for second'
   BASE="$(git -C "$REPO" rev-parse HEAD)"
   printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
@@ -506,7 +551,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   assert_success
   assert_output --partial 'src/lib/thing.cr'
   assert_output --partial 'src/lib/second.cr'
-  assert_output --partial '4 mutants generated'
+  assert_output --partial '2 mutants generated'
 }
 
 @test "a module whose source and spec both changed is mutated in full, not by line" {
@@ -517,7 +562,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   run_gate --base "$BASE"
 
   assert_success
-  assert_output --partial 'src/lib/thing.cr (whole file)'
+  assert_output --partial 'src/lib/thing.cr (whole file'
   assert_output --partial '3 mutants generated'
 }
 
@@ -593,6 +638,6 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   run_gate src/lib/thing.cr
 
   assert_success
-  assert_output --partial 'src/lib/thing.cr (whole file)'
+  assert_output --partial 'src/lib/thing.cr (whole file'
   assert_output --partial '3 mutants generated'
 }

@@ -1,8 +1,8 @@
 # The mutation gate
 
-`make mutate` rewrites each source line your change touched into a plausible
-variant — a *mutant* — and fails when the specs still pass. CI runs the same
-script on every pull request as a blocking check.
+`make mutate` rewrites the source your change touched into plausible variants —
+*mutants* — and fails when the specs still pass. CI runs the same script on every
+pull request as a blocking check.
 
 Coverage proves a line ran. It proves nothing about whether anything asserted on
 what the line did, and an agent optimising for a green gate can satisfy 100%
@@ -15,7 +15,7 @@ glob while reporting `"[abc"` invalid, though both are unterminated brackets.
 ```sh
 make mutate                                    # the changed lines, same as CI
 make mutate ARGS="--base main"                 # against a different base
-make mutate ARGS="src/agent_apropos/index.cr"  # a whole module (a backfill sweep)
+make mutate ARGS="src/agent_apropos/index.cr"  # one file in full, ignoring the diff
 ```
 
 The engine is [universalmutator](https://github.com/agroce/universalmutator),
@@ -23,13 +23,12 @@ pinned by hash in `tool/mutate/requirements.txt`. It has no coupling to any
 language toolchain, which is why it replaced crytic — that compiled against the
 Crystal compiler and went stale the moment the toolchain moved.
 
-A run derives the changed lines from the merge-base of the PR base and head,
-generates mutants for those lines only, discards any that fail a parse check or
-a no-codegen build, then runs the module's sibling spec against each with a
-timeout. A timeout counts as killed. Anything that survives its sibling spec is
-re-checked against the whole suite, because the narrow run over-reports; a
-full-suite kill counts. What still survives is matched against the ignore list
-and the rest is reported.
+A run derives the changed files from the merge-base of the PR base and head,
+generates mutants, discards any that fail a parse check or a no-codegen build,
+then runs the module's sibling spec against each with a timeout. A timeout
+counts as killed. Anything that survives its sibling spec is re-checked against
+the whole suite, because the narrow run over-reports; a full-suite kill counts.
+What still survives is matched against the ignore list and the rest is reported.
 
 ## Resolving a survivor
 
@@ -57,7 +56,7 @@ describes anything is a silent hole in the gate.
 |---|---|
 | `ignore.txt` | Equivalent mutants, keyed on path, occurrence, and the original and mutated text |
 | `no-spec.txt` | Tracked source files with no sibling spec, and why they carry nothing to mutate |
-| `backfill.txt` | Modules not yet at a 100% mutation score, in sweep order |
+| `clean.txt` | Source files verified at a 100% mutation score |
 
 ## The operator set
 
@@ -82,24 +81,26 @@ only inside a loop or a block, so on straight-line code the class yields nothing
 It is carried anyway; dropping an operator because it is inconvenient on our own
 code is the self-selection the transliteration rule exists to prevent.
 
-## Backfilling
+## How much of a file gets mutated
 
-The per-PR gate only sees changed lines, so existing code reaches the standard
-through sweeps run outside it — one module per PR:
+Touch a file that `tool/mutate/clean.txt` does not name and the gate mutates it
+**in full**: there is no evidence its untouched lines are pinned, so bringing it
+to zero survivors is part of your change. That is the whole backfill programme —
+existing code reaches the standard as it is worked on, not through sweeps
+somebody has to remember to run.
 
-```sh
-make mutate ARGS="src/agent_apropos/frontmatter.cr"
-```
+Touch a file the list *does* name and the gate mutates only your changed lines,
+because CI already proved the rest. A run that brings a new file to zero
+survivors prints the line to add.
 
-Resolve every survivor, then delete that module's line from
-`tool/mutate/backfill.txt` in the same PR. The list shrinking is the progress
-report, and a stalled backfill shows up as a list that stopped getting shorter.
-Order is set in the file: pure-logic modules first, where a survivor is most
-likely a real defect, then the rest by ascending size.
+Changing a spec file mutates its module in full either way: deleting an
+assertion changes no source line, so a gate that only saw changed source lines
+would wave it through.
 
-Once a module is off the list, changing its spec file mutates it in full —
-deleting an assertion changes no source line, so a gate that only sees changed
-source lines would wave it through.
+The list is deliberately a record of what is done rather than what is left. An
+entry that is missing costs time — the file gets mutated in full — instead of
+silently weakening the gate, and every entry is re-checked the next time that
+file is touched.
 
 ## Local runs on a drifted toolchain
 

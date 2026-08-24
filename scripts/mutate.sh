@@ -4,7 +4,7 @@
 # Usage: scripts/mutate.sh [--base <ref>] [<source-file> ...]
 #
 #   --base <ref>   compare against this ref instead of the PR base
-#   <source-file>  mutate in full, ignoring the diff (backfill sweeps)
+#   <source-file>  mutate in full, ignoring the diff
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
@@ -13,7 +13,7 @@ cd "$root"
 RULES="tool/mutate/crystal.rules"
 IGNORE_FILE="tool/mutate/ignore.txt"
 NO_SPEC_FILE="tool/mutate/no-spec.txt"
-BACKFILL_FILE="tool/mutate/backfill.txt"
+CLEAN_FILE="tool/mutate/clean.txt"
 
 MUTANT_SIBLING_TIMEOUT=30
 MUTANT_SUITE_TIMEOUT=180
@@ -102,22 +102,22 @@ check_sibling_specs() {
   done < <(tracked_sources)
 }
 
-backfill_pending() { list_entries "$BACKFILL_FILE" | cut -d'	' -f1; }
+verified_clean() { list_entries "$CLEAN_FILE" | cut -d'	' -f1; }
 
-check_backfill_list() {
+check_clean_list() {
   local path
   while IFS= read -r path; do
     [ -f "$path" ] ||
-      stale+=("$BACKFILL_FILE names $path, which no longer exists")
-  done < <(backfill_pending)
+      stale+=("$CLEAN_FILE names $path, which no longer exists")
+  done < <(verified_clean)
 }
 
-backfilled() {
+is_clean() {
   local path
   while IFS= read -r path; do
-    [ "$path" = "$1" ] && return 1
-  done < <(backfill_pending)
-  return 0
+    [ "$path" = "$1" ] && return 0
+  done < <(verified_clean)
+  return 1
 }
 
 check_ignore_list() {
@@ -324,6 +324,7 @@ compile_gate_cmd() {
 }
 
 survivors=()
+earned=()
 generated=0
 valid=0
 killed=0
@@ -410,7 +411,7 @@ mutate_file() {
 }
 
 check_sibling_specs
-check_backfill_list
+check_clean_list
 check_ignore_list
 
 if [ "${#stale[@]}" -gt 0 ]; then
@@ -471,7 +472,13 @@ else
 
   while IFS=' ' read -r file line; do
     [ -n "$file" ] || continue
-    add_line_to_target "$file" "$line"
+    if is_clean "$file"; then
+      add_line_to_target "$file" "$line"
+    else
+      # No proof its untouched lines are pinned, so the whole file is in scope
+      # and bringing it to zero survivors is part of this change.
+      widen_target_to_whole_file "$file"
+    fi
   done < <(changed_lines "$merge_base" 'src/*.cr')
 
   # `--name-only` bypasses the hunk parser, so disagreement means a broken parse
@@ -490,7 +497,6 @@ else
     module="src/${spec#spec/}"
     module="${module%_spec.cr}.cr"
     [ -f "$module" ] || continue
-    backfilled "$module" || continue
     widen_target_to_whole_file "$module"
   done < <(changed_files_matching "$merge_base" 'spec/*_spec.cr')
 fi
@@ -503,21 +509,25 @@ fi
 for i in "${!targets[@]}"; do
   file="${targets[$i]}"
   lines="${target_lines[$i]}"
+  before="${#survivors[@]}"
   if [ -n "$lines" ]; then
     lines_file="$workdir/lines.$i"
     printf '%s\n' $lines >"$lines_file"
     echo "mutation gate: ${file} ($(wc -w <<<"$lines" | tr -d ' ') changed lines)"
     mutate_file "$file" "$lines_file"
   else
-    echo "mutation gate: ${file} (whole file)"
+    if is_clean "$file"; then
+      echo "mutation gate: ${file} (whole file; its spec changed)"
+    else
+      echo "mutation gate: ${file} (whole file; no 100% record yet)"
+    fi
     mutate_file "$file"
+    if [ "${#survivors[@]}" -eq "$before" ] && ! is_clean "$file"; then
+      earned+=("$file")
+    fi
   fi
 done
 
-pending="$(backfill_pending | tr '\n' ' ')"
-if [ -n "$pending" ]; then
-  echo "mutation gate: not yet backfilled to 100%: ${pending% }"
-fi
 
 summary="mutation gate: ${generated} mutants generated, ${valid} compiled, ${killed} killed, ${#survivors[@]} surviving"
 [ "$timed_out" -gt 0 ] && summary="$summary (${timed_out} killed by timeout)"
@@ -526,6 +536,13 @@ echo "$summary"
 # Mostly-timeouts measures a slow machine, not the specs.
 if [ "$timed_out" -ge 5 ] && [ $((timed_out * 5)) -gt "$valid" ]; then
   die "${timed_out} of ${valid} mutants died only by timing out; the run is too degraded to trust"
+fi
+
+if [ "${#earned[@]}" -gt 0 ] && [ "${#survivors[@]}" -eq 0 ]; then
+  echo ""
+  echo "These reached a 100% mutation score. Record them in $CLEAN_FILE so the"
+  echo "next change to them only pays for its own lines:"
+  printf '  %s\n' "${earned[@]}"
 fi
 
 if [ "${#survivors[@]}" -gt 0 ]; then
