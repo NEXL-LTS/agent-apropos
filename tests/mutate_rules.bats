@@ -135,18 +135,12 @@ CR
   grep -qE '^[[:space:]]+next$' "$OUT"/*.cr || fail "no mutant inserted a bare next"
 }
 
-# R2's accounting rule: an operator class is carried across or its absence is
-# argued in the file. Enforced at the granularity the engine itself ships —
-# one rules file per language — so a new upstream rules file cannot be adopted
-# or declined silently.
 @test "every rules file the engine ships is accounted for" {
   local python static accounted missing=()
   python="$(head -1 "$(command -v mutate)" | sed 's|^#!||')"
   static="$("$python" -c 'import universalmutator, os; print(os.path.join(os.path.dirname(universalmutator.__file__), "static"))')"
   [ -d "$static" ] || fail "could not locate the engine's shipped rules: $static"
 
-  # Match inside an accounting block, not anywhere in the file: a bare substring
-  # would let a filename mentioned in passing stand in for a decision about it.
   for file in "$static"/*.rules; do
     accounted="$(awk -v want="$(basename "$file")" '
       /^# (SOURCE|NO CRYSTAL COUNTERPART)/ { block = 1 }
@@ -159,9 +153,6 @@ CR
   assert_equal "${missing[*]-}" ""
 }
 
-# The accounting was done against one engine version. An upgrade can add or
-# change an operator class, and nothing in the rules file would notice — so pin
-# the version the accounting describes.
 @test "the installed engine is the version the accounting was done against" {
   local pinned installed
   pinned="$(sed -n 's/^universalmutator==\([0-9.]*\).*/\1/p' "$ROOT/tool/mutate/requirements.txt")"
@@ -183,12 +174,8 @@ CR
   [ "$carried" -gt "$declined" ] || fail "expected more carried classes than declined ones"
 }
 
-# The reason the rules file exists: the engine's stock rules are C-shaped, so
-# most of what they generate is not Crystal and dies at the compile gate — every
-# rejected mutant is a compile spent for nothing. Both sides are measured here
-# in the same run, against the same module and the same gate the runner uses
-# (scripts/mutate.sh), so the comparison cannot drift into comparing two
-# different things. docs/mutation-testing.md records the current numbers.
+# Both sides measured in one run, against the same module and the same gate the
+# runner uses, so the comparison cannot drift.
 @test "the Crystal rules beat the stock rules' compile-gate pass rate" {
   local subject="$SUBJECT"
   local spec_target="spec/agent_apropos/matcher_spec.cr"
@@ -203,8 +190,7 @@ CR
 
   echo "compile-gate pass rate: Crystal rules ${crystal_rate}%, stock rules ${stock_rate}%" >&3
 
-  # An absolute floor as well as the ratio: a stock rate of 0 would satisfy any
-  # multiple of itself, so the relative test alone can pass over a broken run.
+  # A stock rate of 0 would satisfy any multiple of itself.
   [ "$stock_rate" -gt 0 ] || fail "the stock-rules baseline measured 0% — the comparison is vacuous"
   [ "$crystal_rate" -ge 20 ] ||
     fail "Crystal rules fell to ${crystal_rate}%, under the 20% floor"

@@ -1,24 +1,8 @@
-# Modules not yet at a 100% mutation score, in sweep order.
+# Modules not yet at a 100% mutation score, in sweep order. A module leaves this
+# list in the PR that brings it to zero survivors. See docs/mutation-testing.md.
 #
-# The per-PR gate only mutates the lines a change touched, so existing code
-# reaches the repo-wide standard through sweeps run outside the gate — one
-# module per PR. This list is the progress report: a module leaves it in
-# the PR that brings it to zero survivors, so the list shrinking is visible in
-# the diff and the backfill cannot silently stall.
-#
-# Order is the five pure-logic modules first — a survivor there is most likely a
-# real defect — then the remainder by ascending file size, so the early sweeps
-# give real survivor-rate data cheaply.
-#
-# This list also suppresses, so treat an addition like any other suppression.
-# While a module is named here, changing only its spec file does NOT widen the
-# gate to the whole module — that widening is what stops a backfilled module's
-# assertions from being quietly deleted. Adding an entry therefore turns that
-# protection off for the named module, and it stays off until the entry goes.
-# A module belongs here only because it has not been swept yet, never because
-# its sweep was inconvenient.
-#
-# An entry naming a file that no longer exists fails the run as stale.
+# This list also suppresses: while a module is named here, changing only its spec
+# file does not widen the gate to the whole module.
 src/agent_apropos/frontmatter.cr
 src/agent_apropos/index.cr
 src/agent_apropos/session_state.cr

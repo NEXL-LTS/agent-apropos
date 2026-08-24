@@ -1,39 +1,25 @@
-# Crystal mutation operators for universalmutator's regex generator.
+# Crystal operators for universalmutator, transliterated from the rules files it
+# ships rather than designed here. See docs/mutation-testing.md.
 #
-# This file is a TRANSLITERATION, not a design. Every operator class below is
-# carried over from a rules file universalmutator ships; the Crystal column is
-# only a change of syntax. That is deliberate: a 100% mutation score against
-# operators we invented ourselves would attest to less, because the same blind
-# spot that shaped the code would have shaped the operators. Adding or removing
-# an operator class is therefore a reviewed change, not an implementation
-# choice — and every shipped rules file is accounted for below, either by a
-# SOURCE block that carries it across or by one that records why Crystal has no
-# counterpart. `tests/mutate_rules.bats` enforces that accounting.
+# Every shipped rules file is accounted for by a `# SOURCE:` block that carries
+# it across or a `# NO CRYSTAL COUNTERPART:` block that says why it cannot be.
+# tests/mutate_rules.bats enforces that. Loaded with `--only`, so this is the
+# whole operator set.
 #
-# Format: `<python regex>`, then a literal arrow, then `<replacement>`,
-# applied line by line. Two
-# replacements are sentinels: DO_NOT_MUTATE skips the whole line, and
-# SKIP_MUTATING_REST skips from the match position to end of line.
-#
-# The runner (scripts/mutate.sh) passes this file with `--only`, so these rules
-# are the entire operator set — universal.rules is NOT also loaded.
+# `<python regex> ==> <replacement>`, line by line. DO_NOT_MUTATE skips the line;
+# SKIP_MUTATING_REST skips from the match to end of line.
 
 DO_NOT_MUTATE ==> DO_NOT_MUTATE
 
 # SOURCE: c_like.rules, java.rules, python.rules, r.rules, solidity.rules
-# Lines that carry no behaviour. `#include`/`import` become `require`; the
-# `//` and `#` comment skips become Crystal's `#`, with a lookahead so string
-# interpolation (`#{...}`) is not mistaken for a comment. Decorator/annotation
-# lines (java's `@.+`) are Crystal's `@[Annotation]`.
+# Lines carrying no behaviour. The `#` lookahead spares string interpolation.
 (^\s*require\s) ==> DO_NOT_MUTATE
 (^\s*#) ==> DO_NOT_MUTATE
 (^\s*@\[) ==> DO_NOT_MUTATE
 #(?!\{) ==> SKIP_MUTATING_REST
 
-# SOURCE: universal.rules — arithmetic operator replacement.
-# Crystal adds `//` (floor division) and `**` (exponent) to the C set; both are
-# folded in here rather than given a class of their own, since fortran.rules
-# already ships `**` as an arithmetic operator.
+# SOURCE: universal.rules — arithmetic operator replacement. Crystal's `//` and
+# `**` fold in here; fortran.rules already ships `**` as arithmetic.
 \+ ==> -
 \+ ==> *
 \+ ==> /
@@ -67,20 +53,17 @@ DO_NOT_MUTATE ==> DO_NOT_MUTATE
 # (a proc literal in Crystal, as it is an arrow elsewhere) intact.
 -([^>]) ==> \1
 
-# SOURCE: universal.rules — assignment-operator replacement. `x += 1` becoming
-# `x =+ 1` is `x = +1`: the accumulate is dropped but the line still parses,
-# because Crystal has unary `+` and `-` like C does.
+# SOURCE: universal.rules — assignment-operator replacement. `x =+ 1` parses as
+# `x = +1`, dropping the accumulate.
 \+= ==> =+
 -= ==> =-
 
-# SOURCE: universal.rules — increment/decrement swap (`++`/`--`).
-# NO CRYSTAL COUNTERPART: Crystal has no increment or decrement operator; `x++`
-# is a parse error, so every mutant this class could produce is uncompilable.
+# SOURCE: universal.rules — increment/decrement swap.
+# NO CRYSTAL COUNTERPART: Crystal has neither operator.
 
-# SOURCE: universal.rules — relational operator replacement. The guards are
-# wider than the shipped ones because Crystal spells more things with angle
-# brackets: `=>` (hash and rescue), `->` (proc), `<<` and `>>` (shift and
-# heredoc), `<=>` (comparison), and `class Foo < Bar` (inheritance).
+# SOURCE: universal.rules — relational operator replacement. Guards are wider
+# than the shipped ones: Crystal also spells `=>`, `->`, `<<`, `<=>` and
+# `class Foo < Bar` with angle brackets.
 != ==> ==
 != ==> <=
 != ==> >=
@@ -110,9 +93,8 @@ DO_NOT_MUTATE ==> DO_NOT_MUTATE
 ([^-=<>])>([^=>]) ==> \1<=\2
 ([^-=<>])>([^=>]) ==> \1!=\2
 
-# SOURCE: javascript.rules — strict-equality swap (`===` to `!==`).
-# Crystal spells case-equality `===` and has no `!==`, so the counterpart is a
-# demotion to `==`, which is what `!==` is in a language that lacks it.
+# SOURCE: javascript.rules — strict-equality swap. Crystal has no `!==`, so the
+# counterpart is a demotion to `==`.
 === ==> ==
 
 # SOURCE: universal.rules — numeric literal replacement.
@@ -122,9 +104,9 @@ DO_NOT_MUTATE ==> DO_NOT_MUTATE
 (\D)(\d+)(\D) ==> \1(\2+1)\3
 (\D)(\d+)(\D) ==> \1(\2-1)\3
 
-# SOURCE: universal.rules, lisp.rules, python.rules — logical operator
-# replacement and negation deletion. Crystal has no `and`/`or` keyword forms,
-# so lisp's and python's word operators collapse onto the symbol forms.
+# SOURCE: universal.rules, lisp.rules, python.rules — logical replacement and
+# negation deletion. No `and`/`or` keywords in Crystal, so the word forms
+# collapse onto the symbols.
 && ==> ||
 \|\| ==> &&
 ! ==>
@@ -146,9 +128,7 @@ true ==> false
 false ==> true
 
 # SOURCE: c_like.rules, python.rules, solidity.rules — conditional negation and
-# forcing. Crystal has no parentheses around a condition and adds the inverted
-# keywords `unless` and `until`, so each shipped form gets a keyword-led
-# Crystal counterpart covering both the block and the modifier position.
+# forcing, keyword-led, covering `unless`/`until` and the modifier position.
 (^\s*)if (.+)\n ==> \1if !(\2)\n
 (^\s*)if (.+)\n ==> \1if true\n
 (^\s*)if (.+)\n ==> \1if false\n
@@ -183,16 +163,12 @@ false ==> true
 \bbreak\b ==> next
 \bnext\b ==> break
 
-# SOURCE: python.rules, c_like.rules — statement deletion. python replaces the
-# line with `pass`; c_like comments it out. Crystal has no `pass`, so the
-# comment form is the one that carries over. The lookahead excludes lines that
-# open or close a block: deleting one of those can only ever be a parse error,
-# and each rejected mutant costs a compile.
+# SOURCE: python.rules, c_like.rules — statement deletion. No `pass` in Crystal,
+# so the comment form carries over. The lookahead spares block-opening and
+# -closing lines, where deletion can only ever be a parse error.
 (^\s*)(?!(?:end|else|elsif|when|in|rescue|ensure|begin|module|class|struct|enum|def|macro|lib|union|annotation|abstract|private|protected|case|loop)\b)(?!.*\bdo\b\s*(?:\|[^|]*\|)?\s*$)(?!.*\bthen$)(\S.*)\n ==> \1# \2\n
 
-# SOURCE: python.rules — `return` value replacement. python returns `None`;
-# Crystal returns `nil`. Paired with statement deletion above, this is what
-# strips an early-return guard.
+# SOURCE: python.rules — `return` value replacement (`None` -> `nil`).
 (^\s*)return\b.*\n ==> \1return nil\n
 
 # SOURCE: universal.rules — string literal emptying.
@@ -206,23 +182,18 @@ false ==> true
 ,.+, ==> ,
 
 # SOURCE: python.rules, swift.rules — `{...}` collection emptying.
-# NO CRYSTAL COUNTERPART: `{}` is not an empty Hash or Tuple in Crystal (`{} of
-# K => V` is required), and `{...}` is also the short block form, so the shipped
-# regexes would mostly rewrite blocks into parse errors rather than into empty
-# collections.
+# NO CRYSTAL COUNTERPART: `{}` is not an empty Hash or Tuple (`{} of K => V` is),
+# and `{...}` is also the short block form.
 
-# SOURCE: python.rules — single-quoted string emptying (`'.+'` to `''`).
-# NO CRYSTAL COUNTERPART: `'x'` is a Char literal in Crystal and `''` is a parse
-# error, so this class has no compilable Crystal form.
+# SOURCE: python.rules — single-quoted string emptying.
+# NO CRYSTAL COUNTERPART: `'x'` is a Char literal; `''` is a parse error.
 
 # SOURCE: universal.rules — argument order swapping.
 ([,\(\[\{])([^=,\)\}\]]+),([^=,\)\}\]]+)([,\)\]\}]) ==>  \1\3,\2\4
 ([,\(\[\{])([^,=\)\]\}]+)=([^,=\)\]\}]+),([^,=\)\]\}]+)=([^,=\)\]\}]+)([,\)\]\}]) ==> \1\4=\3,\2=\5\6
 ([,\(\[\{])([^,:\)\]\}]+): ([^,\)\]\}]+),([^,:\)\]\}]+): ([^,\)\]\}]+)([,\)\]\}]) ==> \1\4: \3,\2: \5\6
 
-# SOURCE: cpp.rules — library-call substitution: swapping a call for its
-# nearest neighbour in the same family. Crystal's Enumerable spells the same
-# families with `?`-suffixed predicates and `_by` selectors.
+# SOURCE: cpp.rules — library-call substitution, in Enumerable's spelling.
 \bany\? ==> all?
 \bany\? ==> none?
 \ball\? ==> any?

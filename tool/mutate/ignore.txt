@@ -1,22 +1,11 @@
-# Equivalent mutants: reviewed suppressions for the mutation gate.
+# Reviewed equivalent mutants: a mutant that CANNOT change observable behaviour.
+# Anything that could behave differently gets a fix or a pinning spec instead.
+# See docs/mutation-testing.md.
 #
-# An entry here says a mutant CANNOT change observable behaviour — not that its
-# behaviour is unasserted. If the mutated code could behave differently, the
-# answer is a fix or a justified pinning spec, never an entry here. Entries are
-# reviewed in the PR that adds them, like any other suppression.
+# <source path>  <occurrence>  <original>  <mutated>  <reason>   (tab-separated)
 #
-# Tab-separated, five fields:
-#
-#   <source path>  <occurrence>  <original>  <mutated>  <reason>
-#
-# `original` and `mutated` are the trimmed line text, with any inserted line
-# folded on with a literal \n. `occurrence` is the 1-based index of `original`
-# among the identically-trimmed lines of that file: mutant numbering shifts with
-# rule order and line numbers shift with any edit above them, so neither is a
-# stable key, and the text pair alone would exempt every identical line at once.
-#
-# An entry whose original text no longer appears at that occurrence fails the
-# run as stale, rather than sitting here exempting nothing.
+# Text is trimmed, with an inserted line folded on as a literal \n. `occurrence`
+# is the 1-based index of `original` among identically-trimmed lines in the file.
 src/agent_apropos/rendering.cr	1	def context(docs : Array({String, String})) : String	def context(docs : Array( { String,String})) : String	whitespace inside a type annotation; the argument-swap operator moved spaces, not arguments. The tuple's element types stay in the same positions, so the declared type is identical.
 src/agent_apropos/rendering.cr	1	private def summarized(docs : Array({String, String})) : String	private def summarized(docs : Array( { String,String})) : String	the same whitespace-only type-annotation shuffle as the context entry above; the declared type is unchanged.
 src/agent_apropos/rendering.cr	1	body.split("\n\n", 2).first.strip	body.split("\n\n", (2+1)).first.strip	only .first is read, so every limit of 2 or more yields the same element; 2 is simply the cheapest of them.
