@@ -1,51 +1,112 @@
-# Mutation testing
+# The mutation gate
 
-Mutation testing hardens agent-apropos's pure logic modules — the places where a
-surviving mutant means a real correctness gap: `matcher`, `frontmatter`,
-`index`, `session_state`, and `review` diff parsing.
+`make mutate` rewrites the source your change touched into plausible variants —
+*mutants* — and fails when the specs still pass. CI runs the same script on every
+pull request as a blocking check.
 
-It is **advisory-only and never gates CI.** The actual quality floor is the 100%
-coverage gate plus ameba. Crytic is disposable: if a Crystal upgrade ever breaks
-it, drop it with no effect on build, release, or correctness.
-
-## Spike outcome (2026-07-16, Crystal 1.20.3)
-
-Crytic v9.0.0 (`hanneskaeufler/crytic`) **builds and runs against Crystal
-1.20.3.** Its `shard.yml` nominally targets Crystal 1.12.1 (constraint
-`>= 1.0, < 2.0`), but it compiled cleanly via its `make bin` postinstall and ran
-a full mutation session on `src/agent_apropos/cli.cr`: **10 mutations, 10 killed, MSI
-100%.** So `make mutate` is wired to run crytic for real.
-
-Maintenance note: crytic is single-maintainer and effectively dormant (last
-tagged release v9.0.0, May 2024; an unreleased master commit bumps it toward
-Crystal 1.18.2). Expect it to trail the latest Crystal. Re-run this spike on
-each Crystal upgrade.
+Coverage proves a line ran. It proves nothing about whether anything asserted on
+what the line did, and an agent optimising for a green gate can satisfy 100%
+coverage with a spec that calls a function and looks at nothing. `valid_glob?`
+had been at 100% coverage since it was written and reported `"!["` as a valid
+glob while reporting `"[abc"` invalid, though both are unterminated brackets.
 
 ## Running it
 
-Crytic is installed on demand into the gitignored `.crytic/` directory, kept out
-of the main dependency graph so CI never builds it.
-
 ```sh
-make mutate SUBJECT=src/agent_apropos/matcher.cr   # mutate one module
-make mutate                                  # list recommended targets
+make mutate                                    # the changed lines, same as CI
+make mutate ARGS="--base main"                 # against a different base
+make mutate ARGS="src/agent_apropos/index.cr"  # one file in full, ignoring the diff
 ```
 
-Workflow: run crytic on the module you touched; **kill every survivor or
-consciously justify it in the PR description.** A survivor is a mutation your
-specs failed to catch — usually a missing assertion or an untested branch.
+The engine is [universalmutator](https://github.com/agroce/universalmutator),
+pinned by hash in `tool/mutate/requirements.txt`. It has no coupling to any
+language toolchain, which is why it replaced crytic — that compiled against the
+Crystal compiler and went stale the moment the toolchain moved.
 
-## Fallback: manual mutation
+A run derives the changed files from the merge-base of the PR base and head,
+generates mutants, discards any that fail a parse check or a no-codegen build,
+then runs the module's sibling spec against each with a timeout. A timeout
+counts as killed. Anything that survives its sibling spec is re-checked against
+the whole suite, because the narrow run over-reports; a full-suite kill counts.
+What still survives is matched against the ignore list and the rest is reported.
 
-If crytic fails to build against the target Crystal (the `make mutate` target
-prints this and exits non-zero), run a manual mutation session on the same
-modules — deliberately flip operators and boundaries by hand and confirm a spec
-fails for each. Checklist:
+## Resolving a survivor
 
-- Flip boolean operators (`&&` ↔ `||`) and comparisons (`<` ↔ `<=`, `==` ↔ `!=`).
-- Change numeric and string literals (off-by-one, empty vs non-empty).
-- Negate conditionals (`if x` → `if !x`) and swap early-return branches.
-- Remove a guard clause and confirm a spec catches the regression.
+**A survivor is a suspected bug until you can justify the current behaviour.**
+The rule is in [`workflows/mutation.md`](conventions/workflows/mutation.md),
+which is a skill — it triggers when you commit or open a PR.
 
-Each flip must make at least one spec fail. Any that doesn't is a coverage gap —
-add the assertion, then revert the flip.
+| The mutated behaviour is... | Do |
+|---|---|
+| wrong, and the current behaviour cannot be justified | fix the code, and name the fix in the commit body |
+| right | add the pinning spec, with the example's description saying *why* it is right |
+| unobservable either way | add a `tool/mutate/ignore.json` entry with its reason |
+
+Reaching for the assertion first is the failure mode this gate exists to
+prevent: it is the cheapest path to green, and it would have frozen the
+`valid_glob?` bug into the suite as intended behaviour.
+
+## The reviewed lists
+
+Three checked-in JSON files under `tool/mutate/`, each carrying its own `note`.
+All three fail the run when an entry goes stale, because an entry that no longer
+describes anything is a silent hole in the gate — and a file that will not parse
+fails the run too, rather than reading as an empty list.
+
+| File | Holds |
+|---|---|
+| `ignore.json` | Equivalent mutants, keyed on path, occurrence, and the original and mutated text |
+| `no-spec.json` | Tracked source files with no sibling spec, and why they carry nothing to mutate |
+| `clean.json` | Source files verified at a 100% mutation score |
+
+## The operator set
+
+`tool/mutate/crystal.rules` transliterates the operator classes universalmutator
+ships rather than inventing a set: a score against operators we designed would
+attest to less, because the same blind spot that shaped the code would have
+shaped the operators. Every shipped rules file is accounted for there, and
+`make mutate-rules-spec` enforces that.
+
+Every mutant that fails the compile gate is a compile spent for nothing, so what
+matters is how many generated mutants are Crystal at all. Measured against the
+same module and the same gate the runner uses, the Crystal rules roughly double
+the stock rate:
+
+| Module | Crystal rules | Stock rules |
+|---|---|---|
+| `src/agent_apropos/matcher.cr` | 26% | 13% |
+| `src/agent_apropos/index.cr` | 14% | 10% |
+
+Loop-control insertion holds that number down — `break` and `next` are legal
+only inside a loop or a block, so on straight-line code the class yields nothing.
+It is carried anyway; dropping an operator because it is inconvenient on our own
+code is the self-selection the transliteration rule exists to prevent.
+
+## How much of a file gets mutated
+
+Touch a file that `tool/mutate/clean.json` does not name and the gate mutates it
+**in full**: there is no evidence its untouched lines are pinned, so bringing it
+to zero survivors is part of your change. That is the whole backfill programme —
+existing code reaches the standard as it is worked on, not through sweeps
+somebody has to remember to run.
+
+Touch a file the list *does* name and the gate mutates only your changed lines,
+because CI already proved the rest. A run that brings a new file to zero
+survivors prints the line to add.
+
+Changing a spec file mutates its module in full either way: deleting an
+assertion changes no source line, so a gate that only saw changed source lines
+would wave it through.
+
+The list is deliberately a record of what is done rather than what is left. An
+entry that is missing costs time — the file gets mutated in full — instead of
+silently weakening the gate, and every entry is re-checked the next time that
+file is touched.
+
+## Local runs on a drifted toolchain
+
+The full-suite re-check runs `crystal spec`. If your devcontainer's Crystal has
+run ahead of the version `ci.yml` pins, that fails to compile `spec/tool/`
+(which requires ameba) and the gate aborts with a distinct error rather than
+scoring every mutant killed against a red tree. The fix is the drift, not the
+gate.

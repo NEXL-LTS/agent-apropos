@@ -32,16 +32,18 @@ module AgentApropos
       path_hits = matching_paths(paths, path)
       return nil if path_hits.empty? && !paths.empty?
 
-      return nil if content.nil? && !contents.empty?
       content_hits = content ? matching_contents(contents, content) : [] of String
       return nil if content_hits.empty? && !contents.empty?
 
       path_hits + content_hits
     end
 
+    WELL_FORMED_GLOB = /\A(?:[^\[\\]|\\[\s\S]|\[\^?(?:\\[\s\S]|[^\\])(?:\\[\s\S]|[^\]\\])*\])*\z/
+
     def valid_glob?(pattern : String) : Bool
-      sample = pattern.gsub(/[*?\[\]!]/, "a")
-      File.match?(pattern, sample)
+      return false unless WELL_FORMED_GLOB.matches?(pattern)
+
+      File.match?(pattern, pattern)
       true
     rescue File::BadPatternError
       false

@@ -7,8 +7,6 @@ module AgentApropos
     SEPARATOR = "\n\n---\n\n"
 
     def context(docs : Array({String, String})) : String
-      return "" if docs.empty?
-
       full = docs.map { |(path, body)| "Convention (#{path}):\n\n#{body}" }.join(SEPARATOR)
       full.size <= CHAR_CAP ? full : summarized(docs)
     end

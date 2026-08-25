@@ -21,9 +21,9 @@ even where the global Crystal cache is not writable.
 - `make devcontainer-spec` — bats tests for `.devcontainer/initialize.sh` (deterministic, offline)
 - `make installer-spec` — bats tests for `install.sh`'s platform gate (deterministic, offline)
 - `make plans-check` — fail if any plan doc is committed under `docs/plans/` (plans are deleted in the PR that implements them); `make plans-spec` runs its bats tests
-- `make check` — lint + spec + dup + devcontainer-spec + hooks-spec + installer-spec + plans checks (the fast local gate)
+- `make check` — lint + spec + dup + devcontainer-spec + hooks-spec + installer-spec + mutate-spec + plans checks (the fast local gate)
 - `make coverage` — run specs under kcov and enforce the 100% line-coverage gate
-- `make mutate SUBJECT=src/agent_apropos/<module>.cr` — advisory mutation testing (see `docs/mutation-testing.md`)
+- `make mutate` — the mutation gate on the lines the change touched; blocking in CI. A file `tool/mutate/clean.json` does not name is mutated in full, and clearing it is part of your change. A survivor is a suspected bug, not a missing assertion — see `docs/mutation-testing.md`. `make mutate-rules-spec` covers the operator set (slow; needs the engine)
 - `make e2e` (or `bash e2e/run.sh`) — the **live** end-to-end suite: this is what "e2e tests" means
   in this repo. A bats suite (`e2e/tests/`) that runs real, authenticated CLI agents (Claude Code,
   OpenCode, and GitHub Copilot CLI by default; Gemini is opt-in via `E2E_GEMINI=1`) against a sample
@@ -34,7 +34,7 @@ even where the global Crystal cache is not writable.
 
 ## Universal rules
 
-- Development is spec-first: write the failing spec, then the implementation. Every milestone ends green — specs pass, coverage 100%, ameba clean.
+- Development is spec-first: write the failing spec, then the implementation. Every milestone ends green — specs pass, coverage 100%, ameba clean, and `make mutate` reports no survivor on the lines you changed. Coverage says a line ran; the mutation gate says a spec noticed what it did, and `make check` does not run it.
 - Hook code paths must **fail open**: on any internal error, exit 0 and emit nothing. A conventions tool must never block or break an edit. Never let an exception escape a `hook` subcommand.
 - Isolate all filesystem, stdin, and process I/O behind small injectable adapters so error paths are unit-testable. Do not call `STDIN`/`STDOUT`/`File` directly from logic modules; pass IO in.
 - `generate` output must be byte-stable across runs and platforms (sorted walks, LF endings, no timestamps). Determinism is a prerequisite for the `--check` drift gate.

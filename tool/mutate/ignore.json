@@ -1,0 +1,47 @@
+{
+  "note": "Reviewed equivalent mutants: a mutant that CANNOT change observable behaviour. Anything that could behave differently gets a fix or a pinning spec instead. `occurrence` is the 1-based index of `original` among identically-trimmed lines in the file; text is trimmed, with an inserted line folded on as a literal \\n. See docs/mutation-testing.md.",
+  "equivalent": [
+    {
+      "path": "src/agent_apropos/rendering.cr",
+      "occurrence": 1,
+      "original": "def context(docs : Array({String, String})) : String",
+      "mutated": "def context(docs : Array( { String,String})) : String",
+      "reason": "whitespace inside a type annotation; the argument-swap operator moved spaces, not arguments. The tuple's element types stay in the same positions, so the declared type is identical."
+    },
+    {
+      "path": "src/agent_apropos/rendering.cr",
+      "occurrence": 1,
+      "original": "private def summarized(docs : Array({String, String})) : String",
+      "mutated": "private def summarized(docs : Array( { String,String})) : String",
+      "reason": "the same whitespace-only type-annotation shuffle as the context entry above; the declared type is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/rendering.cr",
+      "occurrence": 1,
+      "original": "body.split(\"\\n\\n\", 2).first.strip",
+      "mutated": "body.split(\"\\n\\n\", (2+1)).first.strip",
+      "reason": "only .first is read, so every limit of 2 or more yields the same element; 2 is simply the cheapest of them."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "protected abstract def config_content(existing : String?, options : Init::Options) : String",
+      "mutated": "protected abstract def config_content( options : String?,existing : Init::Options) : String",
+      "reason": "abstract declaration with no body: the argument-swap operator exchanged parameter NAMES while leaving the types in place, and Crystal neither checks an override's names against the abstract def nor has a caller here passing them by name."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "protected abstract def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check",
+      "mutated": "protected abstract def hook_check( fs : Path,repo_root : Filesystem, env : Environment) : Check",
+      "reason": "same names-only swap on an abstract declaration as the config_content entry above."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "protected abstract def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check",
+      "mutated": "protected abstract def hook_check(repo_root : Path, env : Filesystem, fs : Environment) : Check",
+      "reason": "same names-only swap on an abstract declaration, this time on the second and third parameters."
+    }
+  ]
+}

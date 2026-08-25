@@ -1,0 +1,17 @@
+{
+  "note": "Reviewed exemptions from the sibling-spec rule (src/a/b.cr -> spec/a/b_spec.cr). A file belongs here only when it carries no mutable construct.",
+  "exempt": [
+    {
+      "path": "src/agent_apropos.cr",
+      "reason": "binary entry point: one delegating line, driven end to end by the integration specs as a subprocess. Already the coverage gate's one documented exclusion (scripts/coverage.sh)."
+    },
+    {
+      "path": "src/agent_apropos/check.cr",
+      "reason": "a bare `record` declaration with no method body to mutate."
+    },
+    {
+      "path": "src/agent_apropos/errors.cr",
+      "reason": "an empty exception subclass with no method body to mutate."
+    }
+  ]
+}
