@@ -40,7 +40,7 @@ which is a skill — it triggers when you commit or open a PR.
 |---|---|
 | wrong, and the current behaviour cannot be justified | fix the code, and name the fix in the commit body |
 | right | add the pinning spec, with the example's description saying *why* it is right |
-| unobservable either way | add a `tool/mutate/ignore.txt` entry with its reason |
+| unobservable either way | add a `tool/mutate/ignore.json` entry with its reason |
 
 Reaching for the assertion first is the failure mode this gate exists to
 prevent: it is the cheapest path to green, and it would have frozen the
@@ -48,15 +48,16 @@ prevent: it is the cheapest path to green, and it would have frozen the
 
 ## The reviewed lists
 
-Three checked-in files under `tool/mutate/`, each documenting its own format.
+Three checked-in JSON files under `tool/mutate/`, each carrying its own `note`.
 All three fail the run when an entry goes stale, because an entry that no longer
-describes anything is a silent hole in the gate.
+describes anything is a silent hole in the gate — and a file that will not parse
+fails the run too, rather than reading as an empty list.
 
 | File | Holds |
 |---|---|
-| `ignore.txt` | Equivalent mutants, keyed on path, occurrence, and the original and mutated text |
-| `no-spec.txt` | Tracked source files with no sibling spec, and why they carry nothing to mutate |
-| `clean.txt` | Source files verified at a 100% mutation score |
+| `ignore.json` | Equivalent mutants, keyed on path, occurrence, and the original and mutated text |
+| `no-spec.json` | Tracked source files with no sibling spec, and why they carry nothing to mutate |
+| `clean.json` | Source files verified at a 100% mutation score |
 
 ## The operator set
 
@@ -83,7 +84,7 @@ code is the self-selection the transliteration rule exists to prevent.
 
 ## How much of a file gets mutated
 
-Touch a file that `tool/mutate/clean.txt` does not name and the gate mutates it
+Touch a file that `tool/mutate/clean.json` does not name and the gate mutates it
 **in full**: there is no evidence its untouched lines are pinned, so bringing it
 to zero survivors is part of your change. That is the whole backfill programme —
 existing code reaches the standard as it is worked on, not through sweeps

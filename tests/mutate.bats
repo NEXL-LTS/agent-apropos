@@ -138,14 +138,33 @@ CR
   # Committed up front, so the new-file case's diff is the source file alone.
   printf 'it works\n' >"$REPO/spec/lib/fresh_spec.cr"
   printf 'a ==> b\n' >"$REPO/tool/mutate/crystal.rules"
-  : >"$REPO/tool/mutate/ignore.txt"
-  : >"$REPO/tool/mutate/no-spec.txt"
-  printf 'src/lib/thing.cr\n' >"$REPO/tool/mutate/clean.txt"
+  printf '{"equivalent":[]}\n' >"$REPO/tool/mutate/ignore.json"
+  printf '{"exempt":[]}\n' >"$REPO/tool/mutate/no-spec.json"
+  set_clean src/lib/thing.cr
   printf '# docs\n' >"$REPO/docs/readme.md"
 
   git -C "$REPO" add -A
   git -C "$REPO" commit --quiet -m 'base'
   BASE="$(git -C "$REPO" rev-parse HEAD)"
+}
+
+set_clean() { jq -n '$ARGS.positional | {clean: .}' --args "$@" >"$REPO/tool/mutate/clean.json"; }
+
+add_clean() {
+  jq --arg path "$1" '.clean += [$path]' "$REPO/tool/mutate/clean.json" >"$BATS_TEST_TMPDIR/c.json"
+  mv "$BATS_TEST_TMPDIR/c.json" "$REPO/tool/mutate/clean.json"
+}
+
+set_exempt() {
+  jq -n --arg path "$1" --arg reason "$2" '{exempt: [{path: $path, reason: $reason}]}' \
+    >"$REPO/tool/mutate/no-spec.json"
+}
+
+set_ignore() {
+  jq -n --arg path "$1" --argjson occurrence "$2" --arg original "$3" --arg mutated "$4" \
+    --arg reason "$5" \
+    '{equivalent: [{path: $path, occurrence: $occurrence, original: $original, mutated: $mutated, reason: $reason}]}' \
+    >"$REPO/tool/mutate/ignore.json"
 }
 
 commit_all() {
@@ -282,8 +301,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 @test "a survivor matching a reviewed ignore-list entry passes the gate" {
   export STUB_SIBLING_SURVIVES=1
   printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
-  printf 'src/lib/thing.cr\t1\tvalue + 2\tMUTANT\tcannot change observable behaviour\n' \
-    >"$REPO/tool/mutate/ignore.txt"
+  set_ignore src/lib/thing.cr 1 'value + 2' MUTANT 'cannot change observable behaviour'
   commit_all
 
   run_gate --base "$BASE"
@@ -295,8 +313,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 @test "an ignore-list entry suppresses only the occurrence it names" {
   export STUB_SIBLING_SURVIVES=1
   printf 'def widen(value)\n  value + 2\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
-  printf 'src/lib/thing.cr\t1\tvalue + 2\tMUTANT\treviewed: the first one only\n' \
-    >"$REPO/tool/mutate/ignore.txt"
+  set_ignore src/lib/thing.cr 1 'value + 2' MUTANT 'reviewed: the first one only'
   commit_all
 
   run_gate --base "$BASE"
@@ -307,8 +324,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 }
 
 @test "an ignore-list entry whose original text is gone is reported as stale" {
-  printf 'src/lib/thing.cr\t1\tvalue + 999\tMUTANT\tno longer present\n' \
-    >"$REPO/tool/mutate/ignore.txt"
+  set_ignore src/lib/thing.cr 1 'value + 999' MUTANT 'no longer present'
   commit_all
 
   run_gate --base "$BASE"
@@ -333,7 +349,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 @test "a reviewed exemption stands in for a missing sibling spec" {
   export STUB_FULL_SUITE_KILLS=1
   printf 'lonely\n' >"$REPO/src/lib/orphan.cr"
-  printf 'src/lib/orphan.cr\tno mutable construct\n' >"$REPO/tool/mutate/no-spec.txt"
+  set_exempt src/lib/orphan.cr 'no mutable construct'
   commit_all
 
   run_gate --base "$BASE"
@@ -342,7 +358,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 }
 
 @test "an exemption naming a file that is no longer tracked is reported as stale" {
-  printf 'src/lib/gone.cr\tdeleted last week\n' >"$REPO/tool/mutate/no-spec.txt"
+  set_exempt src/lib/gone.cr 'deleted last week'
   commit_all
 
   run_gate --base "$BASE"
@@ -352,7 +368,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 }
 
 @test "a clean-list entry naming a file that no longer exists is reported as stale" {
-  printf 'src/lib/gone.cr\n' >>"$REPO/tool/mutate/clean.txt"
+  add_clean src/lib/gone.cr
   commit_all
 
   run_gate --base "$BASE"
@@ -364,7 +380,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 @test "a module with no sibling spec falls back to the whole suite" {
   export STUB_FULL_SUITE_KILLS=1
   printf 'lonely\n' >"$REPO/src/lib/orphan.cr"
-  printf 'src/lib/orphan.cr\tdeclaration only\n' >"$REPO/tool/mutate/no-spec.txt"
+  set_exempt src/lib/orphan.cr 'declaration only'
   commit_all
 
   run_gate --base "$BASE"
@@ -375,7 +391,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 
 @test "a survivor in a no-sibling module is reported, not scored killed" {
   printf 'lonely\n' >"$REPO/src/lib/orphan.cr"
-  printf 'src/lib/orphan.cr\tdeclaration only\n' >"$REPO/tool/mutate/no-spec.txt"
+  set_exempt src/lib/orphan.cr 'declaration only'
   commit_all
 
   run_gate --base "$BASE"
@@ -386,7 +402,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 
 @test "the compile gate builds the entry point, never the spec directory" {
   printf 'lonely\n' >"$REPO/src/lib/orphan.cr"
-  printf 'src/lib/orphan.cr\tdeclaration only\n' >"$REPO/tool/mutate/no-spec.txt"
+  set_exempt src/lib/orphan.cr 'declaration only'
   commit_all
 
   run_gate --base "$BASE"
@@ -412,7 +428,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 # The widening has no condition: a module whose spec changed is mutated in full
 # whether or not it already carries a clean record.
 @test "changing the spec of a file with no clean record still mutates it in full" {
-  : >"$REPO/tool/mutate/clean.txt"
+  set_clean
   printf 'it works, harder\n' >"$REPO/spec/lib/thing_spec.cr"
   commit_all
 
@@ -425,7 +441,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 # The boy-scout rule: touch a file with no clean record and the whole file is in
 # scope, so bringing it to zero survivors is part of the change.
 @test "a changed file with no clean record is mutated in full" {
-  : >"$REPO/tool/mutate/clean.txt"
+  set_clean
   printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
   commit_all
 
@@ -450,20 +466,20 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 # Earning the record has to be visible, or nobody adds the entry and every later
 # change to that file keeps paying whole-file cost.
 @test "a file that reaches zero survivors is named for the clean list" {
-  : >"$REPO/tool/mutate/clean.txt"
+  set_clean
   printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
   commit_all
 
   run_gate --base "$BASE"
 
   assert_success
-  assert_output --partial 'Record them in tool/mutate/clean.txt'
+  assert_output --partial 'Record them in tool/mutate/clean.json'
   assert_output --partial '  src/lib/thing.cr'
 }
 
 @test "a file with survivors is not named for the clean list" {
   export STUB_SIBLING_SURVIVES=1
-  : >"$REPO/tool/mutate/clean.txt"
+  set_clean
   printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
   commit_all
 
@@ -538,7 +554,7 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 
 @test "two changed source files are both mutated" {
   printf 'it works\n' >"$REPO/spec/lib/second_spec.cr"
-  printf 'src/lib/second.cr\n' >>"$REPO/tool/mutate/clean.txt"
+  add_clean src/lib/second.cr
   printf 'def narrow(value)\n  value - 1\nend\n' >"$REPO/src/lib/second.cr"
   git -C "$REPO" add -A && git -C "$REPO" commit --quiet -m 'sibling for second'
   BASE="$(git -C "$REPO" rev-parse HEAD)"

@@ -11,9 +11,9 @@ root="$(git rev-parse --show-toplevel)"
 cd "$root"
 
 RULES="tool/mutate/crystal.rules"
-IGNORE_FILE="tool/mutate/ignore.txt"
-NO_SPEC_FILE="tool/mutate/no-spec.txt"
-CLEAN_FILE="tool/mutate/clean.txt"
+IGNORE_FILE="tool/mutate/ignore.json"
+NO_SPEC_FILE="tool/mutate/no-spec.json"
+CLEAN_FILE="tool/mutate/clean.json"
 
 MUTANT_SIBLING_TIMEOUT=30
 MUTANT_SUITE_TIMEOUT=180
@@ -62,10 +62,19 @@ done
 
 [ -f "$RULES" ] || die "$RULES is missing; the engine would silently generate nothing without it"
 
-list_entries() {
-  [ -f "$1" ] || return 0
-  sed -e 's/[[:space:]]*$//' -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' "$1"
-}
+command -v jq >/dev/null 2>&1 || die "jq is not on PATH; the reviewed lists are JSON"
+
+# Up front, because a jq failure inside a process substitution cannot abort the
+# run — a malformed list would otherwise read as an empty one.
+for list in "$IGNORE_FILE" "$NO_SPEC_FILE" "$CLEAN_FILE"; do
+  [ -f "$list" ] || die "$list is missing"
+  jq -e . "$list" >/dev/null 2>&1 || die "$list is not valid JSON"
+done
+
+# `join` rather than `@tsv`, which would escape the backslash in a folded `\n`.
+# Crystal source carries no tabs — the formatter forbids them — so a real tab is
+# an unambiguous delimiter for these single-line fields.
+records() { jq -r "$2 | join(\"\t\")" "$1"; }
 
 field() { printf '%s' "$1" | cut -d'	' -f"$2"; }
 
@@ -88,7 +97,7 @@ check_sibling_specs() {
     if ! git ls-files --error-unmatch -- "$path" >/dev/null 2>&1; then
       stale+=("$NO_SPEC_FILE names $path, which is no longer a tracked source file")
     fi
-  done < <(list_entries "$NO_SPEC_FILE")
+  done < <(records "$NO_SPEC_FILE" '.exempt[] | [.path, .reason]')
 
   while IFS= read -r src; do
     spec="$(sibling_spec_for "$src")"
@@ -102,7 +111,7 @@ check_sibling_specs() {
   done < <(tracked_sources)
 }
 
-verified_clean() { list_entries "$CLEAN_FILE" | cut -d'	' -f1; }
+verified_clean() { jq -r '.clean[]' "$CLEAN_FILE"; }
 
 check_clean_list() {
   local path
@@ -133,7 +142,7 @@ check_ignore_list() {
     count="$(occurrences_of "$original" "$path")"
     [ "$count" -ge "$occurrence" ] ||
       stale+=("$IGNORE_FILE entry for $path occurrence $occurrence no longer matches any line: ${original}")
-  done < <(list_entries "$IGNORE_FILE")
+  done < <(records "$IGNORE_FILE" '.equivalent[] | [.path, (.occurrence|tostring), .original, .mutated]')
 }
 
 # Via the environment, not `awk -v`: that expands backslash escapes in the value,
@@ -152,7 +161,7 @@ ignored_mutant() {
     [ "$(field "$entry" 3)" = "$original" ] || continue
     [ "$(field "$entry" 4)" = "$mutated" ] || continue
     return 0
-  done < <(list_entries "$IGNORE_FILE")
+  done < <(records "$IGNORE_FILE" '.equivalent[] | [.path, (.occurrence|tostring), .original, .mutated]')
   return 1
 }
 

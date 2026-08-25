@@ -11,7 +11,7 @@ If you cannot justify what the code currently does, fix the code and name the
 fix in the commit body. Only when the current behaviour is genuinely intended
 do you add the pinning spec, with the example's description saying why that
 behaviour is right. A mutant that provably cannot change observable behaviour
-gets a reviewed entry in `tool/mutate/ignore.txt`. There is no fourth option
+gets a reviewed entry in `tool/mutate/ignore.json`. There is no fourth option
 and no bypass switch.
 
 **Why:** The 100% line-coverage gate proves a line ran, not that anything looked
@@ -28,7 +28,7 @@ restates the code. If the sentence would still be true when the behaviour was
 wrong, it is not a justification.
 
 **Watch out:** `make check` does not run the gate, and CI blocks on it. If you
-touch a file `tool/mutate/clean.txt` does not name, the gate mutates that file
+touch a file `tool/mutate/clean.json` does not name, the gate mutates that file
 in full and clearing it is part of your change — add the file to the list when
 it reaches zero survivors, or the next change to it pays the same cost again.
 
@@ -36,8 +36,8 @@ it reaches zero survivors, or the next change to it pays the same cost again.
 
 - Every new or changed example's description says what behaviour is right, not
   which line it reaches.
-- Any new entry in `tool/mutate/ignore.txt` or `no-spec.txt` carries a reason a
-  reviewer can disagree with; a new `clean.txt` entry is backed by a run of that
+- Any new entry in `tool/mutate/ignore.json` or `no-spec.json` carries a reason a
+  reviewer can disagree with; a new `clean.json` entry is backed by a run of that
   file reporting zero survivors.
 - A source fix is named in the commit body.
 - No example calls a function without asserting on its result.

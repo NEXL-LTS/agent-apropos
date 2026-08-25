@@ -294,8 +294,13 @@ jobs:
         with:
           crystal: 1.20.3
 
+      # jq reads the reviewed lists. The runner-image preinstall is not something
+      # to bet a 20-minute job on, and the `test` job installs it too.
       - name: Install dependencies
-        run: shards install
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends jq
+          shards install
 
       # Same pin, same flags as .devcontainer/Dockerfile — see
       # tool/mutate/requirements.txt for why --no-deps is deliberate.

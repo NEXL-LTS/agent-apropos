@@ -1,0 +1,8 @@
+{
+  "note": "Source files verified at a 100% mutation score. A file joins this list in the PR that brings it to zero survivors. Touch a file that is not here and the gate mutates it in full; touch one that is and only your changed lines are mutated. See docs/mutation-testing.md.",
+  "clean": [
+    "src/agent_apropos/matcher.cr",
+    "src/agent_apropos/rendering.cr",
+    "src/agent_apropos/agents/agent.cr"
+  ]
+}
