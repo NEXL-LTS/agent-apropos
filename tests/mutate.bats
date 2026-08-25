@@ -104,8 +104,10 @@ STUB
 
   cat >"$STUBS/timeout" <<'STUB'
 #!/usr/bin/env bash
-if [ -n "${STUB_MUTANT_TIMES_OUT:-}" ] && find src -name '*.cr' -exec grep -lq MUTANT {} + 2>/dev/null; then
-  exit 124
+if find src -name '*.cr' -exec grep -lq MUTANT {} + 2>/dev/null; then
+  [ -n "${STUB_MUTANT_TIMES_OUT:-}" ] && exit 124
+  # A bare `crystal spec` is the whole-suite re-check.
+  if [ -n "${STUB_SUITE_TIMES_OUT:-}" ] && [ "$#" -eq 4 ]; then exit 124; fi
 fi
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -539,6 +541,19 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   assert_equal "$(tr -d ' \n' <"$STUB_LINES_SEEN")" "2"
 }
 
+# The full-suite re-check's status used to be discarded, so a suite that always
+# timed out scored every mutant killed while the guard saw no timeouts at all.
+@test "a full-suite re-check that times out counts toward the degraded guard" {
+  export STUB_SIBLING_SURVIVES=1 STUB_SUITE_TIMES_OUT=1
+  printf 'one\ntwo\nthree\nfour\nfive\nsix\n' >"$REPO/src/lib/thing.cr"
+  commit_all
+
+  run_gate --base "$BASE"
+
+  assert_failure 2
+  [[ "$stderr" == *'too degraded to trust'* ]] || fail "expected a degraded-run error: $stderr"
+}
+
 @test "a storm of timing-out mutants fails rather than reading as all killed" {
   export STUB_SIBLING_SURVIVES=1 STUB_MUTANT_TIMES_OUT=1
   printf 'one\ntwo\nthree\nfour\nfive\nsix\n' >"$REPO/src/lib/thing.cr"
@@ -595,6 +610,74 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   assert_success
   assert_equal "$(cat "$REPO/src/lib/a/b.cr")" "first"
   assert_equal "$(cat "$REPO/src/lib/a_b.cr")" "second"
+}
+
+# --- the clean list has to be earned ---------------------------------------
+
+# A change could otherwise add its own file to the list and collect
+# changed-line-only scope on the strength of a claim nothing has checked.
+@test "a clean entry added by this change does not count yet" {
+  add_clean src/lib/orphan.cr
+  printf 'lonely\nand untested\n' >"$REPO/src/lib/orphan.cr"
+  printf 'it works\n' >"$REPO/spec/lib/orphan_spec.cr"
+  commit_all
+
+  run_gate --base "$BASE"
+
+  assert_success
+  assert_output --partial 'src/lib/orphan.cr (whole file; no 100% record yet)'
+}
+
+# Taking a file off the list is how you say it regressed, so that has to bite
+# immediately rather than waiting for the base to catch up.
+@test "a clean entry removed by this change stops counting immediately" {
+  set_clean
+  printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
+  commit_all
+
+  run_gate --base "$BASE"
+
+  assert_success
+  assert_output --partial 'src/lib/thing.cr (whole file; no 100% record yet)'
+}
+
+# `grep -q` exits at the first match, so git takes SIGPIPE finishing the write
+# and `pipefail` turns the whole probe non-zero — reporting a broken diff on a
+# perfectly good large one. Needs a diff bigger than a pipe buffer to show up,
+# so the bulk here is deletions: lots of diff text, no lines to mutate.
+@test "a diff too large for a pipe buffer is still parsed" {
+  seq 1 40000 | sed 's/^/# line /' >"$REPO/src/lib/bulk.cr"
+  printf 'it works\n' >"$REPO/spec/lib/bulk_spec.cr"
+  add_clean src/lib/bulk.cr
+  git -C "$REPO" add -A && git -C "$REPO" commit --quiet -m bulk
+  BASE="$(git -C "$REPO" rev-parse HEAD)"
+
+  printf '# line 1\n' >"$REPO/src/lib/bulk.cr"
+  printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
+  commit_all
+
+  run_gate --base "$BASE"
+
+  assert_success
+  refute_output --partial 'no line set can be derived'
+  assert_output --partial 'src/lib/thing.cr (1 changed lines)'
+}
+
+# --- the engine's scratch ---------------------------------------------------
+
+# Quoting the patterns would hand `rm` the literal names and clean nothing.
+@test "the engine's scratch files do not survive a run" {
+  printf 'def widen(value)\n  value + 2\nend\n' >"$REPO/src/lib/thing.cr"
+  commit_all
+  touch "$REPO/.tmp_mutant.4242.cr" "$REPO/.um.mutant_output.4242"
+  touch "$REPO/src/lib/thing.cr.um.backup.4242"
+
+  run_gate --base "$BASE"
+
+  assert_success
+  [ ! -e "$REPO/.tmp_mutant.4242.cr" ] || fail "left .tmp_mutant.4242.cr behind"
+  [ ! -e "$REPO/.um.mutant_output.4242" ] || fail "left .um.mutant_output.4242 behind"
+  [ ! -e "$REPO/src/lib/thing.cr.um.backup.4242" ] || fail "left the engine's backup behind"
 }
 
 # --- arguments -------------------------------------------------------------

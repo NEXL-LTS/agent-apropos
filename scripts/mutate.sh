@@ -111,14 +111,36 @@ check_sibling_specs() {
   done < <(tracked_sources)
 }
 
-verified_clean() { jq -r '.clean[]' "$CLEAN_FILE"; }
+# A file counts as clean only if the merge base AND the working tree both say so.
+# The base half stops a change adding an entry and spending it in the same
+# breath — the claim has not been proved by any run yet, so the file is mutated
+# in full, which is what proves it. The working-tree half honours a removal:
+# taking a file off the list is how you say it regressed.
+verified_clean() {
+  [ -n "$base_clean" ] || return 0
+  jq -r '.clean[]' "$CLEAN_FILE" | grep -Fxf <(printf '%s\n' "$base_clean") || true
+}
 
+load_base_clean() {
+  local json
+  if json="$(git show "$1:$CLEAN_FILE" 2>/dev/null)" &&
+    jq -e . <<<"$json" >/dev/null 2>&1; then
+    base_clean="$(jq -r '.clean[]' <<<"$json")"
+  else
+    base_clean=""
+  fi
+}
+
+base_clean=""
+
+# The file as committed, not the intersection: a stale entry is stale whether or
+# not the base agrees, and this runs before the base list is loaded.
 check_clean_list() {
   local path
   while IFS= read -r path; do
     [ -f "$path" ] ||
       stale+=("$CLEAN_FILE names $path, which no longer exists")
-  done < <(verified_clean)
+  done < <(jq -r '.clean[]' "$CLEAN_FILE")
 }
 
 is_clean() {
@@ -201,7 +223,7 @@ diff_names_a_file() {
   local merge_base="$1"
   shift
   git diff --unified=0 --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ \
-    "$merge_base" -- "$@" | grep -q '^+++ b/'
+    "$merge_base" -- "$@" | grep '^+++ b/' >/dev/null
 }
 
 changed_files_matching() {
@@ -254,13 +276,12 @@ restore_sources() {
     if [ -f "$backup" ]; then cp "$backup" "$src" || echo "error: could not restore $src from $backup" >&2; fi
   done <"$restore_list" || true
   rm -rf "$workdir" || true
-  # The engine leaves these in the working tree.
-  rm -f ".tmp_mutant.$engine_pid_glob.cr" ".um.mutant_output.$engine_pid_glob" 2>/dev/null || true
-  find src -name "*.um.backup.$engine_pid_glob" -delete 2>/dev/null || true
+  # The engine leaves these in the working tree. Unquoted: quoting them would
+  # hand `rm` the literal pattern and clean nothing.
+  rm -f .tmp_mutant.*.cr .um.mutant_output.* 2>/dev/null || true
+  find src -name '*.um.backup.*' -delete 2>/dev/null || true
   exit "$status"
 }
-
-engine_pid_glob='*'
 
 interrupt() {
   local status="$1"
@@ -399,7 +420,12 @@ mutate_file() {
       cp "$backup" "$src"
       ensure_full_suite_green
       cp "$mutant" "$src"
-      if [ "$spec_target" = "spec" ] || run_spec spec; then
+      local suite_status=0
+      if [ "$spec_target" != "spec" ]; then
+        run_spec spec || suite_status=$?
+        [ "$suite_status" -eq 124 ] && timed_out=$((timed_out + 1))
+      fi
+      if [ "$suite_status" -eq 0 ]; then
         cp "$backup" "$src"
         if ignored_mutant "$src" "$occurrence" "$original" "$mutated"; then
           killed=$((killed + 1))
@@ -478,6 +504,8 @@ else
   else
     die "no base ref: pass --base <ref>, or set GITHUB_BASE_REF, or configure origin/HEAD"
   fi
+
+  load_base_clean "$merge_base"
 
   while IFS=' ' read -r file line; do
     [ -n "$file" ] || continue
