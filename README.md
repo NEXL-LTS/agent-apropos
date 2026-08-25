@@ -90,7 +90,7 @@ make install          # builds the release binary into $PREFIX/bin (default ~/.l
 ### Pinning a version in another repo's Dockerfile
 
 ```dockerfile
-ARG AGENT_APROPOS_VERSION=v0.5.0
+ARG AGENT_APROPOS_VERSION=v0.4.2
 
 RUN curl -fsSL "https://raw.githubusercontent.com/NEXL-LTS/agent-apropos/${AGENT_APROPOS_VERSION}/install.sh" -o /tmp/install.sh \
     && AGENT_APROPOS_VERSION=${AGENT_APROPOS_VERSION} AGENT_APROPOS_BIN_DIR=/usr/local/bin sh /tmp/install.sh \

@@ -6,6 +6,5 @@
 # mutates only your changed lines. Adding an entry is therefore a claim CI
 # re-checks every time that file is next touched.
 src/agent_apropos/matcher.cr
-src/agent_apropos/version.cr
 src/agent_apropos/rendering.cr
 src/agent_apropos/agents/agent.cr
