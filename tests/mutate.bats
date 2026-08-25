@@ -105,6 +105,8 @@ STUB
   cat >"$STUBS/timeout" <<'STUB'
 #!/usr/bin/env bash
 if find src -name '*.cr' -exec grep -lq MUTANT {} + 2>/dev/null; then
+  # 137 is what GNU timeout returns when --kill-after had to SIGKILL.
+  [ -n "${STUB_MUTANT_IGNORES_TERM:-}" ] && exit 137
   [ -n "${STUB_MUTANT_TIMES_OUT:-}" ] && exit 124
   # A bare `crystal spec` is the whole-suite re-check.
   if [ -n "${STUB_SUITE_TIMES_OUT:-}" ] && [ "$#" -eq 4 ]; then exit 124; fi
@@ -545,6 +547,19 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
 # timed out scored every mutant killed while the guard saw no timeouts at all.
 @test "a full-suite re-check that times out counts toward the degraded guard" {
   export STUB_SIBLING_SURVIVES=1 STUB_SUITE_TIMES_OUT=1
+  printf 'one\ntwo\nthree\nfour\nfive\nsix\n' >"$REPO/src/lib/thing.cr"
+  commit_all
+
+  run_gate --base "$BASE"
+
+  assert_failure 2
+  [[ "$stderr" == *'too degraded to trust'* ]] || fail "expected a degraded-run error: $stderr"
+}
+
+# A mutant that ignores SIGTERM comes back as 137, not 124, so keying the
+# counter on the status alone let a hard-hanging storm read as ordinary kills.
+@test "mutants that had to be SIGKILLed count toward the degraded guard" {
+  export STUB_SIBLING_SURVIVES=1 STUB_MUTANT_IGNORES_TERM=1
   printf 'one\ntwo\nthree\nfour\nfive\nsix\n' >"$REPO/src/lib/thing.cr"
   commit_all
 

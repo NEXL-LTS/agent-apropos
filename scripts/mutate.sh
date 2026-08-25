@@ -324,9 +324,15 @@ ensure_full_suite_green() {
 
 # `crystal spec` execs a separate binary, which a timeout aimed at its direct
 # child would leave running — hence the session, and the group kill.
+# Set by run_spec: whether the timeout ended the run, however it had to. GNU
+# timeout exits 124 when SIGTERM was enough and 137 when the process ignored it
+# and --kill-after had to SIGKILL, so the status alone is not the signal.
+spec_timed_out=""
+
 run_spec() {
   local target="$1" limit="${2:-}" status=0
   local -a command=(crystal spec)
+  spec_timed_out=""
   if [ "$target" = "spec" ]; then
     limit="${limit:-$MUTANT_SUITE_TIMEOUT}"
   else
@@ -339,6 +345,9 @@ run_spec() {
   wait "$spec_leader" || status=$?
   kill -KILL -- -"$spec_leader" 2>/dev/null || true
   spec_leader=""
+  case "$status" in
+    124 | 137) spec_timed_out="yes" ;;
+  esac
   return "$status"
 }
 
@@ -413,7 +422,7 @@ mutate_file() {
     cp "$mutant" "$src"
     local status=0
     run_spec "$spec_target" || status=$?
-    [ "$status" -eq 124 ] && timed_out=$((timed_out + 1))
+    [ -n "$spec_timed_out" ] && timed_out=$((timed_out + 1))
     if [ "$status" -eq 0 ]; then
       # The sibling run over-reports: a mutant killed only by a non-sibling spec
       # survives it. Nothing wider to ask when the sibling WAS the whole suite.
@@ -423,7 +432,7 @@ mutate_file() {
       local suite_status=0
       if [ "$spec_target" != "spec" ]; then
         run_spec spec || suite_status=$?
-        [ "$suite_status" -eq 124 ] && timed_out=$((timed_out + 1))
+        [ -n "$spec_timed_out" ] && timed_out=$((timed_out + 1))
       fi
       if [ "$suite_status" -eq 0 ]; then
         cp "$backup" "$src"
