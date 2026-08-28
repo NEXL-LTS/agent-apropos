@@ -6,7 +6,12 @@ module AgentApropos
     class Error < AgentApropos::Error
     end
 
-    KNOWN_KEYS = ["paths", "contents", "skill", "description", "lint"]
+    enum Event
+      Write
+      Removed
+    end
+
+    KNOWN_KEYS = ["paths", "contents", "skill", "description", "lint", "on"]
 
     LINT_IGNORE = "ignore"
 
@@ -19,6 +24,7 @@ module AgentApropos
     getter description : String?
     getter lint : String?
     getter unknown_keys : Array(String)
+    getter events : Set(Event)
 
     def initialize(
       @paths = [] of String,
@@ -27,6 +33,7 @@ module AgentApropos
       @description = nil,
       @lint = nil,
       @unknown_keys = [] of String,
+      @events = Set{Event::Write},
     )
     end
 
@@ -76,6 +83,7 @@ module AgentApropos
         description: string(hash, "description"),
         lint: string(hash, "lint"),
         unknown_keys: unknown,
+        events: events(hash),
       )
     end
 
@@ -109,6 +117,28 @@ module AgentApropos
       str = value.as_s?
       raise Error.new("`#{key}` must be a string") if str.nil?
       str
+    end
+
+    private def self.events(hash) : Set(Event)
+      value = fetch(hash, "on") || fetch(hash, true)
+      return Set{Event::Write} if value.nil?
+
+      array = value.as_a?
+      raise Error.new("`on` must be a list of strings") if array.nil?
+
+      array.reduce(Set(Event).new) do |set, item|
+        name = item.as_s? || raise Error.new("`on` entries must be strings")
+        set << event(name)
+      end
+    end
+
+    private def self.event(name : String) : Event
+      case name
+      when "write"   then Event::Write
+      when "removed" then Event::Removed
+      else
+        raise Error.new("`on` has an unrecognized event: #{name}")
+      end
     end
   end
 end
