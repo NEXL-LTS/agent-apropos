@@ -47,7 +47,6 @@ module AgentApropos
           capturing = true
         end
       end
-      return nil unless capturing
 
       text = captured.join('\n').strip
       text.empty? ? nil : text
@@ -57,12 +56,15 @@ module AgentApropos
       frontmatter.reference_only?
     end
 
-    def triggers(relative_path : String, content : String?) : Array(String)?
+    def triggers(relative_path : String, content : String?,
+                 event : Frontmatter::Event = Frontmatter::Event::Write) : Array(String)?
+      return nil unless frontmatter.events.includes?(event)
       Matcher.triggers(frontmatter.paths, frontmatter.contents, relative_path, content)
     end
 
-    def triggers?(relative_path : String, content : String?) : Bool
-      !triggers(relative_path, content).nil?
+    def triggers?(relative_path : String, content : String?,
+                  event : Frontmatter::Event = Frontmatter::Event::Write) : Bool
+      !triggers(relative_path, content, event).nil?
     end
   end
 

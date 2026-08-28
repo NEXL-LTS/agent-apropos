@@ -37,7 +37,7 @@ describe AgentApropos::Index do
       document = AgentApropos::Index.build(conventions).to_document
 
       document.ends_with?("\n").should be_true
-      document.should contain("\"schema_version\": 2")
+      document.should contain("\"schema_version\": 3")
 
       loaded = AgentApropos::Index.load(document)
       loaded.should_not be_nil
@@ -65,6 +65,11 @@ describe AgentApropos::Index do
       stale = %({"schema_version": 1, "docs": []})
       AgentApropos::Index.load(stale).should be_nil
     end
+
+    it "returns nil for a schema 2 cache written before the removal event, forcing a rebuild" do
+      stale = %({"schema_version": 2, "docs": []})
+      AgentApropos::Index.load(stale).should be_nil
+    end
   end
 
   describe "Entry#triggers" do
@@ -87,6 +92,58 @@ describe AgentApropos::Index do
         convention("workflows/c.md", %(skill: true\ndescription: "Use when C")),
       ]).docs.first
       entry.triggers("any.cr", "any").should be_nil
+    end
+
+    it "an entry's events round-trip through the index document" do
+      entry = AgentApropos::Index.build([
+        convention("a.md", %(on: [write, removed]\npaths: ["app/**"])),
+      ]).docs.first
+      reloaded = AgentApropos::Index.load(AgentApropos::Index.new([entry]).to_document)
+        .as(AgentApropos::Index).docs.first
+      reloaded.events.should eq(Set{AgentApropos::Frontmatter::Event::Write, AgentApropos::Frontmatter::Event::Removed})
+    end
+
+    it "covers AE6: a doc with no on: key does not trigger for a removal" do
+      entry = AgentApropos::Index.build([convention("a.md", %(paths: ["app/**"]))]).docs.first
+      entry.triggers("app/m.cr", nil, AgentApropos::Frontmatter::Event::Removed).should be_nil
+    end
+
+    it "a write-only entry does not trigger for a removal" do
+      entry = AgentApropos::Index.build([
+        convention("a.md", %(on: [write]\npaths: ["app/**"])),
+      ]).docs.first
+      entry.triggers("app/m.cr", nil, AgentApropos::Frontmatter::Event::Removed).should be_nil
+    end
+
+    it "a removal-only entry does not trigger for a write" do
+      entry = AgentApropos::Index.build([
+        convention("a.md", %(on: [removed]\npaths: ["app/**"])),
+      ]).docs.first
+      entry.triggers("app/m.cr", nil).should be_nil
+    end
+
+    it "a both-events entry triggers for each event" do
+      entry = AgentApropos::Index.build([
+        convention("a.md", %(on: [write, removed]\npaths: ["app/**"])),
+      ]).docs.first
+      entry.triggers("app/m.cr", nil).should eq(["app/**"])
+      entry.triggers("app/m.cr", nil, AgentApropos::Frontmatter::Event::Removed).should eq(["app/**"])
+    end
+
+    it "ANDs path and content on a removal when content is supplied" do
+      entry = AgentApropos::Index.build([
+        convention("a.md", %(on: [removed]\npaths: ["app/**"]\ncontents: ['\\bx\\b'])),
+      ]).docs.first
+      entry.triggers("app/m.cr", "x", AgentApropos::Frontmatter::Event::Removed)
+        .should eq(["app/**", "\\bx\\b"])
+      entry.triggers("app/m.cr", "y", AgentApropos::Frontmatter::Event::Removed).should be_nil
+    end
+
+    it "a removal-only entry with a matching path and no content returns its path hits" do
+      entry = AgentApropos::Index.build([
+        convention("a.md", %(on: [removed]\npaths: ["app/**"])),
+      ]).docs.first
+      entry.triggers("app/m.cr", nil, AgentApropos::Frontmatter::Event::Removed).should eq(["app/**"])
     end
   end
 

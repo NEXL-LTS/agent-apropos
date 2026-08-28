@@ -3,7 +3,7 @@ require "./conventions"
 
 module AgentApropos
   struct Index
-    SCHEMA_VERSION = 2
+    SCHEMA_VERSION = 3
 
     struct Entry
       include JSON::Serializable
@@ -14,6 +14,7 @@ module AgentApropos
       getter paths : Array(String)
       getter contents : Array(String)
       getter description : String?
+      getter events : Set(Frontmatter::Event)
 
       def initialize(
         @path : String,
@@ -22,6 +23,7 @@ module AgentApropos
         @paths : Array(String),
         @contents : Array(String),
         @description : String?,
+        @events : Set(Frontmatter::Event),
       )
       end
 
@@ -34,10 +36,13 @@ module AgentApropos
           paths: fm.paths,
           contents: fm.contents,
           description: fm.description,
+          events: fm.events,
         )
       end
 
-      def triggers(relative_path : String, content : String?) : Array(String)?
+      def triggers(relative_path : String, content : String?,
+                   event : Frontmatter::Event = Frontmatter::Event::Write) : Array(String)?
+        return nil unless events.includes?(event)
         Matcher.triggers(paths, contents, relative_path, content)
       end
     end
@@ -60,7 +65,6 @@ module AgentApropos
       return nil unless index.schema_version == SCHEMA_VERSION
       index
     rescue JSON::ParseException
-      nil
     end
 
     def covers?(conventions : Array(Convention)) : Bool

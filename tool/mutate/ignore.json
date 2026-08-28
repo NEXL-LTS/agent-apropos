@@ -252,6 +252,34 @@
       "original": "removed << status_record_path(records[i]) if status[1]? == 'D'",
       "mutated": "removed << status_record_path(records[i]) if status[-1]? == 'D'",
       "reason": "status is always exactly the two-character slice records[i][0, 2], so index 1 and index -1 name the identical character; the mutation cannot change which records are treated as a worktree delete."
+    },
+    {
+      "path": "src/agent_apropos/index.cr",
+      "occurrence": 9,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `to_document`'s `String.build do |io| ... end` block, whose last statement is already `io << '\\n'`; `String.build` returns the IO's accumulated content, not the block's own return value, so `next` as the last statement changes nothing observable."
+    },
+    {
+      "path": "src/agent_apropos/conventions.cr",
+      "occurrence": 1,
+      "original": "elsif line.strip == \"## Verify\"",
+      "mutated": "next\\nelsif line.strip == \"## Verify\"",
+      "reason": "inserted as the last statement of the preceding `if capturing` branch, itself the last statement in the `each_line` block's body; `next` jumps to the next line, which is exactly what falling off the end of the block body already does."
+    },
+    {
+      "path": "src/agent_apropos/conventions.cr",
+      "occurrence": 7,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `if`/`elsif` chain inside `each_line`'s block, whose every branch is already the last statement in the block's body; `next` here is indistinguishable from normal fall-through no matter which branch ran, for the same reason as the `elsif` entry above."
+    },
+    {
+      "path": "src/agent_apropos/conventions.cr",
+      "occurrence": 8,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `each_line` block itself; `next` as the block's last statement moves to the next line, which is exactly what reaching this `end` already does."
     }
   ]
 }
