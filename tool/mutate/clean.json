@@ -7,6 +7,8 @@
     "src/agent_apropos/frontmatter.cr",
     "src/agent_apropos/git.cr",
     "src/agent_apropos/index.cr",
-    "src/agent_apropos/conventions.cr"
+    "src/agent_apropos/conventions.cr",
+    "src/agent_apropos/hook.cr",
+    "src/agent_apropos/hooks/payload.cr"
   ]
 }

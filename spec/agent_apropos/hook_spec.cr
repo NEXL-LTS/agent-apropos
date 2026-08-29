@@ -10,9 +10,10 @@ private A_PATH      = "#{REPO}/docs/conventions/a.md"
 private DB_PATH     = "#{REPO}/docs/conventions/db.md"
 private MODELS_PATH = "#{REPO}/docs/conventions/models.md"
 
-private A_DOC      = "---\npaths: [\"src/**\"]\n---\n# A\n\nBody of A.\n"
-private DB_DOC     = "---\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nUse transactions carefully.\n"
-private MODELS_DOC = "---\npaths: [\"app/**\"]\ncontents: ['\\bupdate_all\\b']\n---\n# Models\n\nAvoid update_all.\n"
+private A_DOC         = "---\npaths: [\"src/**\"]\n---\n# A\n\nBody of A.\n"
+private DB_DOC        = "---\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nUse transactions carefully.\n"
+private MODELS_DOC    = "---\npaths: [\"app/**\"]\ncontents: ['\\bupdate_all\\b']\n---\n# Models\n\nAvoid update_all.\n"
+private A_REMOVED_DOC = "---\non: [removed]\npaths: [\"src/**\"]\n---\n# A\n\nBody of A.\n"
 
 # A filesystem that rejects writes, so the persist-index and dedup-save paths
 # must degrade gracefully.
@@ -87,16 +88,21 @@ end
 
 private def invoke(event : Symbol, input : String, fs : AgentApropos::Filesystem,
                    override : String? = REPO, now : Time = NOW, verbose : Bool = false,
-                   tool : String? = nil) : {Int32, String}
+                   tool : String? = nil, git : AgentApropos::Git = FakeGit.new,
+                   allow_outside : Bool = false) : {Int32, String}
   stdout = IO::Memory.new
   reader = IO::Memory.new(input)
   code =
     if event == :pre
-      AgentApropos::Hook.pre(reader, stdout, fs, now, override, verbose, tool)
+      AgentApropos::Hook.pre(reader, stdout, fs, now, override, verbose, tool, allow_outside, git)
     else
-      AgentApropos::Hook.post(reader, stdout, fs, now, override, verbose, tool)
+      AgentApropos::Hook.post(reader, stdout, fs, now, override, verbose, tool, allow_outside, git)
     end
   {code, stdout.to_s}
+end
+
+private def shell_json(command : String, session_id : String? = "s", cwd : String? = REPO) : String
+  {session_id: session_id, tool_name: "Bash", cwd: cwd, tool_input: {command: command}}.to_json
 end
 
 describe AgentApropos::Hook do
@@ -290,6 +296,14 @@ describe AgentApropos::Hook do
       fs.removed.should eq([stale])
     end
 
+    it "keeps a log file exactly 7 days old, pinning the retention window's literal length" do
+      boundary = "#{REPO}/.cache/agent-apropos/logs/#{(NOW - 7.days).to_unix}-aaaaaa.log"
+      just_over = "#{REPO}/.cache/agent-apropos/logs/#{(NOW - 7.days - 1.second).to_unix}-bbbbbb.log"
+      fs = ExplodingFS.new(entries: [boundary, just_over])
+      invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
+      fs.removed.should eq([just_over])
+    end
+
     it "keeps the log directory bounded by count, dropping the oldest entries" do
       entries = (1..(AgentApropos::Hook::LOG_MAX_FILES + 5)).map do |index|
         "#{REPO}/.cache/agent-apropos/logs/#{(NOW - index.minutes).to_unix}-#{index}.log"
@@ -300,6 +314,15 @@ describe AgentApropos::Hook do
       fs.removed.size.should eq(5)
       fs.removed.should_not contain(entries.first)
       fs.removed.should contain(entries.last)
+    end
+
+    it "keeps exactly 200 log files and drops the 201st, pinning the count's literal value" do
+      entries = (1..201).map do |index|
+        "#{REPO}/.cache/agent-apropos/logs/#{(NOW - index.minutes).to_unix}-#{index}.log"
+      end
+      fs = ExplodingFS.new(entries: entries)
+      invoke(:pre, pre_json("src/app.cr"), fs, verbose: true)
+      fs.removed.should eq([entries.last])
     end
 
     it "leaves a log-directory entry alone when its name carries no timestamp" do
@@ -677,6 +700,303 @@ describe AgentApropos::Hook do
   # can live entirely outside the project — conventions are scoped to the
   # repo, so a match there would be meaningless noise at best and a leak of
   # repo-specific guidance into an unrelated file at worst.
+  describe "removal detection" do
+    it "covers AE8: reads no index and makes no git call for a command with no removal verb" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      git = FakeGit.new
+      code, stdout = invoke(:pre, shell_json("echo hi"), fs, git: git)
+      code.should eq(0)
+      stdout.should be_empty
+      git.removed_paths_called?.should be_false
+      fs.files.has_key?("#{REPO}/.cache/agent-apropos/index.json").should be_false
+    end
+
+    it "injects nothing when a removal verb ran but git reports nothing missing" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      git = FakeGit.new(removed: [] of String)
+      code, stdout = invoke(:pre, shell_json("rm scratch.txt"), fs, git: git)
+      code.should eq(0)
+      stdout.should be_empty
+      git.removed_paths_called?.should be_true
+    end
+
+    it "injects the convention for a removed path and records a cause naming it" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      git = FakeGit.new(removed: ["src/app.cr"])
+      code, stdout = invoke(:pre, shell_json("rm src/app.cr"), fs, git: git, tool: "claude")
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+      written = fs.files["#{REPO}/.cache/agent-apropos/sessions/s.json"]
+      written.should contain(%("file": "src/app.cr"))
+      written.should contain(%("event": "PreToolUse"))
+    end
+
+    it "records PostToolUse, not PreToolUse, when the removal is detected from a post-event call" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      git = FakeGit.new(removed: ["src/app.cr"])
+      invoke(:post, shell_json("rm src/app.cr"), fs, git: git)
+      written = fs.files["#{REPO}/.cache/agent-apropos/sessions/s.json"]
+      written.should contain(%("event": "PostToolUse"))
+    end
+
+    it "says the convention fired because the path is missing, not that this command removed it" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      git = FakeGit.new(removed: ["src/app.cr"])
+      _, stdout = invoke(:pre, shell_json("rm src/app.cr"), fs, git: git)
+      stdout.should contain("is now missing from the working tree")
+      stdout.should_not contain("this convention applies to every file")
+    end
+
+    it "covers AE7: does not re-inject a doc already injected for a write earlier in the session" do
+      fs = InMemoryFS.new({A_PATH => "---\non: [write, removed]\npaths: [\"src/**\"]\n---\n# A\n\nBody of A.\n"})
+      invoke(:pre, pre_json("src/app.cr"), fs)[1].should contain("Convention (docs/conventions/a.md):")
+
+      git = FakeGit.new(removed: ["src/other.cr"])
+      code, stdout = invoke(:pre, shell_json("rm src/other.cr"), fs, git: git)
+      code.should eq(0)
+      stdout.should be_empty
+    end
+
+    it "matches a removal-triggered contents rule against the resolved blob" do
+      fs = InMemoryFS.new({DB_PATH => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nBody.\n"})
+      git = FakeGit.new(removed: ["lib/x.cr"], blobs: {":lib/x.cr" => "db.transaction do"})
+      code, stdout = invoke(:pre, shell_json("rm lib/x.cr"), fs, git: git)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/db.md):")
+    end
+
+    it "stays silent for a contents rule whose blob cannot be resolved, while a paths-only doc still fires" do
+      fs = InMemoryFS.new({
+        A_PATH  => "---\non: [removed]\npaths: [\"src/**\"]\n---\n# A\n\nBody of A.\n",
+        DB_PATH => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nBody.\n",
+      })
+      git = FakeGit.new(removed: ["src/app.cr"])
+      code, stdout = invoke(:pre, shell_json("rm src/app.cr"), fs, git: git)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+      stdout.should_not contain("Convention (docs/conventions/db.md):")
+    end
+
+    it "injects each matching doc exactly once for several paths removed in one call" do
+      fs = InMemoryFS.new({A_PATH => "---\non: [removed]\npaths: [\"src/**\"]\n---\n# A\n\nBody of A.\n"})
+      git = FakeGit.new(removed: ["src/one.cr", "src/two.cr"])
+      _, stdout = invoke(:pre, shell_json("rm src/one.cr src/two.cr"), fs, git: git)
+      stdout.scan("Convention (docs/conventions/a.md):").size.should eq(1)
+    end
+
+    it "ignores a removed path outside the repo root" do
+      fs = InMemoryFS.new({A_PATH => "---\non: [removed]\npaths: [\"**\"]\n---\n# A\n\nBody of A.\n"})
+      git = FakeGit.new(removed: ["../outside.txt"])
+      code, stdout = invoke(:pre, shell_json("rm ../outside.txt"), fs, git: git)
+      code.should eq(0)
+      stdout.should be_empty
+    end
+
+    it "resolves content for paths up to the bound and still injects beyond it" do
+      fs = InMemoryFS.new({DB_PATH => "---\non: [removed]\ncontents: ['\\bx\\b']\n---\n# DB\n\nBody.\n"})
+      bound = AgentApropos::Hook::REMOVAL_CONTENT_RESOLUTION_BOUND
+      removed = (1..(bound + 1)).map { |i| "src/f#{i}.cr" }
+      blobs = removed.each_with_index.to_h { |path, i| {":#{path}", i < bound ? "has x here" : "no match here"} }
+      git = FakeGit.new(removed: removed, blobs: blobs)
+      code, _ = invoke(:pre, shell_json("rm src/*.cr"), fs, git: git)
+      code.should eq(0)
+      git.blob_requests.size.should eq(bound)
+    end
+
+    it "still treats a read tool as a read, not a removal" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      git = FakeGit.new(removed: ["src/app.cr"])
+      code, stdout = invoke(:pre, read_json("src/app.cr"), fs, git: git)
+      code.should eq(0)
+      stdout.should be_empty
+      git.removed_paths_called?.should be_false
+    end
+
+    it "fails open and stays silent when git raises during removal detection" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      git = FakeGit.new(removed_paths_raises: true)
+      code, stdout = invoke(:pre, shell_json("rm src/app.cr"), fs, git: git)
+      code.should eq(0)
+      stdout.should be_empty
+    end
+
+    it "falls back to the HEAD blob when the index has nothing for the removed path" do
+      fs = InMemoryFS.new({DB_PATH => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nBody.\n"})
+      git = FakeGit.new(removed: ["lib/x.cr"], blobs: {"HEAD:lib/x.cr" => "db.transaction do"})
+      code, stdout = invoke(:pre, shell_json("rm lib/x.cr"), fs, git: git)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/db.md):")
+    end
+
+    it "resolves removed content at most once per path even when several docs need it" do
+      fs = InMemoryFS.new({
+        DB_PATH     => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nBody.\n",
+        MODELS_PATH => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# Models\n\nBody.\n",
+      })
+      git = FakeGit.new(removed: ["lib/x.cr"], blobs: {":lib/x.cr" => "db.transaction do"})
+      invoke(:pre, shell_json("rm lib/x.cr"), fs, git: git)
+      git.blob_requests.size.should eq(1)
+    end
+
+    it "records every matching doc, not just the first, when several match one removal" do
+      fs = InMemoryFS.new({
+        A_PATH  => A_REMOVED_DOC,
+        DB_PATH => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nBody.\n",
+      })
+      git = FakeGit.new(removed: ["src/app.cr"], blobs: {":src/app.cr" => "db.transaction do"})
+      code, stdout = invoke(:pre, shell_json("rm src/app.cr"), fs, git: git)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+      stdout.should contain("Convention (docs/conventions/db.md):")
+      written = fs.files["#{REPO}/.cache/agent-apropos/sessions/s.json"]
+      written.should contain(%("docs/conventions/a.md"))
+      written.should contain(%("docs/conventions/db.md"))
+    end
+
+    it "threads allow_outside through to convention loading for a removal" do
+      repo = SpecPaths.absolute("repo-outside-removal")
+      outside_dir = SpecPaths.absolute("shared-conventions-removal")
+      doc = "---\non: [removed]\npaths: [\"src/**\"]\n---\n# A\n\nBody of A.\n"
+      fs = InMemoryFS.new({
+        "#{repo}/agent-apropos.yml"                  => "conventions_dir: '#{outside_dir}'\n",
+        "#{outside_dir}/a.md"                        => doc,
+        "#{repo}/../shared-conventions-removal/a.md" => doc,
+      })
+      git = FakeGit.new(removed: ["src/app.cr"])
+      code, stdout = invoke(:pre, shell_json("rm src/app.cr", cwd: repo), fs,
+        override: repo, git: git, allow_outside: true)
+      code.should eq(0)
+      stdout.should contain("Convention (")
+    end
+
+    it "recognizes every configured removal verb" do
+      %w[rm mv unlink rmdir trash shred truncate find].each do |verb|
+        fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+        git = FakeGit.new(removed: ["src/app.cr"])
+        _, stdout = invoke(:pre, shell_json("#{verb} src/app.cr"), fs, git: git)
+        stdout.should contain("Convention (docs/conventions/a.md):")
+      end
+    end
+
+    it "resolves content for exactly the paths before the bound, not merely the one at it" do
+      fs = InMemoryFS.new({DB_PATH => "---\non: [removed]\ncontents: ['\\bx\\b']\n---\n# DB\n\nBody.\n"})
+      bound = AgentApropos::Hook::REMOVAL_CONTENT_RESOLUTION_BOUND
+      removed = (1..(bound + 2)).map { |i| "src/f#{i}.cr" }
+      blobs = removed.to_h { |path| {":#{path}", "no match"} }
+      git = FakeGit.new(removed: removed, blobs: blobs)
+      invoke(:pre, shell_json("rm src/*.cr"), fs, git: git)
+      git.blob_requests.map(&.last).should eq(removed.first(bound))
+    end
+
+    it "resolves content for exactly 20 removed paths, pinning the bound's literal value" do
+      fs = InMemoryFS.new({DB_PATH => "---\non: [removed]\ncontents: ['\\bx\\b']\n---\n# DB\n\nBody.\n"})
+      removed = (1..22).map { |i| "src/f#{i}.cr" }
+      blobs = removed.to_h { |path| {":#{path}", "no match"} }
+      git = FakeGit.new(removed: removed, blobs: blobs)
+      invoke(:pre, shell_json("rm src/*.cr"), fs, git: git)
+      git.blob_requests.map(&.last).should eq(removed.first(20))
+    end
+  end
+
+  describe "text and boundary pinning" do
+    it "emits the session notice's exact text, with nothing appended when there is no match" do
+      code, stdout = invoke(:pre, pre_json("docs/readme.md"), InMemoryFS.new)
+      code.should eq(0)
+      JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s.should eq(
+        "agent-apropos is connected and running. It compiles this repo's coding " \
+        "conventions into a trigger index and automatically injects the ones " \
+        "relevant to whatever file or construct you're touching into your " \
+        "context, as you read and edit files."
+      )
+    end
+
+    it "renders the exact write-scope note for a doc declaring both paths and contents" do
+      fs = InMemoryFS.new({MODELS_PATH => MODELS_DOC})
+      _, stdout = invoke(:pre, write_json("app/models/u.cr", "User.update_all(x: 1)"), fs)
+      context = JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s
+      context.should contain(
+        "\n\n_Scope: this convention applies to every file whose path matches `app/**` " \
+        "and where new code matches `\\bupdate_all\\b` " \
+        "— not only the file that triggered it just now. Apply it to any other " \
+        "matching file you touch this session; it will not be shown again._"
+      )
+    end
+
+    it "renders the exact removal-scope note for a doc declaring both paths and contents" do
+      fs = InMemoryFS.new({
+        MODELS_PATH => "---\non: [removed]\npaths: [\"app/**\"]\ncontents: ['\\bx\\b']\n---\n# Models\n\nBody.\n",
+      })
+      git = FakeGit.new(removed: ["app/models/u.cr"], blobs: {":app/models/u.cr" => "x"})
+      _, stdout = invoke(:pre, shell_json("rm app/models/u.cr"), fs, git: git)
+      context = JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s
+      context.should contain(
+        "\n\n_Scope: this convention fired because a tracked file whose path matches `app/**` " \
+        "and whose last committed contents matched `\\bx\\b` is now missing from the " \
+        "working tree — not necessarily because this command removed it. Apply it to any " \
+        "other matching removal this session; it will not be shown again._"
+      )
+    end
+
+    it "joins several matched patterns with \" or \", not concatenating them bare" do
+      fs = InMemoryFS.new({A_PATH => "---\npaths: [\"src/**\", \"lib/**\"]\n---\n# A\n\nBody of A.\n"})
+      _, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
+      stdout.should contain("matches `src/**` or `lib/**`")
+    end
+
+    it "does not append an empty context to a lone session notice" do
+      code, stdout = invoke(:pre, pre_json("docs/readme.md"), InMemoryFS.new)
+      code.should eq(0)
+      JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s.should_not end_with("\n\n")
+    end
+
+    it "does not treat the repo root itself (relativizing to \".\") as outside the root" do
+      fs = InMemoryFS.new({A_PATH => "---\npaths: [\"**\"]\n---\n# A\n\nBody of A.\n"})
+      code, stdout = invoke(:pre, pre_json(REPO), fs)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+    end
+
+    it "rejects a path that relativizes to exactly \"..\", not merely one starting with it" do
+      fs = InMemoryFS.new({A_PATH => "---\npaths: [\"**\"]\n---\n# A\n\nBody of A.\n"})
+      code, stdout = invoke(:pre, pre_json(Path[REPO].parent.to_s), fs)
+      code.should eq(0)
+      stdout.should be_empty
+    end
+
+    it "terminates the emitted JSON with a trailing newline" do
+      fs = InMemoryFS.new({A_PATH => A_DOC})
+      _, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
+      stdout.should end_with("}}\n")
+    end
+
+    it "reuses a valid cached index instead of rebuilding it from disk" do
+      cached = AgentApropos::Index.build([AgentApropos::Convention.parse("docs/conventions/a.md", A_DOC)])
+      fs = InMemoryFS.new({
+        "#{REPO}/.cache/agent-apropos/index.json" => cached.to_document,
+        A_PATH                                    => A_DOC,
+        "#{REPO}/docs/conventions/b.md"           => "---\npaths: [\"src/**\"]\n---\n# B\n\nBody of B.\n",
+      })
+      _, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+      stdout.should_not contain("Convention (docs/conventions/b.md):")
+    end
+
+    it "prunes a stale session file as part of handling a call" do
+      stale = %({"updated_at": #{(NOW - 8.days).to_unix}, "injected": [], "notified": false})
+      fs = InMemoryFS.new({A_PATH => A_DOC, "#{REPO}/.cache/agent-apropos/sessions/old.json" => stale})
+      invoke(:pre, pre_json("src/app.cr", session_id: nil), fs)
+      fs.removed.should contain("#{REPO}/.cache/agent-apropos/sessions/old.json")
+    end
+
+    it "prunes a stale session file as part of handling a removal" do
+      stale = %({"updated_at": #{(NOW - 8.days).to_unix}, "injected": [], "notified": false})
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC, "#{REPO}/.cache/agent-apropos/sessions/old.json" => stale})
+      git = FakeGit.new(removed: ["src/app.cr"])
+      invoke(:pre, shell_json("rm src/app.cr", session_id: nil), fs, git: git)
+      fs.removed.should contain("#{REPO}/.cache/agent-apropos/sessions/old.json")
+    end
+  end
+
   describe "files outside the repo root" do
     it "emits nothing for a pathless content rule matching a write outside the repo root" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC})

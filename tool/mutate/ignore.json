@@ -280,6 +280,328 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the `each_line` block itself; `next` as the block's last statement moves to the next line, which is exactly what reaching this `end` already does."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "true",
+      "mutated": "# true",
+      "reason": "the preceding `seen << match.entry.path` (a Set) already returns the set itself, a truthy value, so the `select` block's return value is truthy with or without the trailing literal `true`."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "event == :pre ? \"PreToolUse\" : \"PostToolUse\"",
+      "mutated": "event >= :pre ? \"PreToolUse\" : \"PostToolUse\"",
+      "reason": "`event` is always `:pre` or `:post` from this module's own two call sites; `:pre >= :pre` and `:pre == :pre` agree (both true), and `:post >= :pre` and `:post == :pre` agree (both false), so the operators are indistinguishable for every value `event` can hold."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "return nil if event == :pre",
+      "mutated": "return nil if event >= :pre",
+      "reason": "same closed two-value-domain argument as the `event_name` entry above."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "content = nil",
+      "mutated": "# content = nil",
+      "reason": "`content` is otherwise only assigned inside the conditional a few lines below; Crystal types a variable first assigned inside a conditional as nilable for the paths where the conditional wasn't taken, so removing this seed assignment does not change what `content` holds on any iteration."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "return",
+      "mutated": "return nil",
+      "reason": "the enclosing method's return type is `Nil`; a bare `return` and `return nil` produce the identical value."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 4,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "closes the `if agent.read?(payload)` branch, whose last live statement is an unconditional `return`; a statement inserted after it is unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 4,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same unreachable-after-`return` position as the `break` entry above."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 9,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `deliver_matches`'s `matches.each do |match| ... end`, whose last statement is already `state.add(...)`; `next` there is indistinguishable from normal fall-through to the next match."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 11,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call — `break` on the first (only) iteration is indistinguishable from completing the loop."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 11,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same at-most-one-iteration argument as the `break` entry above."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 25,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "closes `load_or_build_index`'s `if json && (index = Index.load(json))` branch, whose last live statement is an unconditional `return index`; a statement inserted after it is unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 25,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same unreachable-after-`return index` position as the `break` entry above."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "line.starts_with?(DELETE_MARKER) || line.starts_with?(END_MARKER)",
+      "mutated": "line.starts_with?(DELETE_MARKER) && line.starts_with?(END_MARKER)",
+      "reason": "a Delete section never contributes a `FileEdit` (its `read_section` result is always discarded), and `*** End Patch` is always the envelope's last line by the apply_patch format, so nothing ever follows a mis-detected boundary here; whether this clause fires can only change how much inert filler a neighboring Add/Update section's scan swallows, never `file_edits`'s content, since Add/Update boundaries are detected by the separate, unaffected ADD_MARKER/UPDATE_MARKER checks."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "line.starts_with?(DELETE_MARKER) || line.starts_with?(END_MARKER)",
+      "mutated": "line.starts_with?(DELETE_MARKER) || false",
+      "reason": "same reasoning as the `&&` entry above, restricted to dropping only the END_MARKER half."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "line.starts_with?(DELETE_MARKER) || line.starts_with?(END_MARKER)",
+      "mutated": "false || line.starts_with?(END_MARKER)",
+      "reason": "same reasoning as the `&&` entry above, restricted to dropping only the DELETE_MARKER half."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "i = 0",
+      "mutated": "i = 1",
+      "reason": "every real apply_patch envelope's first line is `*** Begin Patch`, which matches none of the ADD/UPDATE/DELETE markers, so `parse` takes the `else` branch and advances to index 1 regardless of whether it started there or was handed index 1 directly."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "i = 0",
+      "mutated": "i = -1",
+      "reason": "index -1 is the envelope's last line, always `*** End Patch` by the apply_patch format, which also matches none of the ADD/UPDATE/DELETE markers; the loop takes the same `else` branch and reaches index 0 exactly as it would starting there directly."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "i = 0",
+      "mutated": "i = (0+1)",
+      "reason": "same reasoning as the `i = 1` entry above; `(0+1)` evaluates to the same starting index."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "i = 0",
+      "mutated": "i = (0-1)",
+      "reason": "same reasoning as the `i = -1` entry above; `(0-1)` evaluates to the same starting index."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "while i < lines.size",
+      "mutated": "while i != lines.size",
+      "reason": "`i` only ever advances by exactly 1 in this loop (directly, or via `read_section`'s own bounded return value, which never exceeds `lines.size`), so it always lands exactly on `lines.size` when the loop ends and can never step past it; `<` and `!=` agree on every reachable value."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "elsif prefix(line, DELETE_MARKER)",
+      "mutated": "next\\nelsif prefix(line, DELETE_MARKER)",
+      "reason": "inserted as the last statement of the preceding Add/Update branch, itself the last statement in the while loop's body; `next` jumps to the loop's condition check, which is exactly what falling off the end of the loop body already does."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "else",
+      "mutated": "next\\nelse",
+      "reason": "same reasoning as the `elsif` entry above: inserted as the last statement of the Delete branch, itself the last statement in the loop body, so `next` there is indistinguishable from normal fall-through."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 20,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `if`/`elsif`/`else` chain inside `parse`'s loop, whose every branch is already the last statement in the loop's body; `next` here is indistinguishable from normal fall-through no matter which branch ran."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 21,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `parse`'s while loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "while i < lines.size && !section_marker?(lines[i])",
+      "mutated": "while i <= lines.size && !section_marker?(lines[i])",
+      "reason": "every real apply_patch envelope ends with `*** End Patch`, which `section_marker?` recognizes and stops on before `i` ever reaches `lines.size`; the `<=` widening is only reachable for a malformed envelope with no closing marker, a shape no fixture or caller produces."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "while i < lines.size && !section_marker?(lines[i])",
+      "mutated": "while i != lines.size && !section_marker?(lines[i])",
+      "reason": "same single-step-advance argument as `parse`'s own `while i < lines.size` entry above; `i` can never step past `lines.size` without first equaling it."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 26,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `read_section`'s while loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "removal : Bool = false) : String",
+      "mutated": "removal : Bool = true) : String",
+      "reason": "`build_context`'s only caller, `deliver_matches`, always passes its own `removal` value explicitly; this parameter's default is never actually used by any call site, so its value cannot be observed."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "else",
+      "mutated": "next\\nelse",
+      "reason": "inserted as the last statement of `emit`'s `if copilot` branch, executed inside a single-invocation `json.object do ... end` block; `next` there returns from that block invocation the same way falling off its end already does."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 33,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the innermost `json.object do ... end` inside `emit`; a single-invocation JSON-builder block, so `next` as its last statement is indistinguishable from normal completion."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 34,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "closes `emit`'s `json.field \"hookSpecificOutput\" do ... end`; confirmed empirically that `break` inside a JSON::Builder block raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and truncates the written output — caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 34,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-invocation-block reasoning as the other `emit` `next` entries; indistinguishable from normal completion."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 35,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `else` branch of `emit`'s `if copilot`; `next` there is indistinguishable from normal fall-through to the enclosing block's end."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 36,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `emit`'s outer `json.object do ... end`; single-invocation JSON-builder block, so `next` as its last statement is indistinguishable from normal completion."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 37,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "closes `emit`'s `JSON.build(stdout) do |json| ... end`; same JSON::Error-on-break behavior as the other `break` entry above, caught by the same exact-terminator spec."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 37,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-invocation-block reasoning as the other `emit` `next` entries; indistinguishable from normal completion."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "stamp = Path[file].basename(\".log\").partition('-').first.to_i64?",
+      "mutated": "stamp = Path[file].basename(\"\").partition('-').first.to_i64?",
+      "reason": "`log_name` never puts a hyphen in the `.log` extension, so `partition('-').first` yields the same text (everything before the first hyphen) whether or not the `.log` suffix was stripped first."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "keep = dated.sort_by! { |stamp, _| -stamp }.first(LOG_MAX_FILES).to_set",
+      "mutated": "keep = dated.sort_by { |stamp, _| -stamp }.first(LOG_MAX_FILES).to_set",
+      "reason": "`dated` is reused afterward only via `.each` to decide, per entry, whether to remove it (by cutoff or by `keep` set membership); removal is unordered and membership-based, so the iteration order `sort_by!` versus `sort_by` leaves `dated` in does not change which files get removed."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 47,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `prune_logs`'s `dated.each do |entry| ... end`, whose last statement is already `fs.remove(file) if ...`; `next` there is indistinguishable from normal fall-through to the next entry."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "override_root : String? = nil, verbose : Bool = false, tool : String? = nil,",
+      "mutated": "override_root : String? = nil, verbose : Bool = true, tool : String? = nil,",
+      "reason": "every caller of `pre` — the CLI (`cli.cr`, which always resolves and passes an explicit `verbose`) and every spec (through the `invoke` helper, which also always passes an explicit value) — supplies `verbose` explicitly, so this default is never the value actually used; the sole spec call that omits it (the benchmark spec) never reaches a code path that reads `verbose`."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 2,
+      "original": "override_root : String? = nil, verbose : Bool = false, tool : String? = nil,",
+      "mutated": "override_root : String? = nil, verbose : Bool = true, tool : String? = nil,",
+      "reason": "same reasoning as `pre`'s identical default above, for `post`."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "allow_outside : Bool = false, git : Git = Git::Real.new) : Int32",
+      "mutated": "allow_outside : Bool = false, git : Git = Git::Real.new) : Int-1",
+      "reason": "the mutation engine's numeric-decrement operator matched the digits inside the `Int32` type name rather than a value; empirically this still compiles and `pre`'s actual returned `Int32` value is unaffected, since the annotation does not change what `deliver` returns."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "allow_outside : Bool = false, git : Git = Git::Real.new) : Int32",
+      "mutated": "allow_outside : Bool = true, git : Git = Git::Real.new) : Int32",
+      "reason": "every caller of `pre` supplies `allow_outside` explicitly (the CLI, and every spec via the `invoke` helper's own default pass-through), so this default is never the value actually used."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 2,
+      "original": "allow_outside : Bool = false, git : Git = Git::Real.new) : Int32",
+      "mutated": "allow_outside : Bool = false, git : Git = Git::Real.new) : Int-1",
+      "reason": "same numeric-decrement-on-the-type-name artifact as `pre`'s identical entry above, for `post`."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 2,
+      "original": "allow_outside : Bool = false, git : Git = Git::Real.new) : Int32",
+      "mutated": "allow_outside : Bool = true, git : Git = Git::Real.new) : Int32",
+      "reason": "same never-defaulted-in-practice reasoning as `pre`'s identical entry above, for `post`."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "allow_outside : Bool, git : Git) : Int32",
+      "mutated": "allow_outside : Bool, git : Git) : Int-1",
+      "reason": "same numeric-decrement-on-the-type-name artifact as `pre`/`post`'s identical entries above, for `deliver`."
     }
   ]
 }
