@@ -424,8 +424,8 @@
     {
       "path": "src/agent_apropos/hooks/payload.cr",
       "occurrence": 1,
-      "original": "elsif prefix(line, DELETE_MARKER)",
-      "mutated": "next\\nelsif prefix(line, DELETE_MARKER)",
+      "original": "elsif path = prefix(line, DELETE_MARKER)",
+      "mutated": "next\\nelsif path = prefix(line, DELETE_MARKER)",
       "reason": "inserted as the last statement of the preceding Add/Update branch, itself the last statement in the while loop's body; `next` jumps to the loop's condition check, which is exactly what falling off the end of the loop body already does."
     },
     {
@@ -469,6 +469,13 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `read_section`'s while loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "return ApplyPatch.parse(tool_input.try(&.command))[1] if tool_name == \"apply_patch\"",
+      "mutated": "return ApplyPatch.parse(tool_input.try(&.command))[-1] if tool_name == \"apply_patch\"",
+      "reason": "`ApplyPatch.parse` returns a 2-element tuple; index `1` and index `-1` (last element) name the identical element."
     },
     {
       "path": "src/agent_apropos/hook.cr",
