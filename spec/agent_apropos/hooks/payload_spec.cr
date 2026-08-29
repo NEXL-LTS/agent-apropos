@@ -203,6 +203,17 @@ describe AgentApropos::Hook::Payload do
       parse(json).file_edits.should be_empty
     end
 
+    it "still produces the following section's edit after a Delete File section" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Delete File: a.py\n*** Add File: b.py\n+content\n*** End Patch\n"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("b.py")
+      edits[0].written_contents.should eq(["content"])
+    end
+
     it "honors a Move to line as the file's final path" do
       json = {
         tool_name:  "apply_patch",
@@ -235,6 +246,16 @@ describe AgentApropos::Hook::Payload do
       edits.size.should eq(1)
       edits[0].path.should eq("keep.py")
       edits[0].written_contents.should eq(["added"])
+    end
+  end
+
+  describe "#removals" do
+    it "is empty for every dialect today; a future removal parser fills it in" do
+      parse(%({"tool_input":{"file_path":"a.cr"}})).removals.should be_empty
+    end
+
+    it "holds the path a Removal was constructed with" do
+      AgentApropos::Hook::Payload::Removal.new("a.cr").path.should eq("a.cr")
     end
   end
 end
