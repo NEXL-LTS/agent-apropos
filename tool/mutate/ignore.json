@@ -167,7 +167,7 @@
       "occurrence": 11,
       "original": "end",
       "mutated": "break\\nend",
-      "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call \u2014 `break` on the first (only) iteration is indistinguishable from completing the loop."
+      "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call — `break` on the first (only) iteration is indistinguishable from completing the loop."
     },
     {
       "path": "src/agent_apropos/hook.cr",
@@ -391,7 +391,7 @@
       "occurrence": 1,
       "original": "override_root : String? = nil, verbose : Bool = false, tool : String? = nil,",
       "mutated": "override_root : String? = nil, verbose : Bool = true, tool : String? = nil,",
-      "reason": "every caller of `pre` \u2014 the CLI (`cli.cr`, which always resolves and passes an explicit `verbose`) and every spec (through the `invoke` helper, which also always passes an explicit value) \u2014 supplies `verbose` explicitly, so this default is never the value actually used; the sole spec call that omits it (the benchmark spec) never reaches a code path that reads `verbose`."
+      "reason": "every caller of `pre` — the CLI (`cli.cr`, which always resolves and passes an explicit `verbose`) and every spec (through the `invoke` helper, which also always passes an explicit value) — supplies `verbose` explicitly, so this default is never the value actually used; the sole spec call that omits it (the benchmark spec) never reaches a code path that reads `verbose`."
     },
     {
       "path": "src/agent_apropos/hook.cr",
