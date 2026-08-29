@@ -107,6 +107,34 @@ describe AgentApropos::Lint do
     stdout.should contain("declares triggers but has an empty body")
   end
 
+  it "errors when a removal-triggered doc has no paths and no contents" do
+    fs = InMemoryFS.new({doc("r.md") => "---\non: [removed]\n---\n# R\n\nb\n"})
+    code, stdout = run_lint(fs)
+    code.should eq(1)
+    stdout.should contain("declares `on:` events with no `paths` or `contents` to match")
+  end
+
+  it "errors when on: is an empty list" do
+    fs = InMemoryFS.new({doc("e.md") => "---\non: []\npaths: [\"src/**\"]\n---\n# E\n\nb\n"})
+    code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+    code.should eq(1)
+    stdout.should contain("`on:` declares no events, so this doc can never fire")
+  end
+
+  it "accepts a removal-triggered doc that has a paths glob" do
+    fs = InMemoryFS.new({doc("r.md") => "---\non: [removed]\npaths: [\"src/**\"]\n---\n# R\n\nb\n"})
+    code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+    code.should eq(0)
+    stdout.should contain("lint: clean")
+  end
+
+  it "does not warn about on: as an unknown frontmatter key" do
+    fs = InMemoryFS.new({doc("r.md") => "---\non: [removed]\npaths: [\"src/**\"]\n---\n# R\n\nb\n"})
+    code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+    code.should eq(0)
+    stdout.should_not contain("unknown frontmatter keys")
+  end
+
   it "warns on a skill doc over the line budget" do
     body = String.build { |io| (AgentApropos::Lint::SKILL_DOC_MAX + 1).times { io << "line\n" } }
     text = "---\nskill: true\ndescription: \"Use when big\"\n---\n#{body}"
@@ -115,6 +143,24 @@ describe AgentApropos::Lint do
     code, stdout = run_lint(fs)
     code.should eq(0)
     stdout.should contain("skill doc is over")
+  end
+
+  it "does not warn at exactly the skill doc line budget" do
+    body = String.build { |io| 500.times { io << "line\n" } }
+    text = "---\nskill: true\ndescription: \"Use when big\"\n---\n#{body}"
+    wrappers, _ = wrapper_for("big.md", text)
+    fs = InMemoryFS.new(WIRED_ALL.merge(wrappers).merge({doc("big.md") => text}))
+    _, stdout = run_lint(fs)
+    stdout.should_not contain("skill doc is over")
+  end
+
+  it "warns at exactly one line over the skill doc budget, naming the exact budget" do
+    body = String.build { |io| 501.times { io << "line\n" } }
+    text = "---\nskill: true\ndescription: \"Use when big\"\n---\n#{body}"
+    wrappers, _ = wrapper_for("big.md", text)
+    fs = InMemoryFS.new(WIRED_ALL.merge(wrappers).merge({doc("big.md") => text}))
+    _, stdout = run_lint(fs)
+    stdout.should contain("skill doc is over 500 lines")
   end
 
   it "warns when a root file exceeds its line budget but not when it is short" do
@@ -127,6 +173,38 @@ describe AgentApropos::Lint do
     code.should eq(0)
     stdout.should contain("warn   AGENTS.md: root file is")
     stdout.should_not contain("CLAUDE.md: root file")
+  end
+
+  it "does not warn at exactly the root file line budget" do
+    fs = InMemoryFS.new({"/repo/AGENTS.md" => String.build { |io| 150.times { io << "x\n" } }})
+    _, stdout = run_lint(fs)
+    stdout.should_not contain("root file is")
+  end
+
+  it "warns at exactly one line over the root file budget, naming the exact budget" do
+    fs = InMemoryFS.new({"/repo/AGENTS.md" => String.build { |io| 151.times { io << "x\n" } }})
+    _, stdout = run_lint(fs)
+    stdout.should contain("root file is 151 lines (budget 150)")
+  end
+
+  it "defaults allow_outside to false, refusing to walk an escaping conventions_dir" do
+    fs = InMemoryFS.new({"/repo/agent-apropos.yml" => "conventions_dir: ../outside\n"})
+    stdout = IO::Memory.new
+    stderr = IO::Memory.new
+    code = AgentApropos::Lint.run(ROOT, fs, FakeGit.new, false, stdout, stderr)
+    code.should eq(1)
+    stderr.to_s.should contain("resolves outside the repo root")
+  end
+
+  it "sorts findings across categories by location, not by insertion order" do
+    fs = InMemoryFS.new({
+      doc("z.md")       => "---\nskill: true\n---\n# Z\n\nbody\n",
+      "/repo/AGENTS.md" => String.build { |io| 151.times { io << "x\n" } },
+    })
+    _, stdout = run_lint(fs)
+    agents_index = stdout.index("AGENTS.md: root file").as(Int32)
+    z_index = stdout.index("docs/conventions/z.md").as(Int32)
+    agents_index.should be < z_index
   end
 
   describe "generated wrappers" do
@@ -248,12 +326,29 @@ describe AgentApropos::Lint do
       stdout.should_not contain("matches no tracked file")
       stdout.should contain("lint: 1 error(s), 0 warning(s)")
     end
+
+    it "still flags a dead glob on a removal-scoped doc" do
+      fs = InMemoryFS.new({doc("d.md") => "---\non: [removed]\npaths: [\"src/**/*.rb\"]\n---\n# D\n\nb\n"})
+      code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(1)
+      stdout.should contain(%(error  docs/conventions/d.md: path glob matches no tracked file: "src/**/*.rb"))
+    end
   end
 
   describe "lint: ignore" do
     it "suppresses a dead path glob" do
       fs = InMemoryFS.new({doc("d.md") => "---\npaths: [\"src/**/*.rb\"]\nlint: ignore\n---\n# D\n\nb\n"})
       code, stdout = run_lint(fs, tracked: ["src/agent_apropos/lint.cr"])
+      code.should eq(0)
+      stdout.should contain("lint: clean")
+    end
+
+    it "suppresses both the inert on: findings" do
+      fs = InMemoryFS.new({
+        doc("r.md") => "---\non: [removed]\nlint: ignore\n---\n# R\n\nb\n",
+        doc("e.md") => "---\non: []\nlint: ignore\n---\n# E\n\nb\n",
+      })
+      code, stdout = run_lint(fs)
       code.should eq(0)
       stdout.should contain("lint: clean")
     end
