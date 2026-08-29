@@ -419,7 +419,7 @@
       "occurrence": 34,
       "original": "end",
       "mutated": "break\\nend",
-      "reason": "closes `emit`'s `json.field \"hookSpecificOutput\" do ... end`; confirmed empirically that `break` inside a JSON::Builder block raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and truncates the written output — caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
+      "reason": "closes the innermost `json.object do ... end` inside `emit`; confirmed empirically (both via a standalone reproduction and by hand-inserting this exact mutant and running the full spec suite) that `break` fired inside an object's own block, before its own `end_object` call, raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and is caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
     },
     {
       "path": "src/agent_apropos/hook.cr",
@@ -447,7 +447,7 @@
       "occurrence": 37,
       "original": "end",
       "mutated": "break\\nend",
-      "reason": "closes `emit`'s `JSON.build(stdout) do |json| ... end`; same JSON::Error-on-break behavior as the other `break` entry above, caught by the same exact-terminator spec."
+      "reason": "closes the outer `json.object do ... end` inside `emit`; same in-block-break-raises-JSON::Error mechanism as the innermost object's entry above, and it too is caught by the exact-terminator spec."
     },
     {
       "path": "src/agent_apropos/hook.cr",
