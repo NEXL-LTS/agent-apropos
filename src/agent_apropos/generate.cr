@@ -2,6 +2,8 @@ require "./conventions"
 require "./index"
 require "./skills"
 require "./filesystem"
+require "./agents"
+require "./frontmatter"
 
 module AgentApropos
   module Generate
@@ -15,6 +17,7 @@ module AgentApropos
       write_index(repo_root, fs, conventions, stdout)
       write_wrappers(repo_root, fs, wrappers, active, stdout)
       prune_orphans(repo_root, fs, wrappers.keys, active, stdout)
+      sync_shell_hooks(repo_root, fs, removal_declared?(conventions), stdout)
       0
     rescue ex : AgentApropos::Error
       stderr.puts "agent-apropos generate: #{ex.message}"
@@ -22,7 +25,7 @@ module AgentApropos
     end
 
     def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
-      _, wrappers, active = inputs(repo_root, fs, allow_outside)
+      conventions, wrappers, active = inputs(repo_root, fs, allow_outside)
       drift = [] of String
 
       Skills::ROOTS.each do |root|
@@ -41,6 +44,7 @@ module AgentApropos
         end
       end
 
+      drift.concat(shell_hook_drift(repo_root, fs, removal_declared?(conventions)))
       report_check(drift, wrappers.size, stdout)
     rescue ex : AgentApropos::Error
       stderr.puts "agent-apropos generate: #{ex.message}"
@@ -91,6 +95,35 @@ module AgentApropos
           fs.remove(skill_dir(repo_root, root, slug).to_s)
           stdout.puts "skill: removed orphan #{wrapper_display(root, slug)}"
         end
+      end
+    end
+
+    private def removal_declared?(conventions : Array(Convention)) : Bool
+      conventions.any? { |convention| convention.frontmatter.events.includes?(Frontmatter::Event::Removed) }
+    end
+
+    private def sync_shell_hooks(repo_root : Path, fs : Filesystem, wire : Bool, stdout : IO) : Nil
+      pending_shell_hook_updates(repo_root, fs, wire).each do |agent, path, updated|
+        fs.write(path, updated)
+        stdout.puts "hook: #{wire ? "wired" : "unwired"} shell removal detection for #{agent.name}"
+      end
+    end
+
+    private def shell_hook_drift(repo_root : Path, fs : Filesystem, wire : Bool) : Array(String)
+      state = wire ? "missing" : "orphaned"
+      pending_shell_hook_updates(repo_root, fs, wire).map do |agent, _, _|
+        "hook:    #{agent.config_relative.to_posix} (shell removal detection #{state})"
+      end
+    end
+
+    private def pending_shell_hook_updates(repo_root : Path, fs : Filesystem, wire : Bool) : Array({Agents::Agent, String, String})
+      Agents::ALL.compact_map do |agent|
+        next unless agent.configured?(repo_root, fs)
+        path = repo_root.join(agent.config_relative).to_s
+        existing = fs.read?(path)
+        updated = agent.sync_shell_hook(existing, agent.config_relative.to_posix.to_s, wire)
+        next if updated.nil? || updated == existing
+        {agent, path, updated}
       end
     end
 

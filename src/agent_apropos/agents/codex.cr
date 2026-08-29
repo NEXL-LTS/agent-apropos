@@ -29,6 +29,10 @@ module AgentApropos
         Path[".codex", "skills"]
       end
 
+      def sync_shell_hook(existing : String?, label : String, wire : Bool) : String?
+        sync_standard_shell_hook(existing, label, wire, HOOK_PRE_BASE, HOOK_POST_BASE, HOOK_TIMEOUT.to_i64)
+      end
+
       protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
         unless env.which("codex")
           return Check.new(:ok, "codex", "not on PATH; skipped hook check")
