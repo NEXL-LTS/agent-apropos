@@ -195,12 +195,56 @@ describe AgentApropos::Hook::Payload do
       edits[1].written_contents.should eq(["    \"\"\"docstring\"\"\""])
     end
 
-    it "skips a Delete File section entirely — no content to match a rule against" do
+    it "produces no file_edits for a Delete File section — no content to match a write rule against" do
       json = {
         tool_name:  "apply_patch",
         tool_input: {command: "*** Begin Patch\n*** Delete File: gone.py\n*** End Patch\n"},
       }.to_json
       parse(json).file_edits.should be_empty
+    end
+
+    it "yields one removal and no file edits for a patch with only a Delete File section" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Delete File: gone.py\n*** End Patch\n"},
+      }.to_json
+      payload = parse(json)
+      payload.file_edits.should be_empty
+      payload.removals.map(&.path).should eq(["gone.py"])
+    end
+
+    it "yields both edits and the one removal for a patch bundling an add, an update, and a delete" do
+      command = "*** Begin Patch\n" \
+                "*** Add File: new.py\n" \
+                "+content\n" \
+                "*** Update File: existing.py\n" \
+                "@@\n context\n+added\n" \
+                "*** Delete File: gone.py\n" \
+                "*** End Patch\n"
+      json = {tool_name: "apply_patch", tool_input: {command: command}}.to_json
+      payload = parse(json)
+      payload.file_edits.map(&.path).should eq(["new.py", "existing.py"])
+      payload.removals.map(&.path).should eq(["gone.py"])
+    end
+
+    it "produces no removal for a Move to rename, only the retargeted edit" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Update File: old_name.py\n*** Move to: new_name.py\n@@\n context\n+added\n*** End Patch\n"},
+      }.to_json
+      payload = parse(json)
+      payload.file_edits.map(&.path).should eq(["new_name.py"])
+      payload.removals.should be_empty
+    end
+
+    it "ignores a Delete marker with an empty path" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Delete File: \n*** End Patch\n"},
+      }.to_json
+      payload = parse(json)
+      payload.file_edits.should be_empty
+      payload.removals.should be_empty
     end
 
     it "still produces the following section's edit after a Delete File section" do
