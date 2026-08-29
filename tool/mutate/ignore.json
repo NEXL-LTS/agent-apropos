@@ -167,7 +167,7 @@
       "occurrence": 11,
       "original": "end",
       "mutated": "break\\nend",
-      "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call \u2014 `break` on the first (only) iteration is indistinguishable from completing the loop."
+      "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call — `break` on the first (only) iteration is indistinguishable from completing the loop."
     },
     {
       "path": "src/agent_apropos/hook.cr",
@@ -328,7 +328,7 @@
       "occurrence": 34,
       "original": "end",
       "mutated": "break\\nend",
-      "reason": "closes `emit`'s `json.field \"hookSpecificOutput\" do ... end`; confirmed empirically that `break` inside a JSON::Builder block raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and truncates the written output \u2014 caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
+      "reason": "closes the innermost `json.object do ... end` inside `emit`; confirmed empirically (both via a standalone reproduction and by hand-inserting this exact mutant and running the full spec suite) that `break` fired inside an object's own block, before its own `end_object` call, raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and is caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
     },
     {
       "path": "src/agent_apropos/hook.cr",
@@ -356,7 +356,7 @@
       "occurrence": 37,
       "original": "end",
       "mutated": "break\\nend",
-      "reason": "closes `emit`'s `JSON.build(stdout) do |json| ... end`; same JSON::Error-on-break behavior as the other `break` entry above, caught by the same exact-terminator spec."
+      "reason": "closes the outer `json.object do ... end` inside `emit`; same in-block-break-raises-JSON::Error mechanism as the innermost object's entry above, and it too is caught by the exact-terminator spec."
     },
     {
       "path": "src/agent_apropos/hook.cr",
@@ -391,7 +391,7 @@
       "occurrence": 1,
       "original": "override_root : String? = nil, verbose : Bool = false, tool : String? = nil,",
       "mutated": "override_root : String? = nil, verbose : Bool = true, tool : String? = nil,",
-      "reason": "every caller of `pre` \u2014 the CLI (`cli.cr`, which always resolves and passes an explicit `verbose`) and every spec (through the `invoke` helper, which also always passes an explicit value) \u2014 supplies `verbose` explicitly, so this default is never the value actually used; the sole spec call that omits it (the benchmark spec) never reaches a code path that reads `verbose`."
+      "reason": "every caller of `pre` — the CLI (`cli.cr`, which always resolves and passes an explicit `verbose`) and every spec (through the `invoke` helper, which also always passes an explicit value) — supplies `verbose` explicitly, so this default is never the value actually used; the sole spec call that omits it (the benchmark spec) never reaches a code path that reads `verbose`."
     },
     {
       "path": "src/agent_apropos/hook.cr",
