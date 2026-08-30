@@ -59,4 +59,29 @@ describe "agent-apropos review/match (binary)" do
       FileUtils.rm_rf(dir)
     end
   end
+
+  it "lists a removal-triggered convention for a range that deletes a file" do
+    dir = File.tempname("agent-apropos-review-removal-repo")
+    begin
+      Dir.mkdir_p(File.join(dir, "docs/conventions"))
+      Dir.mkdir_p(File.join(dir, "app/models"))
+      File.write(File.join(dir, "docs/conventions/models.md"),
+        "---\non: [removed]\npaths: [\"app/**\"]\n---\n# Models\n\nRetire the model cleanly.\n")
+      File.write(File.join(dir, "app/models/user.cr"), "class User\nend\n")
+      git_setup(dir, ["init", "-b", "main"])
+      git_setup(dir, ["add", "-A"])
+      git_setup(dir, ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"])
+      git_setup(dir, ["checkout", "-b", "feature"])
+      File.delete(File.join(dir, "app/models/user.cr"))
+      git_setup(dir, ["add", "-A"])
+      git_setup(dir, ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "remove"])
+
+      code, manifest = run_agent_apropos(binary, ["review", "--repo-root", dir, "main...HEAD"])
+      code.should eq(0)
+      manifest.should contain("## app/models/user.cr")
+      manifest.should contain("docs/conventions/models.md")
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
 end

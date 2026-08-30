@@ -5,6 +5,7 @@ require "./matcher"
 require "./filesystem"
 require "./rendering"
 require "./git"
+require "./frontmatter"
 
 module AgentApropos
   module Review
@@ -50,8 +51,8 @@ module AgentApropos
             format : String, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
       conventions = load_conventions(repo_root, fs, allow_outside)
       resolved = range || default_range(git, repo_root)
-      files = parse_diff(git.diff(repo_root, resolved)).map do |(path, added)|
-        FileMatches.new(path, rules_for(conventions, path, added))
+      files = parse_diff(git.diff(repo_root, resolved)).map do |parsed|
+        FileMatches.new(parsed.path, file_rules(conventions, parsed))
       end
       render_review(resolved, files, format, stdout)
       0
@@ -81,14 +82,28 @@ module AgentApropos
       FileMatches.new(relative, rules_for(conventions, relative, content))
     end
 
-    private def rules_for(conventions : Array(Convention), relative : String, content : String?) : Array(RuleMatch)
-      conventions.compact_map { |convention| rule_for(convention, relative, content) }
+    private def rules_for(conventions : Array(Convention), relative : String, content : String?,
+                          event : Frontmatter::Event = Frontmatter::Event::Write) : Array(RuleMatch)
+      conventions.compact_map { |convention| rule_for(convention, relative, content, event) }
     end
 
-    private def rule_for(convention : Convention, relative : String, content : String?) : RuleMatch?
-      hits = convention.triggers(relative, content)
+    private def rule_for(convention : Convention, relative : String, content : String?,
+                         event : Frontmatter::Event) : RuleMatch?
+      hits = convention.triggers(relative, content, event)
       return nil unless hits
       RuleMatch.new(convention.path, hits, convention.verify, convention.body.strip)
+    end
+
+    private def file_rules(conventions : Array(Convention), file : ParsedFile) : Array(RuleMatch)
+      rules = [] of RuleMatch
+      unless file.deleted
+        rules.concat(rules_for(conventions, file.path, file.added, Frontmatter::Event::Write))
+      end
+      removal_path = file.deleted ? file.path : file.old_path
+      if removal_path
+        rules.concat(rules_for(conventions, removal_path, file.removed, Frontmatter::Event::Removed))
+      end
+      rules
     end
 
     private def absolute(repo_root : Path, given : String) : String
@@ -117,31 +132,62 @@ module AgentApropos
       )
     end
 
-    private def parse_diff(diff : String) : Array({String, String})
-      order = [] of String
-      added = {} of String => Array(String)
+    private record ParsedFile, path : String, old_path : String?, added : String, removed : String, deleted : Bool
+
+    private record DiffState,
+      order : Array(String) = [] of String,
+      added : Hash(String, Array(String)) = {} of String => Array(String),
+      removed : Hash(String, Array(String)) = {} of String => Array(String),
+      old_paths : Hash(String, String?) = {} of String => String?,
+      deleted : Hash(String, Bool) = {} of String => Bool
+
+    private def parse_diff(diff : String) : Array(ParsedFile)
+      state = DiffState.new
       current = nil
+      pending_old = nil
       in_hunk = false
 
       diff.each_line do |line|
-        if line.starts_with?("+++ ")
-          current = diff_target(line)
-          if (path = current) && !added.has_key?(path)
-            added[path] = [] of String
-            order << path
-          end
+        if line.starts_with?("--- ")
+          pending_old = diff_path(line)
+        elsif line.starts_with?("+++ ")
+          current = register_file(state, line, pending_old)
           in_hunk = false
         elsif line.starts_with?("@@")
           in_hunk = true
-        elsif in_hunk && (path = current) && line.starts_with?('+')
-          added[path] << line[1..]
+        elsif in_hunk && (path = current)
+          collect_line(state, line, path)
         end
       end
 
-      order.map { |path| {path, added[path].join('\n')} }
+      state.order.map do |path|
+        ParsedFile.new(path, state.old_paths[path], state.added[path].join('\n'),
+          state.removed[path].join('\n'), state.deleted[path])
+      end
     end
 
-    private def diff_target(line : String) : String?
+    private def register_file(state : DiffState, line : String, pending_old : String?) : String?
+      target = diff_path(line)
+      path = target || pending_old
+      if path && !state.added.has_key?(path)
+        state.added[path] = [] of String
+        state.removed[path] = [] of String
+        state.old_paths[path] = (target && pending_old && pending_old != target) ? pending_old : nil
+        state.deleted[path] = target.nil?
+        state.order << path
+      end
+      path
+    end
+
+    private def collect_line(state : DiffState, line : String, path : String) : Nil
+      if line.starts_with?('+')
+        state.added[path] << line[1..]
+      elsif line.starts_with?('-')
+        state.removed[path] << line[1..]
+      end
+    end
+
+    private def diff_path(line : String) : String?
       target = line[4..].strip
       return nil if target == "/dev/null"
       strip_prefix(target)
