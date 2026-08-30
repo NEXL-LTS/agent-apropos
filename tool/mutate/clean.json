@@ -14,6 +14,7 @@
     "src/agent_apropos/agents/codex.cr",
     "src/agent_apropos/generate.cr",
     "src/agent_apropos/lint.cr",
-    "src/agent_apropos/doctor.cr"
+    "src/agent_apropos/doctor.cr",
+    "src/agent_apropos/review.cr"
   ]
 }

@@ -8,6 +8,7 @@ class FakeGit < AgentApropos::Git
   getter diffed_range : String? = nil
   getter? removed_paths_called = false
   getter blob_requests = [] of {String, String}
+  getter symbolic_ref_name : String? = nil
 
   def initialize(@diff_text : String = "", @symbolic : String? = nil,
                  @refs : Array(String) = [] of String, @diff_raises : Bool = false,
@@ -24,6 +25,7 @@ class FakeGit < AgentApropos::Git
   end
 
   def symbolic_ref(repo_root : Path, name : String) : String?
+    @symbolic_ref_name = name
     @symbolic
   end
 
