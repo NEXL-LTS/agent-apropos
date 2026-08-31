@@ -105,6 +105,11 @@ private def shell_json(command : String, session_id : String? = "s", cwd : Strin
   {session_id: session_id, tool_name: "Bash", cwd: cwd, tool_input: {command: command}}.to_json
 end
 
+private def copilot_shell_json(command : String, session_id : String? = "s", cwd : String? = REPO) : String
+  tool_args = {command: command, description: "run a shell command"}.to_json
+  {sessionId: session_id, toolName: "bash", cwd: cwd, toolArgs: tool_args}.to_json
+end
+
 describe AgentApropos::Hook do
   describe ".pre" do
     it "injects a matching path-scoped rule before the edit" do
@@ -737,6 +742,14 @@ describe AgentApropos::Hook do
       invoke(:post, shell_json("rm src/app.cr"), fs, git: git)
       written = fs.files["#{REPO}/.cache/agent-apropos/sessions/s.json"]
       written.should contain(%("event": "PostToolUse"))
+    end
+
+    it "detects a removal verb from a Copilot-shaped bash payload too" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      git = FakeGit.new(removed: ["src/app.cr"])
+      code, stdout = invoke(:post, copilot_shell_json("rm src/app.cr"), fs, git: git)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
     end
 
     it "says the convention fired because the path is missing, not that this command removed it" do

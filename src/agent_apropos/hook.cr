@@ -108,7 +108,7 @@ module AgentApropos
     end
 
     private def removal_command?(payload : Payload) : Bool
-      command = payload.tool_input.try(&.command)
+      command = payload.command
       !command.nil? && REMOVAL_VERB_PATTERN.matches?(command)
     end
 
