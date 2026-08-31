@@ -13,6 +13,7 @@
     "src/agent_apropos/agents/claude.cr",
     "src/agent_apropos/agents/codex.cr",
     "src/agent_apropos/agents/copilot.cr",
+    "src/agent_apropos/agents/opencode.cr",
     "src/agent_apropos/generate.cr",
     "src/agent_apropos/lint.cr",
     "src/agent_apropos/doctor.cr",

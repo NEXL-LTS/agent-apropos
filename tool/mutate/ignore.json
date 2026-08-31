@@ -1323,6 +1323,27 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same begin/rescue as the break variant above: the rescue body is `return nil`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/opencode.cr",
+      "occurrence": 5,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes `hook_check`'s `unless env.which(\"opencode\") ... end`, whose body is `return Check.new(...)`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/opencode.cr",
+      "occurrence": 5,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `unless ... end` as the break variant above: the body is an unconditional `return`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/opencode.cr",
+      "occurrence": 1,
+      "original": "return existing if updated == existing",
+      "mutated": "# return existing if updated == existing",
+      "reason": "`plugin_content` is a pure function of `(allow_outside_repo, wire_shell)` alone — it never reads `existing` — so whenever `updated == existing` holds, falling through and returning `updated` instead yields the identical String value; `String#==` and every caller (`generate.cr`'s `pending_shell_hook_updates`, `doctor.cr`'s drift check) compare by content, never by object identity, so the two return paths are indistinguishable."
     }
   ]
 }
