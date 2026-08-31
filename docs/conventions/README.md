@@ -36,7 +36,7 @@ Every convention, instruction, or practice is classified into exactly one layer.
 | Layer | For | Trigger | Delivered by |
 | --- | --- | --- | --- |
 | 1 Root file | Universal rules | Always loaded | `AGENTS.md` |
-| 2 Scoped rules | Guidance for a directory / file type, an API / code construct, or both | A **write** to a matching **path** and/or matching written **content** (regex) | Pre/PostToolUse hooks |
+| 2 Scoped rules | Guidance for a directory / file type, an API / code construct, or both | A **write** (or, if declared, a **removal**) of a matching **path** and/or matching **content** (regex) | Pre/PostToolUse hooks |
 | 3 Intent skills | Task-nature guidance (semantic) | Claude Code skill match | Generated `.claude/skills/*/SKILL.md` |
 
 **Layer 1 — root file** (`AGENTS.md`, `CLAUDE.md` symlinked to it). Contains only
@@ -64,6 +64,16 @@ that both completed and covered the whole doc, so the read tools are wired on
 each agent's *post*-execution event (a denied or failed read never reaches it)
 and a read bounded by an offset or a limit is ignored.
 
+A rule can instead (or also) declare `on: [removed]` to fire when a matching
+tracked file disappears from the working tree — deleted directly, via a
+structured patch's delete section, or by a shell command an agent runs.
+`contents` on a removal matches against the file's last tracked content
+(from the index, or `HEAD` if unstaged), resolved through git — never
+against nothing, since there is no write to inspect. A path-only removal
+rule still fires when that content cannot be resolved; a content-only one
+needs it. The default, absent `on:`, is write-only — no existing rule
+changes behavior by not declaring it.
+
 **Layer 3 — intent skills.** For guidance triggered by the nature of a task, not
 its path or content ("doing a data migration", "touching billing"). The doc lives
 in `docs/conventions/workflows/` and opts in via `skill: true` + a `description:`
@@ -84,6 +94,7 @@ Each rule doc declares how it is delivered via YAML frontmatter:
 ---
 paths: ["src/**"]              # inject when writing to a matching path
 contents: ['\bSTDIN\b']        # inject when written code matches (PCRE2)
+on: [write, removed]           # events this rule fires on; defaults to [write]
 skill: true                    # Layer 3: generate a skill wrapper
 description: "Use when ..."    # required iff skill: true; must start with "Use when"
 lint: ignore                   # opt this doc out of every `agent-apropos lint` check
@@ -95,6 +106,9 @@ Combination semantics:
 - `paths` only → fires on any write to a matching path
 - `contents` only → fires when written code matches, anywhere
 - `paths` + `contents` → **AND**: both must match
+- `on` is independent of `paths`/`contents` — it selects *which events* count,
+  not what counts as a match; omit it for write-only (the default), or
+  declare `[removed]` or `[write, removed]`
 - `skill: true` is independent and may combine with either
 - no frontmatter → reference-only: reachable by link, never triggered
 - `lint: ignore` is the one escape hatch, and it suppresses *everything* lint
@@ -112,9 +126,10 @@ governs. Because suppression means reading the frontmatter, anything that stops
 the frontmatter from parsing — invalid YAML, an unterminated `---` fence, a
 wrong-typed key — is reported regardless. So is an unrecognized `lint:` value.
 
-A `contents` rule needs the written content to match against. When the payload
-carries no content and the file cannot be read, the rule stays silent rather than
-firing on a guess.
+A `contents` rule needs content to match against — the written code for a
+write, the file's last tracked content for a removal. When neither the
+payload nor git can produce it, the rule stays silent rather than firing on
+a guess.
 
 ## Writing a rule
 
