@@ -241,7 +241,7 @@ describe AgentApropos::Git::Real do
         # `tracked_removal_status?` code, and it is not the first record (a
         # plain delete precedes it), so mis-consuming this record pair would
         # reprocess it as a bogus second removal rather than landing on the
-        # same index by coincidence. See docs/conventions/git-status-porcelain.md.
+        # same index by coincidence.
         File.write(File.join(dir, "D odd.txt"), "renamed\n")
         git(dir, ["add", "D odd.txt"])
         commit(dir, "add D odd.txt")
