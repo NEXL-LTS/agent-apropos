@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "type": "command",
+        "matcher": "view",
+        "command": "agent-apropos hook pre --tool copilot",
+        "timeoutSec": 10
+      },
+      {
+        "type": "command",
+        "matcher": "create|edit",
+        "command": "agent-apropos hook pre --tool copilot",
+        "timeoutSec": 10
+      },
+      {
+        "type": "command",
+        "matcher": "create|edit",
+        "command": "agent-apropos hook post --tool copilot",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}
