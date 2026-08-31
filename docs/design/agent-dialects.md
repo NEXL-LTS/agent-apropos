@@ -79,6 +79,26 @@ call into `Agent#sync_standard_shell_hook`, wiring `agent-apropos hook
 pre`/`post` onto a `bash`-matched entry alongside the existing `view`/
 `create|edit` ones.
 
+## OpenCode (`agents/opencode.cr`)
+
+OpenCode's shell tool is `bash` — confirmed against a real captured
+`tool.execute.before`/`tool.execute.after` payload pair for a `rm` command;
+its args carry `command`, not `filePath`. `Payload` needs no dialect-specific
+change for this: the plugin's own `makePayload` already normalizes every
+tool's args into the same snake_case `tool_input` shape Claude/Codex use
+(`file_path`, `content`, ...), so adding `command` there is enough — `Payload
+#command` (`tool_input.try(&.command) || copilot_args.try(&.command)`)
+already reads it the same way it reads Codex's `apply_patch` command.
+
+The plugin file is the one wired artifact with no existing-content
+preservation at all — its own header says "do not edit, regenerate" and
+`config_content` never reads `existing` — so `Agents::OpenCode#sync_shell_hook`
+doesn't patch anything in place: it re-renders the same template with `bash`
+added to (or left out of) both tool-name allowlists and diffs the result
+against what's already there, detecting a carried `--allow-outside-repo` by
+substring search on `existing` rather than parsing JSON, since there's no
+JSON here to parse.
+
 ## Codex (`agents/codex.cr`)
 
 Codex CLI's `PreToolUse`/`PostToolUse` envelope and reply schema mirror
