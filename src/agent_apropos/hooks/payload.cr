@@ -49,6 +49,7 @@ module AgentApropos
         getter path : String?
         getter file_text : String?
         getter new_str : String?
+        getter command : String?
 
         getter view_range : JSON::Any?
       end
@@ -72,6 +73,10 @@ module AgentApropos
 
       def file_path : String?
         tool_input.try(&.file_path) || copilot_args.try(&.path)
+      end
+
+      def command : String?
+        tool_input.try(&.command) || copilot_args.try(&.command)
       end
 
       def partial_read? : Bool
