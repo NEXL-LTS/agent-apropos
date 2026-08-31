@@ -65,6 +65,7 @@ by exploring the sample's own tree.
 | Content rule | writing `NotImplementedError` | stubs raise `StubNotImplemented` instead | `StubNotImplemented(` | `scripts/jobs.py` |
 | Path+content rule (AND) | writing `db/**` AND writing `conn.execute(` | queries go through the audit wrapper | `audited_query(` | `db/queries.py` |
 | Intent skill | "add an arithmetic operation" | new ops register in the dispatch table | `register_operation(` | `lib/calc.py` |
+| Removal rule | deleting a file under `services/**` | the deletion is recorded in a decommission log | `Decommissioned: heartbeat.py` | `services/DECOMMISSIONED.md` |
 
 ## Running
 
@@ -155,6 +156,20 @@ verbatim; with the skill file removed but the module left in place, it used
 neither. So the "Intent skill ... (Copilot)" pair is a genuine proof, same as
 every other agent's.
 
+**Copilot removal-rule caveat:** the "Removal rule" case's Copilot "with"
+test is a known, reproducible failure (confirmed across repeated live runs)
+— but not a wiring gap. Its session cache
+(`.cache/agent-apropos/sessions/*.json`) shows the hook firing and injecting
+the rule correctly every time (`"event": "PostToolUse"`,
+`"matched_patterns": ["services/**"]`), yet the model still ends its turn
+right after the `rm` without acting on the newly-injected context. The same
+postToolUse-only mechanism *does* land for a write-triggered rule (that's
+what the caveat above already proves) — the difference here seems to be that
+a lone shell command reads as "done" to Copilot's single-shot completion in
+a way a file edit doesn't, so it wraps up before re-engaging with content
+injected after the tool call returns. Left in the matrix, not skipped, so a
+future Copilot CLI behavior change shows up here rather than staying hidden.
+
 **Codex CLI caveat:** unlike Gemini/Copilot, its `PreToolUse` event *can*
 inject context, so scoped rules land before the write, same as Claude — but its
 own file-editing tool, `apply_patch`, can bundle several files' Add/Update
@@ -180,7 +195,14 @@ both.
   no-tool-use prompt and well over 180s for a real edit-task prompt, which
   makes default e2e runs slow and unpredictable. `require_live_gemini`/
   `run_gemini` (`helpers.bash`) remain fully working — set this when you
-  deliberately want Gemini coverage.
+  deliberately want Gemini coverage. **The "Removal rule" case's Gemini
+  "with" test is a known, expected failure even when opted in:** Gemini
+  CLI's `run_shell_command` does not fire any hook event in the versions
+  tested, confirmed by reading its own bundled dispatch logic and by
+  isolating it against its otherwise-working `write_file`/`replace` hooks —
+  a genuine CLI limitation, not something agent-apropos can route around
+  from the hook side (see `agents/gemini.cr`'s section in
+  `docs/design/agent-dialects.md`).
 - `E2E_MODEL=<model>` — pass a specific model to `claude -p --model` /
   `opencode run --model` / `gemini -p --model` / `copilot -p --model`
   (default: each CLI's configured model). Use a small model (e.g.

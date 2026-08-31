@@ -102,7 +102,7 @@ module AgentApropos
     end
 
     private def removed_relative_paths(payload : Payload, root : Path, git : Git) : Array(String)
-      structural = payload.removals.map(&.path)
+      structural = payload.removals.map { |removal| relativize(root, removal.path) }
       candidates = removal_command?(payload) ? structural + git.removed_paths(root) : structural
       candidates.reject { |relative| outside_root?(relative) }
     end
