@@ -154,9 +154,16 @@ false ==> true
 (^\s*)else$ ==> \1
 
 # SOURCE: universal.rules — loop-control statement insertion. C's `break;` and
-# `continue;` lose the semicolon, and `continue` is spelled `next`.
-(^\s*)(\S+.*)\n ==> \1\2\n\1break\n
-(^\s*)(\S+.*)\n ==> \1\2\n\1next\n
+# `continue;` lose the semicolon, and `continue` is spelled `next`. The
+# lookahead spares a bare (unmodified) `return`/`raise` line: it always
+# transfers control out of the method the instant it runs, so anything
+# inserted directly after it can never execute, regardless of what code
+# it's near — the same "can only ever be a parse error" reasoning the
+# statement-deletion rule below applies to `end`/`else`/etc., just for
+# unreachability instead of syntax. A modifier-suffixed `return X if cond`
+# stays eligible: it's conditional, so code after it is genuinely reachable.
+(^\s*)(?!(?:return|raise)\b(?:(?!\b(?:if|unless|while|until)\b).)*$)(\S+.*)\n ==> \1\2\n\1break\n
+(^\s*)(?!(?:return|raise)\b(?:(?!\b(?:if|unless|while|until)\b).)*$)(\S+.*)\n ==> \1\2\n\1next\n
 
 # SOURCE: python.rules — `continue`/`break` swap.
 \bcontinue\b ==> break
