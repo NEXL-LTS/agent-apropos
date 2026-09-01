@@ -80,7 +80,6 @@ module AgentApropos
       end
 
       private def upgrade_bash_target(command : String, desired : Array(String)) : String?
-        return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
         if command.starts_with?(HOOK_PRE_BASE)
           desired.find(&.starts_with?(HOOK_PRE_BASE))
         elsif command.starts_with?(HOOK_POST_BASE)

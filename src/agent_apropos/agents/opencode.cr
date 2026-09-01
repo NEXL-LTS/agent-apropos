@@ -40,9 +40,7 @@ module AgentApropos
       # Re-renders rather than patches — see docs/design/agent-dialects.md's OpenCode section.
       def sync_shell_hook(existing : String?, label : String, wire : Bool) : String?
         allow_outside = existing.try(&.includes?(ALLOW_OUTSIDE_FLAG)) || false
-        updated = plugin_content(allow_outside, wire)
-        return existing if updated == existing
-        updated
+        plugin_content(allow_outside, wire)
       end
 
       private def plugin_content(allow_outside_repo : Bool, wire_shell : Bool) : String
