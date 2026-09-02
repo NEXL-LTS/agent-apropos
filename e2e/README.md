@@ -195,14 +195,15 @@ both.
   no-tool-use prompt and well over 180s for a real edit-task prompt, which
   makes default e2e runs slow and unpredictable. `require_live_gemini`/
   `run_gemini` (`helpers.bash`) remain fully working — set this when you
-  deliberately want Gemini coverage. **The "Removal rule" case's Gemini
-  "with" test is a known, expected failure even when opted in:** Gemini
-  CLI's `run_shell_command` does not fire any hook event in the versions
-  tested, confirmed by reading its own bundled dispatch logic and by
-  isolating it against its otherwise-working `write_file`/`replace` hooks —
-  a genuine CLI limitation, not something agent-apropos can route around
-  from the hook side (see `agents/gemini.cr`'s section in
-  `docs/design/agent-dialects.md`).
+  deliberately want Gemini coverage. **The "Removal rule" case excludes
+  Gemini even when opted in** (`register_live_tests`'s exclusion arg,
+  `helpers.bash`): Gemini CLI's `run_shell_command` does not fire any hook
+  event in the versions tested, confirmed by reading its own bundled
+  dispatch logic and by isolating it against its otherwise-working
+  `write_file`/`replace` hooks — a genuine CLI limitation, not something
+  agent-apropos can route around from the hook side (see `agents/gemini.cr`'s
+  section in `docs/design/agent-dialects.md`), so registering a test that
+  can never pass would just be noise in an opted-in run.
 - `E2E_MODEL=<model>` — pass a specific model to `claude -p --model` /
   `opencode run --model` / `gemini -p --model` / `copilot -p --model`
   (default: each CLI's configured model). Use a small model (e.g.
