@@ -332,35 +332,35 @@
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 10,
+      "occurrence": 9,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `deliver_matches`'s `matches.each do |match| ... end`, whose last statement is already `state.add(...)`; `next` there is indistinguishable from normal fall-through to the next match."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 12,
+      "occurrence": 11,
       "original": "end",
       "mutated": "break\\nend",
       "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call \u2014 `break` on the first (only) iteration is indistinguishable from completing the loop."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 12,
+      "occurrence": 11,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same at-most-one-iteration argument as the `break` entry above."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 26,
+      "occurrence": 25,
       "original": "end",
       "mutated": "break\\nend",
       "reason": "closes `load_or_build_index`'s `if json && (index = Index.load(json))` branch, whose last live statement is an unconditional `return index`; a statement inserted after it is unreachable dead code."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 26,
+      "occurrence": 25,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same unreachable-after-`return index` position as the `break` entry above."
@@ -480,62 +480,55 @@
     {
       "path": "src/agent_apropos/hook.cr",
       "occurrence": 1,
-      "original": "removal : Bool = false) : String",
-      "mutated": "removal : Bool = true) : String",
-      "reason": "`build_context`'s only caller, `deliver_matches`, always passes its own `removal` value explicitly; this parameter's default is never actually used by any call site, so its value cannot be observed."
-    },
-    {
-      "path": "src/agent_apropos/hook.cr",
-      "occurrence": 1,
       "original": "else",
       "mutated": "next\\nelse",
       "reason": "inserted as the last statement of `emit`'s `if copilot` branch, executed inside a single-invocation `json.object do ... end` block; `next` there returns from that block invocation the same way falling off its end already does."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 34,
+      "occurrence": 33,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the innermost `json.object do ... end` inside `emit`; a single-invocation JSON-builder block, so `next` as its last statement is indistinguishable from normal completion."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 35,
+      "occurrence": 34,
       "original": "end",
       "mutated": "break\\nend",
       "reason": "closes `emit`'s `json.field \"hookSpecificOutput\" do ... end`; confirmed empirically that `break` inside a JSON::Builder block raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and truncates the written output \u2014 caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 35,
+      "occurrence": 34,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same single-invocation-block reasoning as the other `emit` `next` entries; indistinguishable from normal completion."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 36,
+      "occurrence": 35,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the `else` branch of `emit`'s `if copilot`; `next` there is indistinguishable from normal fall-through to the enclosing block's end."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 37,
+      "occurrence": 36,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `emit`'s outer `json.object do ... end`; single-invocation JSON-builder block, so `next` as its last statement is indistinguishable from normal completion."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 38,
+      "occurrence": 37,
       "original": "end",
       "mutated": "break\\nend",
       "reason": "closes `emit`'s `JSON.build(stdout) do |json| ... end`; same JSON::Error-on-break behavior as the other `break` entry above, caught by the same exact-terminator spec."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 38,
+      "occurrence": 37,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same single-invocation-block reasoning as the other `emit` `next` entries; indistinguishable from normal completion."
@@ -556,7 +549,7 @@
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 48,
+      "occurrence": 47,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `prune_logs`'s `dated.each do |entry| ... end`, whose last statement is already `fs.remove(file) if ...`; `next` there is indistinguishable from normal fall-through to the next entry."
@@ -1040,44 +1033,9 @@
     {
       "path": "src/agent_apropos/review.cr",
       "occurrence": 1,
-      "original": "in_hunk = false",
-      "mutated": "in_hunk = true",
-      "reason": "this is `in_hunk`'s initial value before any diff line is processed. `current` also starts `nil`, so the one line-collection branch that reads `in_hunk` (`in_hunk && (path = current)`) is already false via `current` regardless of this flag; and the first `\"+++ \"` line always resets `in_hunk` explicitly before any content could be collected. The initial value never survives to matter."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 1,
       "original": "elsif line.starts_with?(\"+++ \")",
       "mutated": "next\\nelsif line.starts_with?(\"+++ \")",
       "reason": "`next` inserted at the end of the `\"--- \"` branch (the last branch before this `elsif`) is a no-op -- that branch already falls through to the next diff line identically."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 1,
-      "original": "elsif line.starts_with?(\"@@\")",
-      "mutated": "next\\nelsif line.starts_with?(\"@@\")",
-      "reason": "`next` inserted at the end of the `\"+++ \"` branch is a no-op -- that branch already falls through to the next diff line identically."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 1,
-      "original": "elsif in_hunk && (path = current)",
-      "mutated": "next\\nelsif in_hunk && (path = current)",
-      "reason": "`next` inserted at the end of the `\"@@\"` branch is a no-op -- that branch already falls through to the next diff line identically."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 23,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes the if/elsif chain inside `diff.each_line`; `next` as the last statement of its live branch is a no-op either way."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 24,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes the `diff.each_line do |line| ... end` block itself; `next` as its last statement is a no-op."
     },
     {
       "path": "src/agent_apropos/review.cr",
@@ -1102,24 +1060,10 @@
     },
     {
       "path": "src/agent_apropos/review.cr",
-      "occurrence": 32,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes `{\"a/\", \"b/\"}.each do |prefix| ... end` in `strip_prefix`; `next` as its last statement is a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
       "occurrence": 1,
       "original": "if format == \"json\"",
       "mutated": "if format <= \"json\"",
       "reason": "`format` is only ever `\"md\"` or `\"json\"` from every call site in this codebase, and \"json\" sorts before \"md\" alphabetically, so `<=` against `\"json\"` agrees with `==` for both possible values."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 36,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes the single-shot `build_json(stdout) do |json| ... end` block in `render_review`; the block is yielded exactly once (not iterated), so `next` as its last statement just resumes normally, a no-op."
     },
     {
       "path": "src/agent_apropos/review.cr",
@@ -1134,111 +1078,6 @@
       "original": "return",
       "mutated": "# return",
       "reason": "without this `return`, the method falls through to `applicable.each do |file| ... end`, but `applicable` is empty in this branch (that is why it was taken), so the loop body never runs and no further output is produced either way."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 39,
-      "original": "end",
-      "mutated": "break\\nend",
-      "reason": "this `end` closes the `if applicable.empty? ... end` in `render_review_md`, whose body ends in `return`; the unconditional return makes anything appended before this `end` unreachable dead code."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 39,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "same `if applicable.empty? ... end` as the break variant above: the body ends in an unconditional `return`, making anything appended before this `end` unreachable dead code."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 40,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes `applicable.each do |file| ... end` in `render_review_md`; `next` as its last statement is a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 43,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes `verify.each_line do |line| ... end` in `verify_items`; `next` as its last statement is a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 45,
-      "original": "end",
-      "mutated": "break\\nend",
-      "reason": "this `end` closes the single-shot `JSON.build(io, indent: \"  \") do |json| ... end` block in `build_json`; confirmed empirically (a scratch mutant against the full review spec suite) that inserting `break` here does not change any observable output, since `json.object { yield json }` has already written a complete, balanced JSON value by the time this point is reached."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 45,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "same single-shot block as the break variant above: `next` as its last statement is a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 47,
-      "original": "end",
-      "mutated": "break\\nend",
-      "reason": "this `end` closes the single-shot `json.field \"files\" do ... end` block in `files_field`, the last statement of the method; break/next here behave the same as the equivalent `build_json` case, confirmed by the same reasoning (the nested `json.array` has already written its complete content)."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 47,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "same single-shot block as the break variant above: a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 49,
-      "original": "end",
-      "mutated": "break\\nend",
-      "reason": "this `end` closes the single-shot `json.field \"rules\" do ... end` block in `file_object`; nothing follows it before the enclosing `json.object`'s own `end`, so break/next here behave the same as the equivalent `build_json`/`rule_object` cases."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 49,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "same single-shot block as the break variant above: a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 50,
-      "original": "end",
-      "mutated": "break\\nend",
-      "reason": "this `end` closes `file_object`'s outer `json.object do ... end`, the method's last statement; break/next here behave the same as the equivalent single-shot-block cases elsewhere in this file."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 50,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "same single-shot block as the break variant above: a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 52,
-      "original": "end",
-      "mutated": "break\\nend",
-      "reason": "this `end` closes the single-shot `json.field \"triggers\" do ... end` block in `rule_object`; confirmed empirically (a scratch mutant against the full review spec suite) that inserting `break` here does not change any observable output, since the nested `json.array` has already written its complete content and the subsequent `json.field \"verify\", ...` still runs normally afterward."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 52,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "same single-shot block as the break variant above: a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 53,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes `rule_object`'s outer `json.object do ... end`, the method's last statement; a no-op, matching the single-shot-block pattern elsewhere in this file."
     },
     {
       "path": "src/agent_apropos/review.cr",
@@ -1270,24 +1109,269 @@
     },
     {
       "path": "src/agent_apropos/review.cr",
-      "occurrence": 56,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes `file.rules.each do |rule| ... end` in `unique_docs`; `next` as its last statement is a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
-      "occurrence": 57,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "this `end` closes `files.each do |file| ... end` in `unique_docs`; `next` as its last statement is a no-op."
-    },
-    {
-      "path": "src/agent_apropos/review.cr",
       "occurrence": 1,
       "original": "docs.sort_by! { |(path, _)| path }",
       "mutated": "docs.sort_by { |(path, _)| path }",
       "reason": "`docs` is never read again after this line (it is the method's return value), so mutating it in place with `sort_by!` versus returning a new sorted array with `sort_by` yields the same returned value either way."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "old_remaining = 0",
+      "mutated": "old_remaining = 1",
+      "reason": "`current`/`path` are always nil until the first `+++`/rename-to line registers a file, and a real `git diff`'s very first line is always `diff --git a/... b/...` (confirmed against a real repo), which this parser's elsif chain never matches anyway. Starting `old_remaining` at 1 makes the loop wrongly swallow exactly that one already-ignored line as fake hunk content (with `path` nil, so `state.added`/`state.removed` are never touched) before the guard reverts to false on the next line \u2014 no reachable input differs."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "old_remaining = 0",
+      "mutated": "old_remaining = -1",
+      "reason": "`-1 > 0` and `0 > 0` are both false, so the guard's initial check is unaffected; the stored `-1` is never read again except through that same comparison before being overwritten by the next real hunk header."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "old_remaining = 0",
+      "mutated": "old_remaining = (0+1)",
+      "reason": "`(0+1)` evaluates to 1; same reasoning as the `old_remaining = 1` entry above."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "old_remaining = 0",
+      "mutated": "old_remaining = (0-1)",
+      "reason": "`(0-1)` evaluates to -1; same reasoning as the `old_remaining = -1` entry above."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "new_remaining = 0",
+      "mutated": "new_remaining = -1",
+      "reason": "same reasoning as `old_remaining`'s identical `-1` entry: `-1 > 0` and `0 > 0` are both false, so the guard is unaffected, and the stored value is overwritten by the next real hunk header before it could otherwise be read."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "new_remaining = 0",
+      "mutated": "new_remaining = (0-1)",
+      "reason": "`(0-1)` evaluates to -1; same reasoning as the `new_remaining = -1` entry above."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "if old_remaining > 0 || new_remaining > 0",
+      "mutated": "if old_remaining > 0 || new_remaining != 0",
+      "reason": "`consume_hunk_line` only ever decrements `new_remaining` while processing a `+`/context line, and a context line only occurs while both sides still have remaining lines in a well-formed hunk (its header's counts always match its body, confirmed against real repos throughout this file's specs) \u2014 so `new_remaining` can reach 0 but never go negative, making `> 0` and `!= 0` agree on every reachable value."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "elsif line.starts_with?(\"rename from \")",
+      "mutated": "next\\nelsif line.starts_with?(\"rename from \")",
+      "reason": "this `next` is appended as the trailing statement of the enclosing `if old_remaining > 0 || new_remaining > 0` branch (the last thing that runs before falling through to check this elsif) inside `diff.each_line do |line| ... end`; calling `next` there and simply completing the branch land on the exact same next line of the diff, confirmed with the full spec suite unaffected."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "elsif line.starts_with?(\"rename to \") && pending_rename_from",
+      "mutated": "next\\nelsif line.starts_with?(\"rename to \") && pending_rename_from",
+      "reason": "same no-op as the entry above: appended as the trailing statement of the \"rename from\" branch (`pending_rename_from = line[12..]`), already the last statement before this elsif; confirmed the full spec suite, including the pure-rename specs, stays green."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "elsif line.starts_with?(\"--- \")",
+      "mutated": "next\\nelsif line.starts_with?(\"--- \")",
+      "reason": "appended as the trailing statement of the \"rename to\" branch (`current = register_rename(...)`), already the last statement before this elsif, so it is a no-op. (The sibling `break` mutation at this same spot is a real bug \u2014 it stops the loop right after a pure rename and drops every file that follows in the diff \u2014 now covered by \"still parses a second file's diff after a pure rename with no content change\".)"
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "elsif counts = hunk_counts(line)",
+      "mutated": "next\\nelsif counts = hunk_counts(line)",
+      "reason": "appended as the trailing statement of the \"+++ \" branch (`current = register_file(...)`), already the last statement before this elsif, so it is a no-op; confirmed with the full spec suite unaffected."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 23,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the `if old_remaining > 0 ... end` chain inside `diff.each_line do |line| ... end`; `next` as its last statement is a no-op, identical to falling through to the enclosing block's own `end`."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 24,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `diff.each_line do |line| ... end` itself; `next` as the trailing statement of a block body is always a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "HUNK_HEADER = /\\A@@ -\\d+(?:,(\\d+))? \\+\\d+(?:,(\\d+))? @@/",
+      "mutated": "HUNK_HEADER = /\\A@@ -\\d*(?:,(\\d+))? \\+\\d+(?:,(\\d+))? @@/",
+      "reason": "a real unified-diff hunk header always carries at least one digit at the old-start position, so `\\\\d*` and `\\\\d+` only diverge on a zero-digit match that no real `git diff` output (nor any hunk fixture in this file's specs) ever produces there."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "HUNK_HEADER = /\\A@@ -\\d+(?:,(\\d+))? \\+\\d+(?:,(\\d+))? @@/",
+      "mutated": "HUNK_HEADER = /\\A@@ -\\d+(?:,(\\d*))? \\+\\d+(?:,(\\d+))? @@/",
+      "reason": "same reasoning for the old-count position: a real hunk header's count digits (when the comma group appears at all) are never empty, so `\\\\d*` and `\\\\d+` only diverge on an unreachable zero-digit match."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "HUNK_HEADER = /\\A@@ -\\d+(?:,(\\d+))? \\+\\d+(?:,(\\d+))? @@/",
+      "mutated": "HUNK_HEADER = /\\A@@ -\\d+(?:,(\\d+))? \\+\\d*(?:,(\\d+))? @@/",
+      "reason": "same reasoning for the new-start position: a real hunk header always has at least one digit there, so `\\\\d*` and `\\\\d+` only diverge on an unreachable zero-digit match."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "HUNK_HEADER = /\\A@@ -\\d+(?:,(\\d+))? \\+\\d+(?:,(\\d+))? @@/",
+      "mutated": "HUNK_HEADER = /\\A@@ -\\d+(?:,(\\d+))? \\+\\d+(?:,(\\d*))? @@/",
+      "reason": "same reasoning for the new-count position: never empty when the comma group is present in real output, so `\\\\d*` and `\\\\d+` only diverge on an unreachable zero-digit match."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "private def hunk_counts(line : String) : {Int32, Int32}?",
+      "mutated": "private def hunk_counts(line : String) :  { Int32,Int32}?",
+      "reason": "whitespace-only change to a tuple type annotation; Crystal's grammar ignores the extra space before the brace and the removed one around the comma, so this compiles to the identical type."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "{(match[1]? || \"1\").to_i, (match[2]? || \"1\").to_i}",
+      "mutated": "{(match[1]? || \"1\").to_i, (match[-1]? || \"1\").to_i}",
+      "reason": "HUNK_HEADER has exactly two capture groups, so `match[2]?` and `match[-1]?` (the last group) always name the same group; confirmed with the full spec suite unaffected."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "old_remaining : Int32, new_remaining : Int32) : {Int32, Int32}",
+      "mutated": "old_remaining : Int32, new_remaining : Int32) :  { Int32,Int32}",
+      "reason": "same whitespace-only tuple-type mutation as `hunk_counts`'s signature above."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 34,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `{\"a/\", \"b/\"}.each do |prefix| ... end` in `strip_prefix`; its body is a single conditional `return`, so `next` as the trailing statement is a no-op \u2014 the block already falls through to the next prefix identically. (The `break` variant at this spot would drop the \"b/\" prefix check entirely and is a real bug, already caught by this file's own prefix-stripping specs.)"
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 38,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `build_json(stdout) do |json| ... end` in `render_review`, invoked exactly once; `next` as its trailing statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 42,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `applicable.each do |file| ... end` in `render_review_md`; `next` as the trailing statement is a no-op regardless of how many files are iterated. (`break` here would stop after the first file and is a real bug, already caught by this file's existing multi-file specs.)"
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 45,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `verify.each_line do |line| ... end` in `verify_items`; `next` as the trailing statement is a no-op. (`break` would drop every verify item after the first and is a real bug, already caught by existing multi-item verify specs.)"
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 47,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "closes `JSON.build(io, indent: \"  \") do |json| ... end` in `build_json`, invoked exactly once with nothing following; confirmed empirically that inserting `break` here produces byte-identical JSON output to the unmutated code."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 47,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-invocation block as the `break` entry above; `next` as the trailing statement is likewise a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 49,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "closes `json.field \"files\" do ... end` in `files_field`; `json.field`'s block runs exactly once, so `break`/`next` after its only statement produce byte-identical output; confirmed empirically."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 49,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-invocation `json.field` block as the `break` entry above."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 51,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "same single-invocation `json.field` block pattern as `files_field` above, this time `json.field \"rules\" do ... end` in `file_object`; confirmed empirically that `break` and `next` both produce byte-identical output."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 51,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-invocation `json.field` block as the `break` entry above."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 52,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the outer `json.object do ... end` in `file_object`; `next` as the trailing statement is a no-op. (The sibling `break` mutation at this same spot raises at runtime \u2014 `json.object`'s own bookkeeping needs this block to run to completion \u2014 so it does not survive and needs no entry.)"
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 54,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "same single-invocation `json.field` block pattern as `files_field`/`file_object` above, this time `json.field \"triggers\" do ... end` in `rule_object`; confirmed empirically that `break` and `next` both produce byte-identical output."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 54,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-invocation `json.field` block as the `break` entry above."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 55,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the outer `json.object do ... end` in `rule_object`; same reasoning as `file_object`'s outer `json.object` above \u2014 `next` is a no-op trailing statement, and the sibling `break` mutation already fails to survive for the same reason (it raises at runtime)."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 58,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `file.rules.each do |rule| ... end` in `unique_docs`; `next` as the trailing statement is a no-op regardless of how many rules are iterated. (`break` would drop every rule after the first and is a real bug, already caught by existing multi-rule specs.)"
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 59,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `files.each do |file| ... end` in `unique_docs`; `next` as the trailing statement is a no-op regardless of how many files are iterated. (`break` here is likewise a real bug, already caught by existing multi-file specs.)"
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "if old_remaining > 0 || new_remaining > 0",
+      "mutated": "if old_remaining != 0 || new_remaining > 0",
+      "reason": "`old_remaining` only ever decreases by exactly 1 per line from a non-negative value set by a hunk header (which always matches its own body's line counts for real `git diff` output, the only input this parser receives), so it reaches exactly 0 and never goes negative; `!= 0` and `> 0` therefore agree on every value `old_remaining` can actually take."
     }
   ]
 }

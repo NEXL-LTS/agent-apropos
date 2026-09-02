@@ -145,18 +145,24 @@ module AgentApropos
       state = DiffState.new
       current = nil
       pending_old = nil
-      in_hunk = false
+      pending_rename_from = nil
+      old_remaining = 0
+      new_remaining = 0
 
       diff.each_line do |line|
-        if line.starts_with?("--- ")
+        if old_remaining > 0 || new_remaining > 0
+          # Line-count bookkeeping, not the text, decides where a hunk ends.
+          old_remaining, new_remaining = consume_hunk_line(state, line, current, old_remaining, new_remaining)
+        elsif line.starts_with?("rename from ")
+          pending_rename_from = line[12..]
+        elsif line.starts_with?("rename to ") && pending_rename_from
+          current = register_rename(state, pending_rename_from, line[10..])
+        elsif line.starts_with?("--- ")
           pending_old = diff_path(line)
         elsif line.starts_with?("+++ ")
           current = register_file(state, line, pending_old)
-          in_hunk = false
-        elsif line.starts_with?("@@")
-          in_hunk = true
-        elsif in_hunk && (path = current)
-          collect_line(state, line, path)
+        elsif counts = hunk_counts(line)
+          old_remaining, new_remaining = counts
         end
       end
 
@@ -166,25 +172,52 @@ module AgentApropos
       end
     end
 
+    HUNK_HEADER = /\A@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/
+
+    # A content line can coincidentally look like a file header.
+    private def hunk_counts(line : String) : {Int32, Int32}?
+      match = HUNK_HEADER.match(line)
+      return nil unless match
+      {(match[1]? || "1").to_i, (match[2]? || "1").to_i}
+    end
+
+    # "\ No newline at end of file" describes the prior line, not a new one.
+    private def consume_hunk_line(state : DiffState, line : String, path : String?,
+                                  old_remaining : Int32, new_remaining : Int32) : {Int32, Int32}
+      return {old_remaining, new_remaining} if line.starts_with?('\\')
+      if line.starts_with?('+')
+        state.added[path] << line[1..] if path
+        {old_remaining, new_remaining - 1}
+      elsif line.starts_with?('-')
+        state.removed[path] << line[1..] if path
+        {old_remaining - 1, new_remaining}
+      else
+        {old_remaining - 1, new_remaining - 1}
+      end
+    end
+
+    # A rename's own "rename from"/"rename to" pair registers it first, so this runs only for add/delete/same-path modify.
     private def register_file(state : DiffState, line : String, pending_old : String?) : String?
       target = diff_path(line)
       path = target || pending_old
       if path && !state.added.has_key?(path)
         state.added[path] = [] of String
         state.removed[path] = [] of String
-        state.old_paths[path] = (target && pending_old && pending_old != target) ? pending_old : nil
+        state.old_paths[path] = nil
         state.deleted[path] = target.nil?
         state.order << path
       end
       path
     end
 
-    private def collect_line(state : DiffState, line : String, path : String) : Nil
-      if line.starts_with?('+')
-        state.added[path] << line[1..]
-      elsif line.starts_with?('-')
-        state.removed[path] << line[1..]
-      end
+    # A pure rename carries no "---"/"+++"/"@@"; a two-tree diff names a destination path at most once.
+    private def register_rename(state : DiffState, old_path : String, new_path : String) : String?
+      state.added[new_path] = [] of String
+      state.removed[new_path] = [] of String
+      state.old_paths[new_path] = old_path
+      state.deleted[new_path] = false
+      state.order << new_path
+      new_path
     end
 
     private def diff_path(line : String) : String?

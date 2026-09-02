@@ -338,6 +338,228 @@ describe AgentApropos::Review do
       stdout.should contain("- docs/conventions/r.md")
     end
 
+    # A 100%-similarity rename carries no "---"/"+++"/"@@" at all — there is
+    # no content diff to show. Confirmed against a real repo (`git mv` with
+    # no further edit).
+    it "matches a pure rename's removal doc on the old path, with no content diff at all" do
+      pure_rename = <<-DIFF
+      diff --git a/old.txt b/new.txt
+      similarity index 100%
+      rename from old.txt
+      rename to new.txt
+
+      DIFF
+      removal_doc = "---\non: [removed]\npaths: [\"old.txt\"]\n---\n# R\n\nRemoval doc.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => removal_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: pure_rename), "main...HEAD")
+      stdout.should contain("## new.txt")
+      stdout.should contain("- docs/conventions/r.md")
+    end
+
+    it "still matches a write-triggered doc on a pure rename's new path" do
+      pure_rename = <<-DIFF
+      diff --git a/old.txt b/new.txt
+      similarity index 100%
+      rename from old.txt
+      rename to new.txt
+
+      DIFF
+      write_doc = "---\npaths: [\"new.txt\"]\n---\n# W\n\nWrite doc.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: pure_rename), "main...HEAD")
+      stdout.should contain("## new.txt")
+      stdout.should contain("- docs/conventions/w.md")
+    end
+
+    # A pure rename's metadata lines are handled by their own elsif branches,
+    # not the hunk-counting loop — nothing must stop the parser from reaching
+    # whatever comes after them in a multi-file diff.
+    it "still parses a second file's diff after a pure rename with no content change" do
+      rename_then_second_file = <<-DIFF
+      diff --git a/old.txt b/new.txt
+      similarity index 100%
+      rename from old.txt
+      rename to new.txt
+      diff --git a/second.txt b/second.txt
+      index 1111111..2222222 100644
+      --- a/second.txt
+      +++ b/second.txt
+      @@ -1 +1 @@
+      -old second line
+      +new second line
+
+      DIFF
+      write_doc = "---\ncontents: ['new second line']\n---\n# W\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: rename_then_second_file), "main...HEAD")
+      stdout.should contain("## second.txt")
+      stdout.should contain("- docs/conventions/w.md")
+    end
+
+    # Once the new side's remaining count reaches 0, only the old side's own
+    # count still decides whether a trailing removed-only line belongs to
+    # this hunk.
+    it "collects every trailing removed-only line after the new side's count is exhausted" do
+      deleted = <<-DIFF
+      diff --git a/f.txt b/f.txt
+      deleted file mode 100644
+      index 1111111..0000000
+      --- a/f.txt
+      +++ /dev/null
+      @@ -1,3 +0,0 @@
+       context
+      -removed1
+      -removed2
+
+      DIFF
+      removal_doc = "---\non: [removed]\ncontents: ['removed2']\n---\n# R\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => removal_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: deleted), "main...HEAD")
+      stdout.should contain("## f.txt")
+      stdout.should contain("- docs/conventions/r.md")
+    end
+
+    # A removed line whose own text starts with "-- " renders as "--- " in
+    # the diff — indistinguishable by text alone from a real file header.
+    # Confirmed against a real repo (deleting a file containing such a
+    # line). Header detection must track the hunk's own declared line
+    # counts, not just what a line's text looks like, or this line gets
+    # mistaken for the start of a new file and dropped from `removed`.
+    it "collects a removed line that looks like a file header, deep inside a real hunk" do
+      tricky_delete = <<-DIFF
+      diff --git a/markdown.md b/markdown.md
+      deleted file mode 100644
+      index 1111111..0000000
+      --- a/markdown.md
+      +++ /dev/null
+      @@ -1,3 +0,0 @@
+      -line one
+      --- a horizontal rule looking line
+      -line three
+
+      DIFF
+      removal_doc = "---\non: [removed]\ncontents: ['horizontal rule looking line']\n---\n# R\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => removal_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: tricky_delete), "main...HEAD")
+      stdout.should contain("## markdown.md")
+      stdout.should contain("- docs/conventions/r.md")
+    end
+
+    # A pure-addition hunk (old side has zero lines, "@@ -0,0 +1,2 @@") drives
+    # the hunk-tracking loop by its new-side count alone, with the old-side
+    # count staying at 0 throughout — the mirror image of tricky_delete's
+    # pure-removal case above, and the only shape that actually exercises the
+    # new-side count independently of the old-side one.
+    it "collects every line of a multi-line pure-addition hunk, not just the first" do
+      pure_add = <<-DIFF
+      diff --git a/new_file.md b/new_file.md
+      new file mode 100644
+      index 0000000..1111111
+      --- /dev/null
+      +++ b/new_file.md
+      @@ -0,0 +1,2 @@
+      +first added line
+      +second added line
+
+      DIFF
+      write_doc = "---\ncontents: ['second added line']\n---\n# W\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: pure_add), "main...HEAD")
+      stdout.should contain("## new_file.md")
+      stdout.should contain("- docs/conventions/w.md")
+    end
+
+    # "@@ -0,0 +1 @@" — a single-line pure addition — omits the new-side
+    # count entirely (unified diff format elides a count of 1), unlike the
+    # explicit "+1,2" above. A content-scoped rule is required here, not a
+    # path-only one: a missing-content bug still leaves the path known, so
+    # only matching against the actual captured text proves the one added
+    # line was collected. Confirmed against a real repo (adding one line to
+    # a previously-empty file produces exactly this header shape).
+    it "collects the single added line of a hunk whose new-side count is omitted (implicit 1)" do
+      single_add = <<-DIFF
+      diff --git a/empty.txt b/empty.txt
+      index e69de29..2f38458 100644
+      --- a/empty.txt
+      +++ b/empty.txt
+      @@ -0,0 +1 @@
+      +just one line
+
+      DIFF
+      write_doc = "---\ncontents: ['just one line']\n---\n# W\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: single_add), "main...HEAD")
+      stdout.should contain("## empty.txt")
+      stdout.should contain("- docs/conventions/w.md")
+    end
+
+    # "\ No newline at end of file" can land mid-hunk, not just at its very
+    # end: here it describes a removed line that exhausts the old side
+    # while the new side still has two more added lines to come. Confirmed
+    # against a real repo (fixing a file that previously lacked a trailing
+    # newline). If this metadata line were miscounted as real content, the
+    # new side's count would be thrown off by one and the hunk would exit
+    # before the second added line — so this only proves correct if BOTH
+    # added lines land, not just the first.
+    it "does not miscount a mid-hunk \"No newline at end of file\" marker as content" do
+      mid_hunk_marker = <<-DIFF
+      diff --git a/noeof.txt b/noeof.txt
+      index cf0683d..75b8f1c 100644
+      --- a/noeof.txt
+      +++ b/noeof.txt
+      @@ -1,2 +1,3 @@
+       line one
+      -no newline at end
+      \\ No newline at end of file
+      +no newline at end
+      +new line with newline
+
+      DIFF
+      write_doc = "---\ncontents: ['new line with newline']\n---\n# W\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: mid_hunk_marker), "main...HEAD")
+      stdout.should contain("## noeof.txt")
+      stdout.should contain("- docs/conventions/w.md")
+    end
+
+    # A synthetic swap of consume_hunk_line's returned tuple order survives
+    # the single-file marker test above (with nothing following, the
+    # corrupted counts have nothing left to overrun) — this is what actually
+    # catches it: enough trailing added lines in the first file inflate the
+    # corrupted count past the second file's own metadata lines, so its
+    # real "---"/"+++" headers get silently swallowed as fake hunk content
+    # instead of registering the file at all.
+    it "does not let a mid-hunk backslash marker's count corruption bleed into the next file" do
+      overrun = <<-DIFF
+      diff --git a/noeof.txt b/noeof.txt
+      index cf0683d..75b8f1c 100644
+      --- a/noeof.txt
+      +++ b/noeof.txt
+      @@ -1,2 +1,6 @@
+       line one
+      -no newline at end
+      \\ No newline at end of file
+      +no newline at end
+      +added two
+      +added three
+      +added four
+      +added five
+      diff --git a/second.txt b/second.txt
+      index 1111111..2222222 100644
+      --- a/second.txt
+      +++ b/second.txt
+      @@ -1 +1 @@
+      -old second line
+      +new second line
+
+      DIFF
+      write_doc = "---\ncontents: ['new second line']\n---\n# W\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: overrun), "main...HEAD")
+      stdout.should contain("## second.txt")
+      stdout.should contain("- docs/conventions/w.md")
+    end
+
     it "does not reset already-collected content if the same path's header repeats" do
       odd_diff = <<-DIFF
       --- a/file.cr
