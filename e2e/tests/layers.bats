@@ -98,10 +98,11 @@ register_live_tests "Intent skill" EXPECT_L4 PROMPT_L4 lib/calc.py
 # Delivered from the agent's own shell tool (or, for Codex, an apply_patch
 # Delete File section) once the file is actually gone from the working tree —
 # see docs/design/agent-dialects.md's per-agent shell-tool names and
-# hook.cr's removal detection. Not run against Gemini even under
-# E2E_GEMINI=1: Gemini CLI's run_shell_command never fires any hook event, a
-# confirmed CLI limitation (see agents/gemini.cr's section in
-# agent-dialects.md), so its "with" test for this case cannot pass.
+# hook.cr's removal detection. Excluded for Gemini (the trailing arg below):
+# Gemini CLI's run_shell_command never fires any hook event, a confirmed CLI
+# limitation (see agents/gemini.cr's section in agent-dialects.md), so its
+# "with" test for this case can never pass — registering it anyway would
+# just be a guaranteed failure the moment E2E_GEMINI=1 is set.
 #
 # Convention: deleting a file under services/ must be recorded in
 # services/DECOMMISSIONED.md (services-removal-rule.md), which does not yet
@@ -109,4 +110,4 @@ register_live_tests "Intent skill" EXPECT_L4 PROMPT_L4 lib/calc.py
 # mentions this file or its format; only the rule doc does.
 export EXPECT_L5="Decommissioned: heartbeat.py"
 export PROMPT_L5="Delete services/heartbeat.py — its ping() endpoint has been retired and nothing calls it anymore."
-register_live_tests "Removal rule" EXPECT_L5 PROMPT_L5 services/DECOMMISSIONED.md
+register_live_tests "Removal rule" EXPECT_L5 PROMPT_L5 services/DECOMMISSIONED.md Gemini

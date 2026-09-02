@@ -69,12 +69,15 @@ assert_contains_all() {
 
 # Args: case label (e.g. "Path rule", "Path+content rule"), expected-
 # artifact var name, prompt var name, target file (repo-relative, e.g.
-# src/util.py). The expected-artifact var may hold one pattern or several
-# newline-separated patterns (see assert_contains_all) — every one of them
-# must land for the "with" test to pass, and "without" asserts they don't
-# all land together.
+# src/util.py), optional space-separated agent names this case cannot
+# support (e.g. "Gemini" for a case that needs a shell hook Gemini has none
+# of — see the Removal rule case) — skipped for that agent entirely, rather
+# than registered as a guaranteed-failing test. The expected-artifact var
+# may hold one pattern or several newline-separated patterns (see
+# assert_contains_all) — every one of them must land for the "with" test to
+# pass, and "without" asserts they don't all land together.
 register_live_tests() {
-  local label="$1" expect_var="$2" prompt_var="$3" target="$4"
+  local label="$1" expect_var="$2" prompt_var="$3" target="$4" exclude="${5:-}"
   # Sanitize to a valid bash identifier fragment — labels (and, below, agent
   # display names) may contain spaces or punctuation (e.g.
   # "Path+content rule", or a future "GitHub Copilot" entry).
@@ -83,6 +86,9 @@ register_live_tests() {
 
   for entry in "${E2E_AGENTS[@]}"; do
     IFS='|' read -r name require_fn run_fn <<<"$entry"
+    case " $exclude " in
+    *" $name "*) continue ;;
+    esac
     name_slug="${name//[^A-Za-z0-9]/_}"
 
     fn="test_${slug}_with_${name_slug}"
