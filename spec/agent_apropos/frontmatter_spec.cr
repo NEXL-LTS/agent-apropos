@@ -191,6 +191,11 @@ describe AgentApropos::Frontmatter do
       fm.unknown_keys.should be_empty
     end
 
+    it "does not treat another YAML-boolean-true spelling as `on`" do
+      fm = AgentApropos::Frontmatter.parse("yes: [removed]\n")
+      fm.events.should eq(Set{AgentApropos::Frontmatter::Event::Write})
+    end
+
     it "does not affect skill? or reference_only? on its own" do
       fm = AgentApropos::Frontmatter.parse("on: [removed]\n")
       fm.skill?.should be_false

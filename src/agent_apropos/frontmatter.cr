@@ -62,10 +62,17 @@ module AgentApropos
       {parse(yaml), body}
     end
 
+    # Quotes only the literal `on:` key so other YAML-boolean-true spellings (`yes:`, `TRUE:`, ...) stay unaliased.
+    ON_KEY_LINE = /^(\s*)on:/m
+
+    private def self.preserve_on_key(yaml : String) : String
+      yaml.gsub(ON_KEY_LINE) { "#{$~[1]}\"on\":" }
+    end
+
     def self.parse(yaml : String) : Frontmatter
       any =
         begin
-          YAML.parse(yaml)
+          YAML.parse(preserve_on_key(yaml))
         rescue ex : YAML::ParseException
           raise Error.new("invalid YAML frontmatter: #{ex.message}")
         end
@@ -120,7 +127,7 @@ module AgentApropos
     end
 
     private def self.events(hash) : Set(Event)
-      value = fetch(hash, "on") || fetch(hash, true)
+      value = fetch(hash, "on")
       return Set{Event::Write} if value.nil?
 
       array = value.as_a?
