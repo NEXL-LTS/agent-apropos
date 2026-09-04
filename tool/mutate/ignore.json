@@ -332,35 +332,35 @@
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 9,
+      "occurrence": 10,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `deliver_matches`'s `matches.each do |match| ... end`, whose last statement is already `state.add(...)`; `next` there is indistinguishable from normal fall-through to the next match."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 11,
+      "occurrence": 12,
       "original": "end",
       "mutated": "break\\nend",
       "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call \u2014 `break` on the first (only) iteration is indistinguishable from completing the loop."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 11,
+      "occurrence": 12,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same at-most-one-iteration argument as the `break` entry above."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 25,
+      "occurrence": 26,
       "original": "end",
       "mutated": "break\\nend",
       "reason": "closes `load_or_build_index`'s `if json && (index = Index.load(json))` branch, whose last live statement is an unconditional `return index`; a statement inserted after it is unreachable dead code."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 25,
+      "occurrence": 26,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same unreachable-after-`return index` position as the `break` entry above."
@@ -437,14 +437,14 @@
     },
     {
       "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 20,
+      "occurrence": 21,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the `if`/`elsif`/`else` chain inside `parse`'s loop, whose every branch is already the last statement in the loop's body; `next` here is indistinguishable from normal fall-through no matter which branch ran."
     },
     {
       "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 21,
+      "occurrence": 22,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `parse`'s while loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
@@ -465,7 +465,7 @@
     },
     {
       "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 26,
+      "occurrence": 27,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `read_section`'s while loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
@@ -493,49 +493,49 @@
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 33,
+      "occurrence": 34,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the innermost `json.object do ... end` inside `emit`; a single-invocation JSON-builder block, so `next` as its last statement is indistinguishable from normal completion."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 34,
+      "occurrence": 35,
       "original": "end",
       "mutated": "break\\nend",
       "reason": "closes `emit`'s `json.field \"hookSpecificOutput\" do ... end`; confirmed empirically that `break` inside a JSON::Builder block raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and truncates the written output \u2014 caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 34,
+      "occurrence": 35,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same single-invocation-block reasoning as the other `emit` `next` entries; indistinguishable from normal completion."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 35,
+      "occurrence": 36,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the `else` branch of `emit`'s `if copilot`; `next` there is indistinguishable from normal fall-through to the enclosing block's end."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 36,
+      "occurrence": 37,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `emit`'s outer `json.object do ... end`; single-invocation JSON-builder block, so `next` as its last statement is indistinguishable from normal completion."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 37,
+      "occurrence": 38,
       "original": "end",
       "mutated": "break\\nend",
       "reason": "closes `emit`'s `JSON.build(stdout) do |json| ... end`; same JSON::Error-on-break behavior as the other `break` entry above, caught by the same exact-terminator spec."
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 37,
+      "occurrence": 38,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "same single-invocation-block reasoning as the other `emit` `next` entries; indistinguishable from normal completion."
@@ -556,7 +556,7 @@
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 47,
+      "occurrence": 48,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `prune_logs`'s `dated.each do |entry| ... end`, whose last statement is already `fs.remove(file) if ...`; `next` there is indistinguishable from normal fall-through to the next entry."
@@ -1288,6 +1288,41 @@
       "original": "docs.sort_by! { |(path, _)| path }",
       "mutated": "docs.sort_by { |(path, _)| path }",
       "reason": "`docs` is never read again after this line (it is the method's return value), so mutating it in place with `sort_by!` versus returning a new sorted array with `sort_by` yields the same returned value either way."
+    },
+    {
+      "path": "src/agent_apropos/agents/copilot.cr",
+      "occurrence": 1,
+      "original": "return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)",
+      "mutated": "# return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)",
+      "reason": "same redundant-fast-path reasoning as `agents/agent.cr`'s identical guard: any command matching the later HOOK_PRE_BASE/HOOK_POST_BASE prefixes already starts with the shorter AGENT_APROPOS_HOOK_PREFIX, so the following if/elsif already falls through to nil for anything this guard would reject."
+    },
+    {
+      "path": "src/agent_apropos/agents/copilot.cr",
+      "occurrence": 19,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes `hook_check`'s `unless env.which(\"copilot\") ... end`, whose body is `return Check.new(...)`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/copilot.cr",
+      "occurrence": 19,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `unless ... end` as the break variant above: the body is an unconditional `return`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/copilot.cr",
+      "occurrence": 22,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the begin/rescue in `wired?` whose only rescue body is `return nil`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/copilot.cr",
+      "occurrence": 22,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same begin/rescue as the break variant above: the rescue body is `return nil`, making anything appended before this `end` unreachable dead code."
     }
   ]
 }
