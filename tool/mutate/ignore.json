@@ -833,6 +833,174 @@
       "original": "private def pending_shell_hook_updates(repo_root : Path, fs : Filesystem, wire : Bool) : Array({Agents::Agent, String, String})",
       "mutated": "private def pending_shell_hook_updates(repo_root : Path, fs : Filesystem, wire : Bool) : Array({Agents::Agent , String, String})",
       "reason": "whitespace inside a tuple type annotation; the declared type is identical."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32",
+      "mutated": "stdout : IO, stderr : IO, allow_outside : Bool = false) : Int-1",
+      "reason": "`Int-1` names no real type, but Crystal does not enforce a def's declared return type as a hard restriction in this position; confirmed empirically that a method declared to return `Int-1` still compiles and returns its actual value unchanged, so this is a cosmetic parse artifact, not an observable behaviour change."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "ROOT_FILES = {\"AGENTS.md\", \"CLAUDE.md\"}",
+      "mutated": "ROOT_FILES =  { \"CLAUDE.md\",\"AGENTS.md\"}",
+      "reason": "`root_file_findings` checks each name independently and `report` sorts all findings by location before printing, so the tuple's iteration order never reaches the output."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "findings",
+      "mutated": "# findings",
+      "reason": "the method's preceding statement, `findings.concat(wrapper_findings(...))`, already evaluates to `findings` itself -- `Array#concat` returns `self` -- so dropping the trailing bare reference does not change the returned value."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "private def line_count(text : String) : Int32",
+      "mutated": "private def line_count(text : String) : Int-1",
+      "reason": "same `Int-1` return-type artifact as `run`'s entry above: confirmed empirically that it compiles and the method's actual returned value is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "private def report(findings : Array(Finding), strict : Bool, stdout : IO) : Int32",
+      "mutated": "private def report(findings : Array(Finding), strict : Bool, stdout : IO) : Int-1",
+      "reason": "same `Int-1` return-type artifact as `run`'s entry above: confirmed empirically that it compiles and the method's actual returned value is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "errors = findings.count { |finding| finding.severity == :error }",
+      "mutated": "errors = findings.count { |finding| finding.severity <= :error }",
+      "reason": "`severity` is only ever `:error` or `:warning` throughout this file, and \"error\" sorts before \"warning\" alphabetically, so `:error <= :error` and `:warning <= :error` land on exactly the same true/false pair `==` would give."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "warnings = findings.count { |finding| finding.severity == :warning }",
+      "mutated": "warnings = findings.count { |finding| finding.severity >= :warning }",
+      "reason": "`severity` is only ever `:error` or `:warning`, and \"warning\" sorts after \"error\" alphabetically, so `:warning >= :warning` and `:error >= :warning` land on exactly the same true/false pair `==` would give."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "errors > 0 || (strict && warnings > 0) ? 1 : 0",
+      "mutated": "errors != 0 || (strict && warnings > 0) ? 1 : 0",
+      "reason": "`errors` is a `.count` result, never negative, so `> 0` and `!= 0` agree for every reachable value."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "errors > 0 || (strict && warnings > 0) ? 1 : 0",
+      "mutated": "errors > 0 || (strict && warnings != 0) ? 1 : 0",
+      "reason": "`warnings` is a `.count` result, never negative, so `> 0` and `!= 0` agree for every reachable value."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "severity == :error ? \"error\" : \"warn \"",
+      "mutated": "severity <= :error ? \"error\" : \"warn \"",
+      "reason": "same closed two-value domain as the `errors` count above: \"error\" sorts before \"warning\", so `<=` against `:error` agrees with `==` for both possible severities."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 4,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the begin/rescue in `index_check` whose only rescue body is a `return`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 4,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same begin/rescue as the break variant above: the rescue body is an unconditional `return`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 7,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the `unless removal_convention_declared?(...) ... end` in `removal_hook_check`, whose body is an unconditional `return`; anything appended before this `end` is unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 7,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `unless ... end` as the break variant above: the body is an unconditional `return`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 1,
+      "original": "allow_outside : Bool = false) : Int32",
+      "mutated": "allow_outside : Bool = false) : Int-1",
+      "reason": "same `Int-1` return-type artifact used elsewhere in this codebase: confirmed empirically that it compiles and the method's actual returned value is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 11,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the begin/rescue in `removal_convention_declared?` whose only rescue body is `return false`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 11,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same begin/rescue as the break variant above: the rescue body is `return false`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 1,
+      "original": "!agent.sync_shell_hook(nil, \"probe\", true).nil?",
+      "mutated": "!agent.sync_shell_hook(nil, \"\", true).nil?",
+      "reason": "`Init.settings_root` returns immediately when `existing` is nil, never reading `label`, so the two call sites here are indistinguishable when `existing` is always `nil` at this call site."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 1,
+      "original": "updated.nil? || updated == existing",
+      "mutated": "false || updated == existing",
+      "reason": "every current `sync_shell_hook` implementation (base, Claude, Codex) returns its own `existing` argument verbatim whenever that argument is nil, so `updated.nil?` can only be true in a case where `updated == existing` (nil == nil) is already true; the first disjunct never changes the result."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 1,
+      "original": "fs.write(probe, \"ok\")",
+      "mutated": "fs.write(probe, \"\")",
+      "reason": "the probe file is removed on the very next line and its content is never read by anything; only whether the write and remove succeed is observed."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 1,
+      "original": "private def report(checks : Array(Check), stdout : IO) : Int32",
+      "mutated": "private def report(checks : Array(Check), stdout : IO) : Int-1",
+      "reason": "same `Int-1` return-type artifact used elsewhere in this codebase: confirmed empirically that it compiles and the method's actual returned value is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 1,
+      "original": "failures = checks.count { |check| check.status == :fail }",
+      "mutated": "failures = checks.count { |check| check.status <= :fail }",
+      "reason": "`status` is only ever `:ok`, `:warn`, or `:fail`, and \"fail\" sorts before both of the others alphabetically, so `<=` against `:fail` agrees with `==` for all three possible statuses."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 1,
+      "original": "warnings = checks.count { |check| check.status == :warn }",
+      "mutated": "warnings = checks.count { |check| check.status >= :warn }",
+      "reason": "`status` is only ever `:ok`, `:warn`, or `:fail`, and \"warn\" sorts after both of the others alphabetically, so `>=` against `:warn` agrees with `==` for all three possible statuses."
+    },
+    {
+      "path": "src/agent_apropos/doctor.cr",
+      "occurrence": 1,
+      "original": "failures > 0 ? 1 : 0",
+      "mutated": "failures != 0 ? 1 : 0",
+      "reason": "`failures` is a `.count` result, never negative, so `> 0` and `!= 0` agree for every reachable value."
     }
   ]
 }
