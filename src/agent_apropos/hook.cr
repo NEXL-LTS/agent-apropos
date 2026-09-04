@@ -59,35 +59,24 @@ module AgentApropos
     private def execute(event : Symbol, payload : Payload, root : Path, stdout : IO, fs : Filesystem,
                         now : Time, tool : String?, allow_outside : Bool, git : Git) : Nil
       in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
-      return execute_removal(event, payload, root, stdout, fs, now, allow_outside, git) if in_root.empty?
+      removed = removed_relative_paths(payload, root, git)
+      return if in_root.empty? && removed.empty?
 
       index, session_id, state, name, pending = session_context(root, fs, allow_outside, now, payload, event)
 
       agent = Agents.find(tool) || Agents.detect(payload)
-      if agent.read?(payload)
+      if !in_root.empty? && agent.read?(payload)
         suppress(index, state, root, fs, session_id, now, name, in_root) unless payload.partial_read?
         return
       end
 
-      matches = dedup_by_entry(in_root.flat_map do |relative, edit|
-        matches_for(pending, event, root, fs, relative, edit)
-      end)
+      write_matches = in_root.flat_map { |relative, edit| matches_for(pending, event, root, fs, relative, edit) }
+      removal_matches = removed.each_with_index.flat_map { |relative, i|
+        matches_for_removal(pending, root, fs, git, relative, i < REMOVAL_CONTENT_RESOLUTION_BOUND)
+      }.to_a
+      matches = dedup_by_entry(write_matches + removal_matches)
 
       deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload)
-    end
-
-    private def execute_removal(event : Symbol, payload : Payload, root : Path, stdout : IO,
-                                fs : Filesystem, now : Time, allow_outside : Bool, git : Git) : Nil
-      removed = removed_relative_paths(payload, root, git)
-      return if removed.empty?
-
-      _, session_id, state, name, pending = session_context(root, fs, allow_outside, now, payload, event)
-
-      matches = dedup_by_entry(removed.each_with_index.flat_map { |relative, i|
-        matches_for_removal(pending, root, fs, git, relative, i < REMOVAL_CONTENT_RESOLUTION_BOUND)
-      }.to_a)
-
-      deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload, removal: true)
     end
 
     private def session_context(root : Path, fs : Filesystem, allow_outside : Bool, now : Time,
@@ -102,7 +91,7 @@ module AgentApropos
     end
 
     private def removed_relative_paths(payload : Payload, root : Path, git : Git) : Array(String)
-      structural = payload.removals.map(&.path)
+      structural = payload.removals.map { |removal| relativize(root, removal.path) }
       candidates = removal_command?(payload) ? structural + git.removed_paths(root) : structural
       candidates.reject { |relative| outside_root?(relative) }
     end
@@ -114,9 +103,9 @@ module AgentApropos
 
     private def deliver_matches(matches : Array(Match), state : SessionState, root : Path, fs : Filesystem,
                                 session_id : String?, now : Time, name : String, stdout : IO,
-                                payload : Payload, removal : Bool = false) : Nil
+                                payload : Payload) : Nil
       notice = session_notice(state, session_id)
-      combined = combine(notice, build_context(root, fs, matches.map(&.entry), removal))
+      combined = combine(notice, build_context(root, fs, matches))
       return if combined.empty?
 
       matches.each do |match|
@@ -146,7 +135,7 @@ module AgentApropos
       {relative, edit}
     end
 
-    private record Match, entry : Index::Entry, patterns : Array(String), relative : String
+    private record Match, entry : Index::Entry, patterns : Array(String), relative : String, removal : Bool = false
 
     private def dedup_by_entry(matches : Array(Match)) : Array(Match)
       seen = Set(String).new
@@ -197,7 +186,7 @@ module AgentApropos
         end
         patterns = entry.triggers(relative, content, Frontmatter::Event::Removed)
         next unless patterns
-        Match.new(entry, patterns, relative)
+        Match.new(entry, patterns, relative, removal: true)
       end
     end
 
@@ -220,13 +209,13 @@ module AgentApropos
     rescue
     end
 
-    private def build_context(root : Path, fs : Filesystem, entries : Array(Index::Entry),
-                              removal : Bool = false) : String
-      docs = entries.compact_map do |entry|
+    private def build_context(root : Path, fs : Filesystem, matches : Array(Match)) : String
+      docs = matches.compact_map do |match|
+        entry = match.entry
         text = fs.read?(root.join(entry.path).to_s)
         next unless text
         _, body = Frontmatter.split(text)
-        note = removal ? removal_scope_note(entry) : scope_note(entry)
+        note = match.removal ? removal_scope_note(entry) : scope_note(entry)
         {entry.path, body.strip + note}
       end
       Rendering.context(docs)
@@ -244,7 +233,7 @@ module AgentApropos
     private def removal_scope_note(entry : Index::Entry) : String
       parts = [] of String
       parts << "whose path matches #{quoted(entry.paths)}" unless entry.paths.empty?
-      parts << "whose last committed contents matched #{quoted(entry.contents)}" unless entry.contents.empty?
+      parts << "whose last tracked contents matched #{quoted(entry.contents)}" unless entry.contents.empty?
       "\n\n_Scope: this convention fired because a tracked file #{parts.join(" and ")} " \
       "is now missing from the working tree — not necessarily because this command " \
       "removed it. Apply it to any other matching removal this session; it will not " \

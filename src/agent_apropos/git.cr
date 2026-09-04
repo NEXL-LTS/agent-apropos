@@ -54,6 +54,7 @@ module AgentApropos
         i = 0
         while i < records.size
           status = records[i][0, 2]
+          # Both R and C carry a second, bare source field; only a rename's source vanished, never a copy's.
           if status.includes?('R') || status.includes?('C')
             removed << status_record_path(records[i]) if status[1]? == 'D'
             records[i + 1]?.try { |source| removed << source if status.includes?('R') }
