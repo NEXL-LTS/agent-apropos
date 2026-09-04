@@ -77,6 +77,18 @@ describe AgentApropos::Agents::Codex do
       stdout.should contain("would create .codex/hooks.json")
       fs.files.has_key?(HOOKS_PATH).should be_false
     end
+
+    it "writes the exact hook entry shape: a command-type entry with a 10-second timeout" do
+      fs = InMemoryFS.new
+      run_scaffold(fs)
+      parsed = JSON.parse(fs.files[HOOKS_PATH])
+      pre = parsed["hooks"]["PreToolUse"][0]["hooks"][0]
+      post = parsed["hooks"]["PostToolUse"][0]["hooks"][0]
+      pre["type"].as_s.should eq("command")
+      pre["timeout"].as_i.should eq(10)
+      post["type"].as_s.should eq("command")
+      post["timeout"].as_i.should eq(10)
+    end
   end
 
   describe "#checks" do
@@ -126,6 +138,38 @@ describe AgentApropos::Agents::Codex do
       run_scaffold(fs)
       check_named(run_checks(fs, env), "codex").detail.should contain("PreToolUse and PostToolUse call agent-apropos")
     end
+
+    it "warns rather than passing when only PostToolUse (not PreToolUse) is wired" do
+      env = FakeEnv.new(Set{"codex"})
+      only_post = %({"hooks":{"PostToolUse":[) +
+                  %({"matcher":"apply_patch","hooks":[{"command":"agent-apropos hook post --tool codex"}]}) +
+                  %(]}})
+      fs = InMemoryFS.new({HOOKS_PATH => only_post})
+      check_named(run_checks(fs, env), "codex").detail.should contain("hooks absent")
+    end
+
+    it "finds the command among several hook entries in the matching group, not only the first" do
+      env = FakeEnv.new(Set{"codex"})
+      mixed = %({"hooks":{) +
+              %("PreToolUse":[{"matcher":"apply_patch","hooks":[) +
+              %({"command":"unrelated"},{"command":"agent-apropos hook pre --tool codex"}]}],) +
+              %("PostToolUse":[{"matcher":"apply_patch","hooks":[) +
+              %({"command":"unrelated"},{"command":"agent-apropos hook post --tool codex"}]}]) +
+              %(}})
+      fs = InMemoryFS.new({HOOKS_PATH => mixed})
+      check_named(run_checks(fs, env), "codex").detail.should contain("PreToolUse and PostToolUse call agent-apropos")
+    end
+
+    it "does not treat a matching-matcher group as wired when none of its commands actually carry the prefix" do
+      env = FakeEnv.new(Set{"codex"})
+      right_matcher_wrong_command = %({"hooks":{) +
+                                    %("PreToolUse":[{"matcher":"apply_patch","hooks":[{"command":"unrelated"}]}],) +
+                                    %("PostToolUse":[{"matcher":"apply_patch","hooks":) +
+                                    %([{"command":"agent-apropos hook post --tool codex"}]}]) +
+                                    %(}})
+      fs = InMemoryFS.new({HOOKS_PATH => right_matcher_wrong_command})
+      check_named(run_checks(fs, env), "codex").detail.should contain("hooks absent")
+    end
   end
 
   describe "#configured?" do
@@ -142,6 +186,23 @@ describe AgentApropos::Agents::Codex do
   describe "#skill_root" do
     it "is .codex/skills — its own directory" do
       AgentApropos::Agents::Codex.new.skill_root.should eq(Path[".codex", "skills"])
+    end
+  end
+
+  describe "#sync_shell_hook" do
+    it "wires PreToolUse with the pre command and PostToolUse with the post command, never swapped" do
+      wired = JSON.parse(AgentApropos::Agents::Codex.new.sync_shell_hook("{}", "hooks", true).as(String))
+      pre = wired["hooks"]["PreToolUse"].as_a.find! { |group| group["matcher"] == "Bash" }
+      post = wired["hooks"]["PostToolUse"].as_a.find! { |group| group["matcher"] == "Bash" }
+      pre["hooks"][0]["command"].as_s.should eq("agent-apropos hook pre --tool codex")
+      post["hooks"][0]["command"].as_s.should eq("agent-apropos hook post --tool codex")
+      pre["hooks"][0]["timeout"].as_i.should eq(10)
+    end
+
+    it "returns exactly to the untouched seed once the only reason it was wired is gone" do
+      codex = AgentApropos::Agents::Codex.new
+      wired = codex.sync_shell_hook("{}", "hooks", true).as(String)
+      codex.sync_shell_hook(wired, "hooks", false).should eq("{}\n")
     end
   end
 end

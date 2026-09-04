@@ -167,7 +167,7 @@
       "occurrence": 1,
       "original": "output = capture?(repo_root, [\"status\", \"--porcelain\", \"-z\", \"--untracked-files=no\"])",
       "mutated": "output = capture?(repo_root, [\"status\", \"--porcelain\", \"-z\"])",
-      "reason": "confirmed against a real repo: an untracked file only ever appears with a `??` status, which `tracked_removal_status?` never matches, and a deleted-and-never-tracked file produces no status line at all whether or not this flag is passed — so it changes only the cost of the untracked-tree walk `--untracked-files=no` is there to skip, never the array `removed_paths` returns."
+      "reason": "confirmed against a real repo: an untracked file only ever appears with a `??` status, which `tracked_removal_status?` never matches, and a deleted-and-never-tracked file produces no status line at all whether or not this flag is passed \u2014 so it changes only the cost of the untracked-tree walk `--untracked-files=no` is there to skip, never the array `removed_paths` returns."
     },
     {
       "path": "src/agent_apropos/git.cr",
@@ -342,7 +342,7 @@
       "occurrence": 11,
       "original": "end",
       "mutated": "break\\nend",
-      "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call — `break` on the first (only) iteration is indistinguishable from completing the loop."
+      "reason": "closes `suppress`'s `recorded.each do |entry| ... end`. Every wired agent's `read?` matches only a single-path read (Claude's `Read`, Gemini/OpenCode's read tool, Copilot's `view`), and `Payload#file_edits` yields at most one path for any non-`apply_patch` payload while `apply_patch` is never itself a `read?` match, so `in_root`, and therefore `recorded`, holds at most one entry in every reachable call \u2014 `break` on the first (only) iteration is indistinguishable from completing the loop."
     },
     {
       "path": "src/agent_apropos/hook.cr",
@@ -503,7 +503,7 @@
       "occurrence": 34,
       "original": "end",
       "mutated": "break\\nend",
-      "reason": "closes `emit`'s `json.field \"hookSpecificOutput\" do ... end`; confirmed empirically that `break` inside a JSON::Builder block raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and truncates the written output — caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
+      "reason": "closes `emit`'s `json.field \"hookSpecificOutput\" do ... end`; confirmed empirically that `break` inside a JSON::Builder block raises `JSON::Error` (\"Unterminated JSON object\"), which propagates to `deliver`'s fail-open rescue and truncates the written output \u2014 caught by the \"terminates the emitted JSON with a trailing newline\" spec, which asserts the exact closing bytes."
     },
     {
       "path": "src/agent_apropos/hook.cr",
@@ -566,7 +566,7 @@
       "occurrence": 1,
       "original": "override_root : String? = nil, verbose : Bool = false, tool : String? = nil,",
       "mutated": "override_root : String? = nil, verbose : Bool = true, tool : String? = nil,",
-      "reason": "every caller of `pre` — the CLI (`cli.cr`, which always resolves and passes an explicit `verbose`) and every spec (through the `invoke` helper, which also always passes an explicit value) — supplies `verbose` explicitly, so this default is never the value actually used; the sole spec call that omits it (the benchmark spec) never reaches a code path that reads `verbose`."
+      "reason": "every caller of `pre` \u2014 the CLI (`cli.cr`, which always resolves and passes an explicit `verbose`) and every spec (through the `invoke` helper, which also always passes an explicit value) \u2014 supplies `verbose` explicitly, so this default is never the value actually used; the sole spec call that omits it (the benchmark spec) never reaches a code path that reads `verbose`."
     },
     {
       "path": "src/agent_apropos/hook.cr",
@@ -609,6 +609,230 @@
       "original": "allow_outside : Bool, git : Git) : Int32",
       "mutated": "allow_outside : Bool, git : Git) : Int-1",
       "reason": "same numeric-decrement-on-the-type-name artifact as `pre`/`post`'s identical entries above, for `deliver`."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "def sync_shell_hook(existing : String?, label : String, wire : Bool) : String?",
+      "mutated": "def sync_shell_hook(existing : String?, wire : String, label : Bool) : String?",
+      "reason": "pure identifier rename (label<->wire, each keeping its original type and position); the body only returns `existing` and never references either parameter by name, and Crystal binds positional call-site args by position, so no caller's behaviour changes."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "return groups if missing.empty?",
+      "mutated": "# return groups if missing.empty?",
+      "reason": "without this guard, control falls into `append_hook_entries(groups[target], [], timeout)`; with an empty commands array that just rebuilds the same \"hooks\" array from the same `present` entries with nothing appended, producing a structurally identical group."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)",
+      "mutated": "# return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)",
+      "reason": "any command matching the later \"agent-apropos hook pre\"/\"agent-apropos hook post\" prefixes already starts with the shorter AGENT_APROPOS_HOOK_PREFIX, so the following if/elsif already falls through to nil for anything this guard would reject; the guard is a redundant fast path."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 1,
+      "original": "SemanticVersion.parse(match[1])",
+      "mutated": "SemanticVersion.parse(match[0])",
+      "reason": "the regex's single capturing group spans its entire pattern, so the whole match (index 0) and its lone group (index 1) are byte-for-byte identical."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 1,
+      "original": "SemanticVersion.parse(match[1])",
+      "mutated": "SemanticVersion.parse(match[-1])",
+      "reason": "with exactly one capture group, index -1 (the last group) and index 1 (the only group) name the same match."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 1,
+      "original": "SemanticVersion.parse(match[1])",
+      "mutated": "SemanticVersion.parse(match[(1-1)])",
+      "reason": "(1-1) evaluates to 0, and the regex's single capturing group spans its entire pattern, so index 0 and index 1 are byte-for-byte identical."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 1,
+      "original": "def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)",
+      "mutated": "def checks( fs : Path,repo_root : Filesystem, env : Environment) : Array(Check)",
+      "reason": "pure identifier rename at fixed positions (repo_root<->fs swap names only, each keeping its original type); the body is `super + [capability_check(env)]`, and a bare `super` forwards the received arguments by position, so the rename has no effect."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 10,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the begin/rescue whose only rescue body is `return nil`; a `return` unconditionally exits the method, so anything appended after it and before this `end` is unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 10,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same begin/rescue as the break variant above: the rescue body is `return nil`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 11,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "`next` as the last statement of the `hooks.each` block body is a no-op -- the block already falls through to the next iteration identically."
+    },
+    {
+      "path": "src/agent_apropos/agents/codex.cr",
+      "occurrence": 6,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes an `unless env.which(\"codex\") ... end` whose body is `return Check.new(...)`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/codex.cr",
+      "occurrence": 6,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `unless ... end` as the break variant above: the body is an unconditional `return`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/codex.cr",
+      "occurrence": 9,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the begin/rescue whose only rescue body is `return nil`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/codex.cr",
+      "occurrence": 9,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same begin/rescue as the break variant above: the rescue body is `return nil`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32",
+      "mutated": "def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int-1",
+      "reason": "`Int-1` names no real type, but Crystal does not enforce a def's declared return type as a hard restriction in this position; confirmed empirically that a method declared to return `Int-1` still compiles and returns its actual value unchanged, so this is a cosmetic parse artifact, not an observable behaviour change."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32",
+      "mutated": "def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int-1",
+      "reason": "same `Int-1` return-type artifact as `run`'s entry above: confirmed empirically that it compiles and the method's actual returned value is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "private def report_check(drift : Array(String), count : Int32, stdout : IO) : Int32",
+      "mutated": "private def report_check(drift : Array(String), count : Int32, stdout : IO) : Int-1",
+      "reason": "same `Int-1` return-type artifact as `run`'s entry above: confirmed empirically that it compiles and the method's actual returned value is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "slugs = wrappers.keys.sort!",
+      "mutated": "slugs = wrappers.keys.sort",
+      "reason": "`wrappers.keys` builds a fresh array referenced nowhere else, so sorting it in place with `sort!` versus binding a new sorted array with `sort` yields the same value in `slugs` either way."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "elsif actual != content",
+      "mutated": "next\\nelsif actual != content",
+      "reason": "`next` inserted as the last statement of the elsif branch (itself the last branch before the enclosing `expected.each` block's own `end`) is a no-op -- the block already falls through to the next slug identically."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 2,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the if/elsif inside `expected.each`; `next` appended after its live branch is the last statement of that iteration either way, a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 3,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the `expected.each` block itself; `next` as its last statement is a no-op, the block already falls through to the next slug identically."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 4,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the orphan-reporting `.each` block; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 5,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the outer `Skills::ROOTS.each` block in `check`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 8,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the `if drift.empty? ... end` in `report_check`, whose body is `return 0`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 8,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `if drift.empty? ... end` as the break variant above: the body is an unconditional `return 0`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 11,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the inner `slugs.each` block in `write_wrappers`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 12,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the outer `Skills::ROOTS.each` block in `write_wrappers`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 14,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the orphan-removal `.each` block in `prune_orphans`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 15,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the outer `Skills::ROOTS.each` block in `prune_orphans`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 18,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the `Agents::ALL.each` block in `sync_shell_hooks`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "pending_shell_hook_updates(repo_root, fs, wire).map do |agent, _, _|",
+      "mutated": "pending_shell_hook_updates(repo_root, fs, wire).map do |agent, _|",
+      "reason": "dropping the second `_` placeholder still auto-destructures each {Agent, String, String} tuple, binding `agent` to the first element and silently discarding the rest; neither underscore was ever read, so the block's behaviour is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "private def pending_shell_hook_updates(repo_root : Path, fs : Filesystem, wire : Bool) : Array({Agents::Agent, String, String})",
+      "mutated": "private def pending_shell_hook_updates(repo_root : Path, fs : Filesystem, wire : Bool) : Array({Agents::Agent , String, String})",
+      "reason": "whitespace inside a tuple type annotation; the declared type is identical."
     }
   ]
 }

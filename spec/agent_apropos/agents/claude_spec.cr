@@ -6,6 +6,8 @@ private SETTINGS_PATH = "/repo/.claude/settings.json"
 # A configurable Environment double: `present` maps a command to its resolved
 # path; `outputs` maps a command to its captured `--version` stdout.
 private class FakeEnv < AgentApropos::Environment
+  getter run_capture_calls = [] of {String, Array(String)}
+
   def initialize(@present : Hash(String, String) = {} of String => String,
                  @outputs : Hash(String, String?) = {} of String => String?)
   end
@@ -15,6 +17,7 @@ private class FakeEnv < AgentApropos::Environment
   end
 
   def run_capture(command : String, args : Array(String)) : String?
+    @run_capture_calls << {command, args}
     @outputs[command]?
   end
 end
@@ -57,6 +60,10 @@ end
 
 private def groups(fs : InMemoryFS, event : String) : Array(JSON::Any)
   JSON.parse(fs.files[SETTINGS_PATH])["hooks"][event].as_a
+end
+
+private def sync(existing : String?, wire : Bool) : String?
+  AgentApropos::Agents::Claude.new.sync_shell_hook(existing, "settings", wire)
 end
 
 describe AgentApropos::Agents::Claude do
@@ -153,9 +160,16 @@ describe AgentApropos::Agents::Claude do
       fs.files[SETTINGS_PATH].should contain("agent-apropos hook post")
     end
 
-    it "fails closed on malformed existing settings JSON" do
+    it "fails closed on malformed existing settings JSON, naming the file in the error" do
       fs = InMemoryFS.new({SETTINGS_PATH => "{not json"})
-      expect_raises(AgentApropos::Init::Error, /not valid JSON/) { run_scaffold(fs) }
+      expect_raises(AgentApropos::Init::Error, /\.claude\/settings\.json is not valid JSON/) { run_scaffold(fs) }
+    end
+
+    it "ends the written settings file with exactly one trailing newline" do
+      fs = InMemoryFS.new
+      run_scaffold(fs)
+      fs.files[SETTINGS_PATH].should end_with("}\n")
+      fs.files[SETTINGS_PATH].should_not end_with("\n\n")
     end
 
     it "fails closed when existing settings is not a JSON object" do
@@ -249,6 +263,35 @@ describe AgentApropos::Agents::Claude do
       merged.should contain(%("agent-apropos hook pre --tool claude"))
     end
 
+    it "does not silently absorb a stray agent-apropos-prefixed command that is neither pre nor post into the post slot" do
+      seed = %({"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":) +
+             %([{"type":"command","command":"agent-apropos hook frobnicate","timeout":10}]}]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      commands_for(fs, "PostToolUse", "Edit|Write")
+        .should eq(["agent-apropos hook frobnicate", "agent-apropos hook post --tool claude"])
+    end
+
+    it "does not cross-convert a stale pre command sitting in a post-designated group" do
+      seed = %({"hooks":{"PostToolUse":[) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook pre --tool claude","timeout":10}]}) +
+             %(]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      commands_for(fs, "PostToolUse", "Edit|Write")
+        .should eq(["agent-apropos hook pre --tool claude", "agent-apropos hook post --tool claude"])
+    end
+
+    it "does not cross-convert a stale post command sitting in a pre-designated group" do
+      seed = %({"hooks":{"PreToolUse":[) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook post --tool claude","timeout":10}]}) +
+             %(]}})
+      fs = InMemoryFS.new({SETTINGS_PATH => seed})
+      run_scaffold(fs)
+      commands_for(fs, "PreToolUse", "Edit|Write")
+        .should eq(["agent-apropos hook post --tool claude", "agent-apropos hook pre --tool claude"])
+    end
+
     it "budgets Claude Code's hook timeout in seconds" do
       fs = InMemoryFS.new
       run_scaffold(fs)
@@ -309,6 +352,28 @@ describe AgentApropos::Agents::Claude do
         fs = InMemoryFS.new({SETTINGS_PATH => no_cmd})
         check_named(run_checks(fs), "hooks").detail.should contain("no agent-apropos hooks wired")
       end
+
+      it "warns rather than passing when only PreToolUse (not PostToolUse) is wired" do
+        only_pre = %({"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"agent-apropos hook pre"}]}]}})
+        fs = InMemoryFS.new({SETTINGS_PATH => only_pre})
+        check_named(run_checks(fs), "hooks").detail.should contain("only PreToolUse calls agent-apropos")
+      end
+
+      it "still detects a later event's wiring after an earlier event's value is malformed" do
+        mixed = %({"hooks":{"PreToolUse":"weird","PostToolUse":[{"hooks":[) +
+                %({"type":"command","command":"agent-apropos hook post"}]}]}})
+        fs = InMemoryFS.new({SETTINGS_PATH => mixed})
+        check_named(run_checks(fs), "hooks").detail.should contain("only PostToolUse calls agent-apropos")
+      end
+
+      it "detects agent-apropos ownership when only one of several groups for an event is owned" do
+        mixed_groups = %({"hooks":{"PreToolUse":[) +
+                       %({"hooks":[{"type":"command","command":"unrelated"}]},) +
+                       %({"hooks":[{"type":"command","command":"agent-apropos hook pre"}]}) +
+                       %(],"PostToolUse":[{"hooks":[{"type":"command","command":"agent-apropos hook post"}]}]}})
+        fs = InMemoryFS.new({SETTINGS_PATH => mixed_groups})
+        check_named(run_checks(fs), "hooks").detail.should contain("PreToolUse and PostToolUse call agent-apropos")
+      end
     end
 
     describe "claude check" do
@@ -332,6 +397,37 @@ describe AgentApropos::Agents::Claude do
           outputs: {"claude" => "0.9.0".as(String?)})
         check_named(run_checks(InMemoryFS.new, env), "claude").detail.should contain("may lack PreToolUse additionalContext")
       end
+
+      it "is ok, not a warning, when the version is exactly the minimum" do
+        env = FakeEnv.new(present: {"claude" => "/usr/bin/claude"},
+          outputs: {"claude" => "1.0.0".as(String?)})
+        check_named(run_checks(InMemoryFS.new, env), "claude").detail.should contain("supports PreToolUse additionalContext")
+      end
+
+      it "asks claude for its version with the --version flag" do
+        env = FakeEnv.new(present: {"claude" => "/usr/bin/claude"},
+          outputs: {"claude" => "1.2.3".as(String?)})
+        run_checks(InMemoryFS.new, env)
+        env.run_capture_calls.should eq([{"claude", ["--version"]}])
+      end
+
+      it "does not treat a version-less prefix earlier in the output as the version" do
+        env = FakeEnv.new(present: {"claude" => "/usr/bin/claude"},
+          outputs: {"claude" => ".1.2 3.4.5".as(String?)})
+        check_named(run_checks(InMemoryFS.new, env), "claude").detail.should contain("3.4.5")
+      end
+
+      it "does not let an empty middle segment produce a bogus early match" do
+        env = FakeEnv.new(present: {"claude" => "/usr/bin/claude"},
+          outputs: {"claude" => "1..2 3.4.5".as(String?)})
+        check_named(run_checks(InMemoryFS.new, env), "claude").detail.should contain("3.4.5")
+      end
+
+      it "does not let an empty trailing segment produce a bogus early match" do
+        env = FakeEnv.new(present: {"claude" => "/usr/bin/claude"},
+          outputs: {"claude" => "1.2. 3.4.5".as(String?)})
+        check_named(run_checks(InMemoryFS.new, env), "claude").detail.should contain("3.4.5")
+      end
     end
   end
 
@@ -349,6 +445,80 @@ describe AgentApropos::Agents::Claude do
   describe "#skill_root" do
     it "is .claude/skills — its own directory" do
       AgentApropos::Agents::Claude.new.skill_root.should eq(Path[".claude", "skills"])
+    end
+  end
+
+  describe "#sync_shell_hook" do
+    it "returns existing verbatim, byte-for-byte, when nothing needs to change" do
+      sync("{}", false).should eq("{}")
+    end
+
+    it "returns exactly to the untouched seed once the only reason it was wired is gone" do
+      wired = sync("{}", true).as(String)
+      wired.should contain("Bash")
+      sync(wired, false).should eq("{}\n")
+    end
+
+    it "ends the wired content with exactly one trailing newline" do
+      wired = sync("{}", true).as(String)
+      wired.should end_with("}\n")
+      wired.should_not end_with("\n\n")
+    end
+
+    it "wires PreToolUse with the pre command and PostToolUse with the post command, never swapped" do
+      wired = JSON.parse(sync("{}", true).as(String))
+      pre = wired["hooks"]["PreToolUse"].as_a.find! { |group| group["matcher"] == "Bash" }
+      post = wired["hooks"]["PostToolUse"].as_a.find! { |group| group["matcher"] == "Bash" }
+      pre["hooks"][0]["command"].as_s.should eq("agent-apropos hook pre --tool claude")
+      post["hooks"][0]["command"].as_s.should eq("agent-apropos hook post --tool claude")
+    end
+
+    it "writes the exact hook entry shape: a command-type entry with the configured timeout" do
+      wired = JSON.parse(sync("{}", true).as(String))
+      pre = wired["hooks"]["PreToolUse"].as_a.find! { |group| group["matcher"] == "Bash" }
+      pre["hooks"][0]["type"].as_s.should eq("command")
+      pre["hooks"][0]["timeout"].as_i.should eq(10)
+    end
+
+    it "leaves an already-empty hook-event array untouched rather than deleting the key" do
+      existing = %({"hooks":{"PreToolUse":[]}})
+      sync(existing, false).should eq(existing)
+    end
+
+    it "detects an existing --allow-outside-repo flag buried in a second group of a second event" do
+      seed = %({"hooks":{"PreToolUse":[) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook pre --tool claude"}]}) +
+             %(],"PostToolUse":[) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook post --tool claude"}]},) +
+             %({"matcher":"Read","hooks":[) +
+             %({"type":"command","command":"unrelated"},) +
+             %({"type":"command","command":"agent-apropos hook post --tool claude --allow-outside-repo"}) +
+             %(]}) +
+             %(]}})
+      wired = JSON.parse(sync(seed, true).as(String))
+      bash_pre = wired["hooks"]["PreToolUse"].as_a.find! { |group| group["matcher"] == "Bash" }
+      bash_pre["hooks"][0]["command"].as_s.should eq("agent-apropos hook pre --tool claude --allow-outside-repo")
+    end
+
+    it "upgrades its own outdated Bash-matcher command when the allow-outside state changes between runs" do
+      first = sync("{}", true).as(String)
+      with_flag_elsewhere = JSON.parse(first).as_h
+      with_flag_elsewhere["hooks"].as_h["PreToolUse"] = JSON::Any.new(
+        with_flag_elsewhere["hooks"].as_h["PreToolUse"].as_a + [JSON::Any.new({
+          "matcher" => JSON::Any.new("Edit|Write"),
+          "hooks"   => JSON::Any.new([JSON::Any.new({
+            "type"    => JSON::Any.new("command"),
+            "command" => JSON::Any.new("agent-apropos hook pre --tool claude --allow-outside-repo"),
+          })]),
+        })]
+      )
+      seeded = JSON::Any.new(with_flag_elsewhere).to_json
+
+      second = JSON.parse(sync(seeded, true).as(String))
+      bash = second["hooks"]["PreToolUse"].as_a.select { |group| group["matcher"] == "Bash" }
+      bash.size.should eq(1)
+      bash.first["hooks"].as_a.map(&.[]("command").as_s)
+        .should eq(["agent-apropos hook pre --tool claude --allow-outside-repo"])
     end
   end
 end

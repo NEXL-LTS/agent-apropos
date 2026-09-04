@@ -55,87 +55,8 @@ module AgentApropos
         JSON::Any.new(root).to_pretty_json + "\n"
       end
 
-      private def ensure_commands(groups : Array(JSON::Any), matcher : String,
-                                  commands : Array(String), timeout : Int64) : Array(JSON::Any)
-        matching = groups.each_index.select { |i| group_matcher(groups[i]) == matcher }.to_a
-        return groups + [hook_group(matcher, commands, timeout)] if matching.empty?
-
-        groups = groups.dup
-        matching.each { |i| groups[i] = refresh_owned_hooks(groups[i], commands, timeout) }
-
-        present = matching.flat_map { |i| present_commands(groups[i]) }
-        missing = commands.reject { |command| present.includes?(command) }
-        return groups if missing.empty?
-
-        target = matching.first
-        groups[target] = append_hooks(groups[target], missing, timeout)
-        groups
-      end
-
-      private def drop_owned_commands(groups : Array(JSON::Any), matcher : String) : Array(JSON::Any)
-        groups.compact_map do |group|
-          next group unless group_matcher(group) == matcher
-          kept = (group.as_h?.try(&.["hooks"]?).try(&.as_a?) || [] of JSON::Any).reject do |hook|
-            hook.as_h?.try(&.["command"]?).try(&.as_s?).try(&.starts_with?(AGENT_APROPOS_HOOK_PREFIX))
-          end
-          next nil if kept.empty?
-          hash = group.as_h.dup
-          hash["hooks"] = JSON::Any.new(kept)
-          JSON::Any.new(hash)
-        end
-      end
-
-      private def group_matcher(group : JSON::Any) : String?
-        group.as_h?.try(&.["matcher"]?).try(&.as_s?)
-      end
-
-      private def present_commands(group : JSON::Any) : Array(String)
-        hooks = group.as_h?.try(&.["hooks"]?).try(&.as_a?) || [] of JSON::Any
-        hooks.compact_map { |hook| hook.as_h?.try(&.["command"]?).try(&.as_s?) }
-      end
-
-      private def refresh_owned_hooks(group : JSON::Any, commands : Array(String), timeout : Int64) : JSON::Any
-        hash = group.as_h.dup
-        present = hash["hooks"]?.try(&.as_a?) || [] of JSON::Any
-        refreshed = present.map do |hook|
-          command = hook.as_h?.try(&.["command"]?).try(&.as_s?)
-          next hook unless command
-          target = commands.includes?(command) ? command : upgrade_target(command, commands)
-          target ? hook_command(target, timeout) : hook
-        end
-        hash["hooks"] = JSON::Any.new(refreshed)
-        JSON::Any.new(hash)
-      end
-
-      private def upgrade_target(command : String, commands : Array(String)) : String?
-        return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
-        if command.starts_with?("agent-apropos hook pre")
-          commands.find(&.starts_with?("agent-apropos hook pre"))
-        elsif command.starts_with?("agent-apropos hook post")
-          commands.find(&.starts_with?("agent-apropos hook post"))
-        end
-      end
-
-      private def append_hooks(group : JSON::Any, commands : Array(String), timeout : Int64) : JSON::Any
-        hash = group.as_h.dup
-        present = hash["hooks"]?.try(&.as_a?) || [] of JSON::Any
-        hash["hooks"] = JSON::Any.new(present + commands.map { |command| hook_command(command, timeout) })
-        JSON::Any.new(hash)
-      end
-
-      private def hook_group(matcher : String, commands : Array(String), timeout : Int64) : JSON::Any
-        JSON::Any.new({
-          "matcher" => JSON::Any.new(matcher),
-          "hooks"   => JSON::Any.new(commands.map { |command| hook_command(command, timeout) }),
-        })
-      end
-
-      private def hook_command(command : String, timeout : Int64) : JSON::Any
-        JSON::Any.new({
-          "type"    => JSON::Any.new("command"),
-          "command" => JSON::Any.new(command),
-          "timeout" => JSON::Any.new(timeout),
-        })
+      def sync_shell_hook(existing : String?, label : String, wire : Bool) : String?
+        sync_standard_shell_hook(existing, label, wire, HOOK_PRE_BASE, HOOK_POST_BASE, CLAUDE_HOOK_TIMEOUT)
       end
 
       protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
