@@ -9,6 +9,7 @@ require "./repo_root"
 require "./rendering"
 require "./hooks/payload"
 require "./agents"
+require "./git"
 
 module AgentApropos
   module Hook
@@ -21,6 +22,10 @@ module AgentApropos
 
     LOG_MAX_FILES = 200
 
+    REMOVAL_VERB_PATTERN = /\b(?:rm|mv|unlink|rmdir|trash|shred|truncate|find)\b/
+
+    REMOVAL_CONTENT_RESOLUTION_BOUND = 20
+
     SESSION_NOTICE = "agent-apropos is connected and running. It compiles " \
                      "this repo's coding conventions into a trigger index " \
                      "and automatically injects the ones relevant to " \
@@ -29,32 +34,32 @@ module AgentApropos
 
     def pre(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
             override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
-            allow_outside : Bool = false) : Int32
-      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside)
+            allow_outside : Bool = false, git : Git = Git::Real.new) : Int32
+      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
     end
 
     def post(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
              override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
-             allow_outside : Bool = false) : Int32
-      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside)
+             allow_outside : Bool = false, git : Git = Git::Real.new) : Int32
+      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
     end
 
     private def deliver(event : Symbol, io_in : IO, stdout : IO, fs : Filesystem,
                         now : Time, override_root : String?, verbose : Bool, tool : String?,
-                        allow_outside : Bool) : Int32
+                        allow_outside : Bool, git : Git) : Int32
       payload = Payload.parse(io_in.gets_to_end)
       root = resolve_root(override_root, payload)
-      execute(event, payload, root, stdout, fs, now, tool, allow_outside) if payload && root
+      execute(event, payload, root, stdout, fs, now, tool, allow_outside, git) if payload && root
       0
     rescue ex
       log_failure(fs, override_root, verbose, now, ex)
       0
     end
 
-    private def execute(event : Symbol, payload : Payload, root : Path,
-                        stdout : IO, fs : Filesystem, now : Time, tool : String?, allow_outside : Bool) : Nil
+    private def execute(event : Symbol, payload : Payload, root : Path, stdout : IO, fs : Filesystem,
+                        now : Time, tool : String?, allow_outside : Bool, git : Git) : Nil
       in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
-      return if in_root.empty?
+      return execute_removal(event, payload, root, stdout, fs, now, allow_outside, git) if in_root.empty?
 
       index = load_or_build_index(root, fs, allow_outside)
       session_id = SessionState.key?(payload.session_id)
@@ -73,8 +78,44 @@ module AgentApropos
         matches_for(pending, event, root, fs, relative, edit)
       end)
 
+      deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload)
+    end
+
+    private def execute_removal(event : Symbol, payload : Payload, root : Path, stdout : IO,
+                                fs : Filesystem, now : Time, allow_outside : Bool, git : Git) : Nil
+      removed = removed_relative_paths(payload, root, git)
+      return if removed.empty?
+
+      index = load_or_build_index(root, fs, allow_outside)
+      session_id = SessionState.key?(payload.session_id)
+      SessionState.prune(root, fs, now)
+      state = SessionState.load(root, fs, session_id)
+      name = event_name(event)
+
+      pending = index.docs.reject { |entry| state.injected?(entry.path) }
+      matches = dedup_by_entry(removed.each_with_index.flat_map { |relative, i|
+        matches_for_removal(pending, root, fs, git, relative, i < REMOVAL_CONTENT_RESOLUTION_BOUND)
+      }.to_a)
+
+      deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload, removal: true)
+    end
+
+    private def removed_relative_paths(payload : Payload, root : Path, git : Git) : Array(String)
+      structural = payload.removals.map(&.path)
+      candidates = removal_command?(payload) ? structural + git.removed_paths(root) : structural
+      candidates.reject { |relative| outside_root?(relative) }
+    end
+
+    private def removal_command?(payload : Payload) : Bool
+      command = payload.tool_input.try(&.command)
+      !command.nil? && REMOVAL_VERB_PATTERN.matches?(command)
+    end
+
+    private def deliver_matches(matches : Array(Match), state : SessionState, root : Path, fs : Filesystem,
+                                session_id : String?, now : Time, name : String, stdout : IO,
+                                payload : Payload, removal : Bool = false) : Nil
       notice = session_notice(state, session_id)
-      combined = combine(notice, build_context(root, fs, matches.map(&.entry)))
+      combined = combine(notice, build_context(root, fs, matches.map(&.entry), removal))
       return if combined.empty?
 
       matches.each do |match|
@@ -144,6 +185,25 @@ module AgentApropos
       fs.read?(root.join(relative).to_s)
     end
 
+    private def matches_for_removal(entries : Array(Index::Entry), root : Path, fs : Filesystem,
+                                    git : Git, relative : String, resolve_content : Bool) : Array(Match)
+      content = nil
+      resolved = false
+      entries.compact_map do |entry|
+        if resolve_content && !entry.contents.empty? && !resolved
+          content = resolve_removed_content(root, git, relative)
+          resolved = true
+        end
+        patterns = entry.triggers(relative, content, Frontmatter::Event::Removed)
+        next unless patterns
+        Match.new(entry, patterns, relative)
+      end
+    end
+
+    private def resolve_removed_content(root : Path, git : Git, relative : String) : String?
+      git.blob(root, "", relative) || git.blob(root, "HEAD", relative)
+    end
+
     private def load_or_build_index(root : Path, fs : Filesystem, allow_outside : Bool) : Index
       json = fs.read?(root.join(INDEX_RELATIVE).to_s)
       if json && (index = Index.load(json))
@@ -159,12 +219,14 @@ module AgentApropos
     rescue
     end
 
-    private def build_context(root : Path, fs : Filesystem, entries : Array(Index::Entry)) : String
+    private def build_context(root : Path, fs : Filesystem, entries : Array(Index::Entry),
+                              removal : Bool = false) : String
       docs = entries.compact_map do |entry|
         text = fs.read?(root.join(entry.path).to_s)
         next unless text
         _, body = Frontmatter.split(text)
-        {entry.path, body.strip + scope_note(entry)}
+        note = removal ? removal_scope_note(entry) : scope_note(entry)
+        {entry.path, body.strip + note}
       end
       Rendering.context(docs)
     end
@@ -173,10 +235,19 @@ module AgentApropos
       parts = [] of String
       parts << "whose path matches #{quoted(entry.paths)}" unless entry.paths.empty?
       parts << "where new code matches #{quoted(entry.contents)}" unless entry.contents.empty?
-      return "" if parts.empty?
       "\n\n_Scope: this convention applies to every file #{parts.join(" and ")} " \
       "— not only the file that triggered it just now. Apply it to any other " \
       "matching file you touch this session; it will not be shown again._"
+    end
+
+    private def removal_scope_note(entry : Index::Entry) : String
+      parts = [] of String
+      parts << "whose path matches #{quoted(entry.paths)}" unless entry.paths.empty?
+      parts << "whose last committed contents matched #{quoted(entry.contents)}" unless entry.contents.empty?
+      "\n\n_Scope: this convention fired because a tracked file #{parts.join(" and ")} " \
+      "is now missing from the working tree — not necessarily because this command " \
+      "removed it. Apply it to any other matching removal this session; it will not " \
+      "be shown again._"
     end
 
     private def quoted(patterns : Array(String)) : String
