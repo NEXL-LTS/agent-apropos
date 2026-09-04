@@ -44,6 +44,18 @@ describe AgentApropos::Frontmatter do
         AgentApropos::Frontmatter.split("---\npaths: [\"a\"]\nno closing fence\n")
       end
     end
+
+    it "requires exactly three dashes to open a fence, not merely a line of dashes" do
+      fm, body = AgentApropos::Frontmatter.split("----\npaths: [\"a\"]\n---\nbody\n")
+      fm.should be_nil
+      body.should eq("----\npaths: [\"a\"]\n---\nbody\n")
+    end
+
+    it "requires exactly three dashes to close a fence, not a longer dash line partway through" do
+      expect_raises(AgentApropos::Frontmatter::Error, /invalid YAML/) do
+        AgentApropos::Frontmatter.split("---\npaths: [\"a\"]\n----\nmore: 1\n---\nbody\n")
+      end
+    end
   end
 
   describe ".parse" do
@@ -69,6 +81,11 @@ describe AgentApropos::Frontmatter do
     it "collects unknown keys, sorted, for the linter" do
       fm = AgentApropos::Frontmatter.parse("zebra: 1\napple: 2\npaths: [\"a\"]\n")
       fm.unknown_keys.should eq(["apple", "zebra"])
+    end
+
+    it "does not report `lint` as an unknown key" do
+      fm = AgentApropos::Frontmatter.parse("lint: ignore\npaths: [\"a\"]\n")
+      fm.unknown_keys.should be_empty
     end
 
     it "treats explicitly-null values as absent" do
@@ -119,6 +136,75 @@ describe AgentApropos::Frontmatter do
       expect_raises(AgentApropos::Frontmatter::Error, /`description` must be a string/) do
         AgentApropos::Frontmatter.parse("description: [1]\n")
       end
+    end
+
+    it "defaults `on` to write-only when the key is absent" do
+      fm = AgentApropos::Frontmatter.parse("paths: [\"a\"]\n")
+      fm.events.should eq(Set{AgentApropos::Frontmatter::Event::Write})
+    end
+
+    it "parses `on: [removed]` as removal-only" do
+      fm = AgentApropos::Frontmatter.parse("on: [removed]\n")
+      fm.events.should eq(Set{AgentApropos::Frontmatter::Event::Removed})
+    end
+
+    it "parses `on: [write, removed]` as both events" do
+      fm = AgentApropos::Frontmatter.parse("on: [write, removed]\n")
+      fm.events.should eq(Set{AgentApropos::Frontmatter::Event::Write, AgentApropos::Frontmatter::Event::Removed})
+    end
+
+    it "does not duplicate a repeated event" do
+      fm = AgentApropos::Frontmatter.parse("on: [removed, removed]\n")
+      fm.events.should eq(Set{AgentApropos::Frontmatter::Event::Removed})
+    end
+
+    it "parses `on: []` as no events" do
+      fm = AgentApropos::Frontmatter.parse("on: []\n")
+      fm.events.should be_empty
+    end
+
+    it "raises when `on` is not a list" do
+      expect_raises(AgentApropos::Frontmatter::Error, /`on` must be a list/) do
+        AgentApropos::Frontmatter.parse("on: removed\n")
+      end
+    end
+
+    it "raises when an `on` entry is not a string" do
+      expect_raises(AgentApropos::Frontmatter::Error, /`on` entries must be strings/) do
+        AgentApropos::Frontmatter.parse("on: [1]\n")
+      end
+    end
+
+    it "raises naming the value when `on` holds an unrecognized event" do
+      expect_raises(AgentApropos::Frontmatter::Error, /`on`.*delete/) do
+        AgentApropos::Frontmatter.parse("on: [delete]\n")
+      end
+    end
+
+    it "recognizes a quoted \"on\" key the same as the bare, YAML-boolean-coerced key" do
+      fm = AgentApropos::Frontmatter.parse(%("on": [removed]\n))
+      fm.events.should eq(Set{AgentApropos::Frontmatter::Event::Removed})
+    end
+
+    it "does not report a quoted \"on\" key as unknown" do
+      fm = AgentApropos::Frontmatter.parse(%("on": [removed]\n))
+      fm.unknown_keys.should be_empty
+    end
+
+    it "does not treat another YAML-boolean-true spelling as `on`" do
+      fm = AgentApropos::Frontmatter.parse("yes: [removed]\n")
+      fm.events.should eq(Set{AgentApropos::Frontmatter::Event::Write})
+    end
+
+    it "does not affect skill? or reference_only? on its own" do
+      fm = AgentApropos::Frontmatter.parse("on: [removed]\n")
+      fm.skill?.should be_false
+      fm.reference_only?.should be_true
+    end
+
+    it "does not affect reference_only? alongside paths" do
+      fm = AgentApropos::Frontmatter.parse("on: [removed]\npaths: [\"a/**\"]\n")
+      fm.reference_only?.should be_false
     end
   end
 

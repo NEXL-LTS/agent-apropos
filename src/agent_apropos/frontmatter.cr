@@ -6,7 +6,12 @@ module AgentApropos
     class Error < AgentApropos::Error
     end
 
-    KNOWN_KEYS = ["paths", "contents", "skill", "description", "lint"]
+    enum Event
+      Write
+      Removed
+    end
+
+    KNOWN_KEYS = ["paths", "contents", "skill", "description", "lint", "on"]
 
     LINT_IGNORE = "ignore"
 
@@ -19,6 +24,7 @@ module AgentApropos
     getter description : String?
     getter lint : String?
     getter unknown_keys : Array(String)
+    getter events : Set(Event)
 
     def initialize(
       @paths = [] of String,
@@ -27,6 +33,7 @@ module AgentApropos
       @description = nil,
       @lint = nil,
       @unknown_keys = [] of String,
+      @events = Set{Event::Write},
     )
     end
 
@@ -55,10 +62,17 @@ module AgentApropos
       {parse(yaml), body}
     end
 
+    # Quotes only the literal `on:` key so other YAML-boolean-true spellings (`yes:`, `TRUE:`, ...) stay unaliased.
+    ON_KEY_LINE = /^(\s*)on:/m
+
+    private def self.preserve_on_key(yaml : String) : String
+      yaml.gsub(ON_KEY_LINE) { "#{$~[1]}\"on\":" }
+    end
+
     def self.parse(yaml : String) : Frontmatter
       any =
         begin
-          YAML.parse(yaml)
+          YAML.parse(preserve_on_key(yaml))
         rescue ex : YAML::ParseException
           raise Error.new("invalid YAML frontmatter: #{ex.message}")
         end
@@ -76,6 +90,7 @@ module AgentApropos
         description: string(hash, "description"),
         lint: string(hash, "lint"),
         unknown_keys: unknown,
+        events: events(hash),
       )
     end
 
@@ -109,6 +124,28 @@ module AgentApropos
       str = value.as_s?
       raise Error.new("`#{key}` must be a string") if str.nil?
       str
+    end
+
+    private def self.events(hash) : Set(Event)
+      value = fetch(hash, "on")
+      return Set{Event::Write} if value.nil?
+
+      array = value.as_a?
+      raise Error.new("`on` must be a list of strings") if array.nil?
+
+      array.reduce(Set(Event).new) do |set, item|
+        name = item.as_s? || raise Error.new("`on` entries must be strings")
+        set << event(name)
+      end
+    end
+
+    private def self.event(name : String) : Event
+      case name
+      when "write"   then Event::Write
+      when "removed" then Event::Removed
+      else
+        raise Error.new("`on` has an unrecognized event: #{name}")
+      end
     end
   end
 end

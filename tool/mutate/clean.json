@@ -3,6 +3,7 @@
   "clean": [
     "src/agent_apropos/matcher.cr",
     "src/agent_apropos/rendering.cr",
-    "src/agent_apropos/agents/agent.cr"
+    "src/agent_apropos/agents/agent.cr",
+    "src/agent_apropos/frontmatter.cr"
   ]
 }

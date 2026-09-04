@@ -42,6 +42,48 @@
       "original": "protected abstract def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check",
       "mutated": "protected abstract def hook_check(repo_root : Path, env : Filesystem, fs : Environment) : Check",
       "reason": "same names-only swap on an abstract declaration, this time on the second and third parameters."
+    },
+    {
+      "path": "src/agent_apropos/frontmatter.cr",
+      "occurrence": 1,
+      "original": "KNOWN_KEYS = [\"paths\", \"contents\", \"skill\", \"description\", \"lint\", \"on\"]",
+      "mutated": "KNOWN_KEYS =  [ \"contents\",\"paths\", \"skill\", \"description\", \"lint\", \"on\"]",
+      "reason": "KNOWN_KEYS is only ever consulted with Array#includes?, which does not depend on element order; swapping two entries (plus the argument-swap operator's incidental whitespace) cannot change which keys are reported unknown."
+    },
+    {
+      "path": "src/agent_apropos/frontmatter.cr",
+      "occurrence": 1,
+      "original": "KNOWN_KEYS = [\"paths\", \"contents\", \"skill\", \"description\", \"lint\", \"on\"]",
+      "mutated": "KNOWN_KEYS = [\"paths\" , \"skill\", \"contents\", \"description\", \"lint\", \"on\"]",
+      "reason": "same order-independence as the entry above, swapping a different pair of entries."
+    },
+    {
+      "path": "src/agent_apropos/frontmatter.cr",
+      "occurrence": 1,
+      "original": "KNOWN_KEYS = [\"paths\", \"contents\", \"skill\", \"description\", \"lint\", \"on\"]",
+      "mutated": "KNOWN_KEYS = [\"paths\", \"contents\" , \"description\", \"skill\", \"lint\", \"on\"]",
+      "reason": "same order-independence as the entry above, swapping a different pair of entries."
+    },
+    {
+      "path": "src/agent_apropos/frontmatter.cr",
+      "occurrence": 1,
+      "original": "KNOWN_KEYS = [\"paths\", \"contents\", \"skill\", \"description\", \"lint\", \"on\"]",
+      "mutated": "KNOWN_KEYS = [\"paths\", \"contents\", \"skill\" , \"lint\", \"description\", \"on\"]",
+      "reason": "same order-independence as the entry above, swapping a different pair of entries."
+    },
+    {
+      "path": "src/agent_apropos/frontmatter.cr",
+      "occurrence": 1,
+      "original": "KNOWN_KEYS = [\"paths\", \"contents\", \"skill\", \"description\", \"lint\", \"on\"]",
+      "mutated": "KNOWN_KEYS = [\"paths\", \"contents\", \"skill\", \"description\" , \"on\", \"lint\"]",
+      "reason": "same order-independence as the entry above, swapping the last two entries."
+    },
+    {
+      "path": "src/agent_apropos/frontmatter.cr",
+      "occurrence": 1,
+      "original": "unknown = hash.keys.compact_map(&.as_s?).reject { |key| KNOWN_KEYS.includes?(key) }.sort!",
+      "mutated": "unknown = hash.keys.compact_map(&.as_s?).reject { |key| KNOWN_KEYS.includes?(key) }.sort",
+      "reason": "the receiver is a freshly-built Array with no other reference, and the result is immediately reassigned to `unknown`; `sort` (allocate-and-return) and `sort!` (sort-in-place-and-return) leave `unknown` holding the identical sorted contents either way."
     }
   ]
 }
