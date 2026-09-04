@@ -31,7 +31,7 @@ private def with_repo(&)
   end
 end
 
-# A bare repo with a single tracked file committed, for removal-detection specs.
+# A repo with a single tracked file committed, for removal-detection specs.
 private def with_tracked_repo(name : String, content : String, &)
   dir = File.tempname("agent-apropos-git-removed")
   begin
@@ -248,6 +248,46 @@ describe AgentApropos::Git::Real do
         git(dir, ["mv", "D odd.txt", "new.txt"])
         File.delete(File.join(dir, "a_plain.txt"))
         AgentApropos::Git::Real.new.removed_paths(Path[dir]).should eq(["a_plain.txt", "D odd.txt"])
+      end
+    end
+
+    it "reports a rename's destination as removed too when it is also deleted from the worktree" do
+      with_tracked_repo("old.txt", "content\n") do |dir|
+        git(dir, ["mv", "old.txt", "new.txt"])
+        File.delete(File.join(dir, "new.txt"))
+        AgentApropos::Git::Real.new.removed_paths(Path[dir]).to_set.should eq(Set{"old.txt", "new.txt"})
+      end
+    end
+
+    it "consumes exactly the copy's two record fields, not more or fewer" do
+      with_tracked_repo("D odd.txt", "line one\nline two\n") do |dir|
+        # The copy's source name starts with "D ", coincidentally a
+        # `tracked_removal_status?` code (see the analogous rename test
+        # above) — mis-consuming the copy's field pair would land on this
+        # bare source field and misreport a truncated path as removed.
+        git(dir, ["config", "diff.renames", "copies"])
+        File.write(File.join(dir, "D odd.txt"), "line one\nline two\nline three\n")
+        File.write(File.join(dir, "copy.txt"), "line one\nline two\n")
+        git(dir, ["add", "-A"])
+        AgentApropos::Git::Real.new.removed_paths(Path[dir]).should be_empty
+      end
+    end
+
+    it "does not stop early: a plain removal after a copy is still reported" do
+      with_tracked_repo("a_deleted.txt", "gone\n") do |dir|
+        File.write(File.join(dir, "original.txt"), "line one\nline two\n")
+        File.write(File.join(dir, "z_deleted2.txt"), "gone too\n")
+        git(dir, ["add", "original.txt", "z_deleted2.txt"])
+        commit(dir, "add the rest")
+        git(dir, ["config", "diff.renames", "copies"])
+        File.write(File.join(dir, "original.txt"), "line one\nline two\nline three\n")
+        File.write(File.join(dir, "copy.txt"), "line one\nline two\n")
+        git(dir, ["add", "-A"])
+        File.delete(File.join(dir, "a_deleted.txt"))
+        File.delete(File.join(dir, "z_deleted2.txt"))
+        AgentApropos::Git::Real.new.removed_paths(Path[dir]).to_set.should eq(
+          Set{"a_deleted.txt", "z_deleted2.txt"}
+        )
       end
     end
 

@@ -245,6 +245,13 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the while loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "removed << status_record_path(records[i]) if status[1]? == 'D'",
+      "mutated": "removed << status_record_path(records[i]) if status[-1]? == 'D'",
+      "reason": "status is always exactly the two-character slice records[i][0, 2], so index 1 and index -1 name the identical character; the mutation cannot change which records are treated as a worktree delete."
     }
   ]
 }
