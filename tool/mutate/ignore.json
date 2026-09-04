@@ -1001,6 +1001,293 @@
       "original": "failures > 0 ? 1 : 0",
       "mutated": "failures != 0 ? 1 : 0",
       "reason": "`failures` is a `.count` result, never negative, so `> 0` and `!= 0` agree for every reachable value."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "allow_outside : Bool = false) : Int32",
+      "mutated": "allow_outside : Bool = false) : Int-1",
+      "reason": "`Int-1` names no real type, but Crystal does not enforce a def's declared return type as a hard restriction in this position; confirmed empirically that a method declared to return `Int-1` still compiles and returns its actual value unchanged, so this is a cosmetic parse artifact, not an observable behaviour change."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "format : String, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32",
+      "mutated": "format : String, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int-1",
+      "reason": "same `Int-1` return-type artifact as `match`'s entry above: confirmed empirically that it compiles and the method's actual returned value is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 20,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the `if base = git.symbolic_ref(...) ... end` in `default_base`, whose body is `return base`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 20,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `if base = ... end` as the break variant above: the body is an unconditional `return`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 21,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `DEFAULT_BASE_CANDIDATES.each do |candidate| ... end`; `next` as its last statement is a no-op -- the block already falls through to the next candidate identically."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "in_hunk = false",
+      "mutated": "in_hunk = true",
+      "reason": "this is `in_hunk`'s initial value before any diff line is processed. `current` also starts `nil`, so the one line-collection branch that reads `in_hunk` (`in_hunk && (path = current)`) is already false via `current` regardless of this flag; and the first `\"+++ \"` line always resets `in_hunk` explicitly before any content could be collected. The initial value never survives to matter."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "elsif line.starts_with?(\"+++ \")",
+      "mutated": "next\\nelsif line.starts_with?(\"+++ \")",
+      "reason": "`next` inserted at the end of the `\"--- \"` branch (the last branch before this `elsif`) is a no-op -- that branch already falls through to the next diff line identically."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "elsif line.starts_with?(\"@@\")",
+      "mutated": "next\\nelsif line.starts_with?(\"@@\")",
+      "reason": "`next` inserted at the end of the `\"+++ \"` branch is a no-op -- that branch already falls through to the next diff line identically."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "elsif in_hunk && (path = current)",
+      "mutated": "next\\nelsif in_hunk && (path = current)",
+      "reason": "`next` inserted at the end of the `\"@@\"` branch is a no-op -- that branch already falls through to the next diff line identically."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 23,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the if/elsif chain inside `diff.each_line`; `next` as the last statement of its live branch is a no-op either way."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 24,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the `diff.each_line do |line| ... end` block itself; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "target = line[4..].strip",
+      "mutated": "target = line[(4-1)..].strip",
+      "reason": "the subsequent `.strip` call absorbs the one extra leading character `line[3..]` includes (it is always whitespace between the 4-character `\"--- \"`/`\"+++ \"` marker and the path, or leading a bare `\"/dev/null\"`), so the stripped result is identical either way."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "return nil if target == \"/dev/null\"",
+      "mutated": "return nil if target <= \"/dev/null\"",
+      "reason": "every real target is either exactly `\"/dev/null\"` or an `\"a/\"`/`\"b/\"`-prefixed path; a lowercase letter always sorts after `'/'` in ASCII, so no real path is ever lexically `<=` `\"/dev/null\"` without being equal to it. `<=` and `==` agree for every reachable value."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "{\"a/\", \"b/\"}.each do |prefix|",
+      "mutated": "{ \"b/\",\"a/\"}.each do |prefix|",
+      "reason": "a target starts with at most one of `\"a/\"`/`\"b/\"`, so the two are mutually exclusive and the order they are checked in never changes which one matches."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 32,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `{\"a/\", \"b/\"}.each do |prefix| ... end` in `strip_prefix`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "if format == \"json\"",
+      "mutated": "if format <= \"json\"",
+      "reason": "`format` is only ever `\"md\"` or `\"json\"` from every call site in this codebase, and \"json\" sorts before \"md\" alphabetically, so `<=` against `\"json\"` agrees with `==` for both possible values."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 36,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the single-shot `build_json(stdout) do |json| ... end` block in `render_review`; the block is yielded exactly once (not iterated), so `next` as its last statement just resumes normally, a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "return",
+      "mutated": "return nil",
+      "reason": "`render_review_md`'s declared return type is `Nil`, and a bare `return` already returns nil; `return nil` is the same value."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "return",
+      "mutated": "# return",
+      "reason": "without this `return`, the method falls through to `applicable.each do |file| ... end`, but `applicable` is empty in this branch (that is why it was taken), so the loop body never runs and no further output is produced either way."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 39,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the `if applicable.empty? ... end` in `render_review_md`, whose body ends in `return`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 39,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `if applicable.empty? ... end` as the break variant above: the body ends in an unconditional `return`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 40,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `applicable.each do |file| ... end` in `render_review_md`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 43,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `verify.each_line do |line| ... end` in `verify_items`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 45,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the single-shot `JSON.build(io, indent: \"  \") do |json| ... end` block in `build_json`; confirmed empirically (a scratch mutant against the full review spec suite) that inserting `break` here does not change any observable output, since `json.object { yield json }` has already written a complete, balanced JSON value by the time this point is reached."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 45,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-shot block as the break variant above: `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 47,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the single-shot `json.field \"files\" do ... end` block in `files_field`, the last statement of the method; break/next here behave the same as the equivalent `build_json` case, confirmed by the same reasoning (the nested `json.array` has already written its complete content)."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 47,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-shot block as the break variant above: a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 49,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the single-shot `json.field \"rules\" do ... end` block in `file_object`; nothing follows it before the enclosing `json.object`'s own `end`, so break/next here behave the same as the equivalent `build_json`/`rule_object` cases."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 49,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-shot block as the break variant above: a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 50,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes `file_object`'s outer `json.object do ... end`, the method's last statement; break/next here behave the same as the equivalent single-shot-block cases elsewhere in this file."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 50,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-shot block as the break variant above: a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 52,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the single-shot `json.field \"triggers\" do ... end` block in `rule_object`; confirmed empirically (a scratch mutant against the full review spec suite) that inserting `break` here does not change any observable output, since the nested `json.array` has already written its complete content and the subsequent `json.field \"verify\", ...` still runs normally afterward."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 52,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same single-shot block as the break variant above: a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 53,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `rule_object`'s outer `json.object do ... end`, the method's last statement; a no-op, matching the single-shot-block pattern elsewhere in this file."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "files.flat_map { |file| file.rules.map(&.path) }.uniq!.sort!",
+      "mutated": "files.flat_map { |file| file.rules.map(&.path) }.uniq.sort!",
+      "reason": "the `flat_map` result is a freshly built array referenced nowhere else, so removing one array in place with `uniq!` versus returning a new deduped array with `uniq` yields the same chained value either way."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "files.flat_map { |file| file.rules.map(&.path) }.uniq!.sort!",
+      "mutated": "files.flat_map { |file| file.rules.map(&.path) }.uniq!.sort",
+      "reason": "same freshly built, unreferenced-elsewhere array as the `uniq`/`uniq!` entry above: sorting it in place versus returning a new sorted array yields the same value either way."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "private def unique_docs(files : Array(FileMatches)) : Array({String, String})",
+      "mutated": "private def unique_docs(files : Array(FileMatches)) : Array( { String,String})",
+      "reason": "whitespace inside a tuple type annotation; the declared type is identical."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "docs = [] of {String, String}",
+      "mutated": "docs = [] of  { String,String}",
+      "reason": "whitespace inside a tuple type literal; the declared type is identical."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 56,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `file.rules.each do |rule| ... end` in `unique_docs`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 57,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes `files.each do |file| ... end` in `unique_docs`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/review.cr",
+      "occurrence": 1,
+      "original": "docs.sort_by! { |(path, _)| path }",
+      "mutated": "docs.sort_by { |(path, _)| path }",
+      "reason": "`docs` is never read again after this line (it is the method's return value), so mutating it in place with `sort_by!` versus returning a new sorted array with `sort_by` yields the same returned value either way."
     }
   ]
 }
