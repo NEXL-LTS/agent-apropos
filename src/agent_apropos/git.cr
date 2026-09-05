@@ -13,6 +13,10 @@ module AgentApropos
 
     abstract def ls_files(repo_root : Path) : Array(String)?
 
+    abstract def removed_paths(repo_root : Path) : Array(String)
+
+    abstract def blob(repo_root : Path, revision : String, path : String) : String?
+
     class Real < Git
       def diff(repo_root : Path, range : String) : String
         capture(repo_root, ["diff", "--no-color", range])
@@ -35,6 +39,43 @@ module AgentApropos
         output.split('\0').reject(&.empty?)
       end
 
+      def removed_paths(repo_root : Path) : Array(String)
+        output = capture?(repo_root, ["status", "--porcelain", "-z", "--untracked-files=no"])
+        return [] of String unless output
+        parse_removed_records(output.split('\0').reject(&.empty?))
+      end
+
+      def blob(repo_root : Path, revision : String, path : String) : String?
+        capture?(repo_root, ["show", "#{revision}:#{path}"])
+      end
+
+      private def parse_removed_records(records : Array(String)) : Array(String)
+        removed = [] of String
+        i = 0
+        while i < records.size
+          status = records[i][0, 2]
+          if status.includes?('R') || status.includes?('C')
+            removed << status_record_path(records[i]) if status[1]? == 'D'
+            records[i + 1]?.try { |source| removed << source if status.includes?('R') }
+            i += 2
+          elsif tracked_removal_status?(status)
+            removed << status_record_path(records[i])
+            i += 1
+          else
+            i += 1
+          end
+        end
+        removed
+      end
+
+      private def status_record_path(record : String) : String
+        record[3..]
+      end
+
+      private def tracked_removal_status?(status : String) : Bool
+        status[1]? == 'D' || status == "D "
+      end
+
       private def capture(repo_root : Path, args : Array(String)) : String
         capture?(repo_root, args) || raise Error.new("git #{args.join(' ')} failed")
       end
@@ -47,7 +88,6 @@ module AgentApropos
         )
         status.success? ? stdout.to_s : nil
       rescue IO::Error
-        nil
       end
     end
   end

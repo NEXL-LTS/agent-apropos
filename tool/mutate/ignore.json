@@ -84,6 +84,174 @@
       "original": "unknown = hash.keys.compact_map(&.as_s?).reject { |key| KNOWN_KEYS.includes?(key) }.sort!",
       "mutated": "unknown = hash.keys.compact_map(&.as_s?).reject { |key| KNOWN_KEYS.includes?(key) }.sort",
       "reason": "the receiver is a freshly-built Array with no other reference, and the result is immediately reassigned to `unknown`; `sort` (allocate-and-return) and `sort!` (sort-in-place-and-return) leave `unknown` holding the identical sorted contents either way."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "abstract def diff(repo_root : Path, range : String) : String",
+      "mutated": "abstract def diff( range : Path,repo_root : String) : String",
+      "reason": "abstract declaration with no body: the argument-swap operator exchanged parameter NAMES while leaving the types in place, and Crystal neither checks an override's names against the abstract def nor has a caller here passing them by name."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "abstract def symbolic_ref(repo_root : Path, name : String) : String?",
+      "mutated": "abstract def symbolic_ref( name : Path,repo_root : String) : String?",
+      "reason": "same names-only swap on an abstract declaration as the diff entry above."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "abstract def ref_exists?(repo_root : Path, ref : String) : Bool",
+      "mutated": "abstract def ref_exists?( ref : Path,repo_root : String) : Bool",
+      "reason": "same names-only swap on an abstract declaration as the diff entry above."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "abstract def blob(repo_root : Path, revision : String, path : String) : String?",
+      "mutated": "abstract def blob(repo_root : Path , path : String, revision : String) : String?",
+      "reason": "same names-only swap on an abstract declaration as the diff entry above, on the second and third parameters."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "abstract def blob(repo_root : Path, revision : String, path : String) : String?",
+      "mutated": "abstract def blob( revision : Path,repo_root : String, path : String) : String?",
+      "reason": "same names-only swap on an abstract declaration as the diff entry above, on the first and second parameters."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "capture(repo_root, [\"diff\", \"--no-color\", range])",
+      "mutated": "capture(repo_root, [\"diff\" , range, \"--no-color\"])",
+      "reason": "confirmed against a real repo: git accepts `--no-color` in any position relative to the revision range on `git diff`, so this reordering invokes the identical command."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "capture?(repo_root, [\"symbolic-ref\", \"--short\", name]).try(&.strip).presence",
+      "mutated": "capture?(repo_root, [\"symbolic-ref\" , name, \"--short\"]).try(&.strip).presence",
+      "reason": "confirmed against a real repo: git accepts `--short` before or after the ref name on `git symbolic-ref`, so this reordering invokes the identical command."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "!capture?(repo_root, [\"rev-parse\", \"--verify\", \"--quiet\", ref]).nil?",
+      "mutated": "!capture?(repo_root, [\"rev-parse\", \"--verify\" , ref, \"--quiet\"]).nil?",
+      "reason": "confirmed against a real repo: git accepts `--quiet` before or after the ref on `git rev-parse --verify`, so this reordering invokes the identical command."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "!capture?(repo_root, [\"rev-parse\", \"--verify\", \"--quiet\", ref]).nil?",
+      "mutated": "!capture?(repo_root, [\"rev-parse\" , \"--quiet\", \"--verify\", ref]).nil?",
+      "reason": "confirmed against a real repo: git accepts `--verify` and `--quiet` in either order on `git rev-parse`, so this reordering invokes the identical command."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "!capture?(repo_root, [\"rev-parse\", \"--verify\", \"--quiet\", ref]).nil?",
+      "mutated": "!capture?(repo_root, [\"rev-parse\", \"--quiet\", ref]).nil?",
+      "reason": "`ref_exists?` only inspects success/failure via `.nil?`, never the exit code's exact value or stdout content; confirmed against a real repo across an existing ref, a nonexistent one, an empty string, and a flag-like ref name that `--verify`/`--quiet` alone, both, or neither agree on the resulting zero/nonzero exit status every time, so dropping `--verify` cannot change the boolean this method reports."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "!capture?(repo_root, [\"rev-parse\", \"--verify\", \"--quiet\", ref]).nil?",
+      "mutated": "!capture?(repo_root, [\"rev-parse\", \"--verify\", ref]).nil?",
+      "reason": "same success/failure-only observation as the entry above; dropping `--quiet` only changes discarded stderr noise, never the exit status `ref_exists?` reports on."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "output = capture?(repo_root, [\"status\", \"--porcelain\", \"-z\", \"--untracked-files=no\"])",
+      "mutated": "output = capture?(repo_root, [\"status\", \"--porcelain\", \"-z\"])",
+      "reason": "confirmed against a real repo: an untracked file only ever appears with a `??` status, which `tracked_removal_status?` never matches, and a deleted-and-never-tracked file produces no status line at all whether or not this flag is passed — so it changes only the cost of the untracked-tree walk `--untracked-files=no` is there to skip, never the array `removed_paths` returns."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "output = capture?(repo_root, [\"status\", \"--porcelain\", \"-z\", \"--untracked-files=no\"])",
+      "mutated": "output = capture?(repo_root, [\"status\" , \"-z\", \"--porcelain\", \"--untracked-files=no\"])",
+      "reason": "`--porcelain` and `-z` are independent flags to `git status`; git accepts them in either order, so this reordering invokes the identical command."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "status[1]? == 'D' || status == \"D \"",
+      "mutated": "status[-1]? == 'D' || status == \"D \"",
+      "reason": "`status` is always exactly the 2-character `records[i][0, 2]` slice, so index `-1` (last character) and index `1` name the same character; the two are indistinguishable for every value `status` can hold."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "!capture?(repo_root, [\"rev-parse\", \"--verify\", \"--quiet\", ref]).nil?",
+      "mutated": "!capture?(repo_root, [\"rev-parse\", ref]).nil?",
+      "reason": "same success/failure-only observation as the two narrower `--verify`/`--quiet` entries above; dropping both at once is still only a change to discarded stderr noise and exit-code magnitude, never its zero/nonzero-ness for any ref this method has been exercised with."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "abstract def blob(repo_root : Path, revision : String, path : String) : String?",
+      "mutated": "abstract def blob(repo_root : Path, path : String, revision : String) : String?",
+      "reason": "same names-only swap on an abstract declaration as the other `blob` entry above; the mutation engine generated this pairing without the incidental extra space that entry's variant carries."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "while i < records.size",
+      "mutated": "while i != records.size",
+      "reason": "`records` is always well-formed `git status -z` output, where a rename/copy status is always immediately followed by exactly one source-path field; `i` advances by 2 for that pair and by 1 for every other record, so it always lands exactly on `records.size` when the loop ends and can never step past it. `<` and `!=` agree on every reachable value of `i`."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 5,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes `ls_files`'s `if output.nil?` branch, whose last live statement is an unconditional `return nil`; a statement inserted after it is unreachable dead code and can never execute, let alone change behavior."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 5,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "the same unreachable-after-`return nil` position as the `break` entry above; dead code either way."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "elsif tracked_removal_status?(status)",
+      "mutated": "next\\nelsif tracked_removal_status?(status)",
+      "reason": "inserted as the last statement of the preceding `if status.includes?('R')` branch, which is itself the last statement in the while loop's body; `next` jumps to the loop's condition check, which is exactly what falling off the end of the loop body already does. No statement in the loop body follows this branch, so the two are indistinguishable."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "else",
+      "mutated": "next\\nelse",
+      "reason": "same reasoning as the `elsif` entry above: inserted as the last statement of the `elsif tracked_removal_status?(status)` branch, itself the last statement in the loop body, so `next` there is indistinguishable from normal fall-through."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 9,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `if`/`elsif`/`else` chain, whose every branch is already the last statement in the while loop's body; `next` here is indistinguishable from normal fall-through no matter which branch ran, for the same reason as the two entries above."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 10,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the while loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "removed << status_record_path(records[i]) if status[1]? == 'D'",
+      "mutated": "removed << status_record_path(records[i]) if status[-1]? == 'D'",
+      "reason": "status is always exactly the two-character slice records[i][0, 2], so index 1 and index -1 name the identical character; the mutation cannot change which records are treated as a worktree delete."
     }
   ]
 }
