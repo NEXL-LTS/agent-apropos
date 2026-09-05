@@ -18,6 +18,15 @@ DO_NOT_MUTATE ==> DO_NOT_MUTATE
 (^\s*@\[) ==> DO_NOT_MUTATE
 #(?!\{) ==> SKIP_MUTATING_REST
 
+# Crystal-specific, not from a shipped rules file: an `abstract def` has no
+# body, so nothing on the line ever executes. Its parameter names in
+# particular carry no behaviour, unlike a concrete def's — Crystal does not
+# check an override's parameter names against the abstract declaration, and
+# nothing can name them via a named argument against the (uninstantiable)
+# abstract declaration itself, so the argument-order-swap operator below can
+# never produce an observable mutant here.
+(^\s*(?:private |protected )?abstract def\b) ==> DO_NOT_MUTATE
+
 # SOURCE: universal.rules — arithmetic operator replacement. Crystal's `//` and
 # `**` fold in here; fortran.rules already ships `**` as arithmetic.
 \+ ==> -
