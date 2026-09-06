@@ -67,41 +67,6 @@
     {
       "path": "src/agent_apropos/git.cr",
       "occurrence": 1,
-      "original": "abstract def diff(repo_root : Path, range : String) : String",
-      "mutated": "abstract def diff( range : Path,repo_root : String) : String",
-      "reason": "abstract declaration with no body: the argument-swap operator exchanged parameter NAMES while leaving the types in place, and Crystal neither checks an override's names against the abstract def nor has a caller here passing them by name."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 1,
-      "original": "abstract def symbolic_ref(repo_root : Path, name : String) : String?",
-      "mutated": "abstract def symbolic_ref( name : Path,repo_root : String) : String?",
-      "reason": "same names-only swap on an abstract declaration as the diff entry above."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 1,
-      "original": "abstract def ref_exists?(repo_root : Path, ref : String) : Bool",
-      "mutated": "abstract def ref_exists?( ref : Path,repo_root : String) : Bool",
-      "reason": "same names-only swap on an abstract declaration as the diff entry above."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 1,
-      "original": "abstract def blob(repo_root : Path, revision : String, path : String) : String?",
-      "mutated": "abstract def blob(repo_root : Path , path : String, revision : String) : String?",
-      "reason": "same names-only swap on an abstract declaration as the diff entry above, on the second and third parameters."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 1,
-      "original": "abstract def blob(repo_root : Path, revision : String, path : String) : String?",
-      "mutated": "abstract def blob( revision : Path,repo_root : String, path : String) : String?",
-      "reason": "same names-only swap on an abstract declaration as the diff entry above, on the first and second parameters."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 1,
       "original": "capture(repo_root, [\"diff\", \"--no-color\", range])",
       "mutated": "capture(repo_root, [\"diff\" , range, \"--no-color\"])",
       "reason": "confirmed against a real repo: git accepts `--no-color` in any position relative to the revision range on `git diff`, so this reordering invokes the identical command."
@@ -168,13 +133,6 @@
       "original": "!capture?(repo_root, [\"rev-parse\", \"--verify\", \"--quiet\", ref]).nil?",
       "mutated": "!capture?(repo_root, [\"rev-parse\", ref]).nil?",
       "reason": "same success/failure-only observation as the two narrower `--verify`/`--quiet` entries above; dropping both at once is still only a change to discarded stderr noise and exit-code magnitude, never its zero/nonzero-ness for any ref this method has been exercised with."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 1,
-      "original": "abstract def blob(repo_root : Path, revision : String, path : String) : String?",
-      "mutated": "abstract def blob(repo_root : Path, path : String, revision : String) : String?",
-      "reason": "same names-only swap on an abstract declaration as the other `blob` entry above; the mutation engine generated this pairing without the incidental extra space that entry's variant carries."
     },
     {
       "path": "src/agent_apropos/git.cr",
