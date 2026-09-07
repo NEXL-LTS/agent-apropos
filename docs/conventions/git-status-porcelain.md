@@ -27,15 +27,16 @@ first field — as removed too, on top of whatever the source rule above adds.
 expensive part of `status`, and an untracked path is invisible to git and so
 can never be a tracked removal.
 
-`tracked_removal_status?` treats these `XY` codes, and no others, as "the
-tracked path is gone from disk" for a **single**-field record (`XY` is
-neither `R` nor `C`):
+`tracked_removal_status?` treats a **single**-field record (`XY` is neither
+`R` nor `C`) as "the tracked path is gone from disk" whenever the worktree
+column (`XY`'s second character) is `D` — covering every combination the
+index column can take (` D`, `AD`, `MD`, `TD`, `UD`, `DD`, ...) — plus the
+one case where the worktree column reads unchanged instead:
 
 | State | `XY` | Why |
 | --- | --- | --- |
-| Unstaged worktree delete | `<space>D` | still in the index, gone on disk |
+| Any staged state, deleted from worktree | `<index-char>D` | the worktree column is what matters; the index column (space, `A`, `M`, `T`, `U`, `D`, ...) is incidental |
 | Staged delete (`git rm`) | `D<space>` | `git rm` removes the worktree file as part of the same operation, so the worktree column reads unchanged rather than `D` |
-| Staged add, then deleted from worktree | `AD` | the `D` in the worktree column is what matters; the index column is incidental |
 
 A rename or copy's own worktree-delete case (`RD`/`CD`) is handled inside the
 rename/copy branch itself, not by `tracked_removal_status?` — it checks the
@@ -61,6 +62,8 @@ treated as a removal.
 - `RD`/`CD` (the record's own worktree column reads `D`) adds the record's
   *own* path (the first field) to `removed`, in addition to whatever the
   source rule above adds.
-- `tracked_removal_status?` still recognizes exactly ` D`, `D `, and `AD`
-  (via its `D` worktree check) as removals, and nothing else.
+- `tracked_removal_status?` still recognizes any single-field status whose
+  worktree column (the second character) is `D` — ` D`, `AD`, `MD`, `TD`,
+  `UD`, `DD`, and so on — plus the literal `D ` case (worktree column
+  unchanged, since `git rm` already removed the file), and nothing else.
 - `spec/agent_apropos/git_spec.cr`'s real-repo removal specs still pass.
