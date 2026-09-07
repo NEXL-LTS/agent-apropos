@@ -33,7 +33,7 @@ class FakeGit < AgentApropos::Git
     @tracked
   end
 
-  def removed_paths(repo_root : Path) : Array(String)
+  def removed_paths(repo_root : Path, fs : Filesystem) : Array(String)
     @removed
   end
 

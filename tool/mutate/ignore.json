@@ -161,6 +161,27 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the if/elsif chain itself, immediately before the until loop's own closing end; next here jumps to the loop condition check, which is exactly what reaching this end already does."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "status[1]? == 'D' || status == \"D \"",
+      "mutated": "status[1]? == 'D' || status <= \"D \"",
+      "reason": "removed_paths post-filters every candidate through fs.exists?, so an over-broad match here (any status whose worktree column isn't 'D', which git's own accounting guarantees means the path is genuinely still on disk) is discarded before it's ever returned, regardless of which comparison let it through."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "status[1]? == 'D' || status == \"D \"",
+      "mutated": "status[1]? == 'D' || status >= \"D \"",
+      "reason": "same fs.exists? post-filter reasoning as the <= entry above."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 1,
+      "original": "removed << source if source && status.includes?('R')",
+      "mutated": "removed << source if source && true",
+      "reason": "a copy's source is confirmed to remain on disk (that's what makes it a copy, not a rename), so removed_paths's fs.exists? post-filter discards it regardless of this guard; keeping the guard documents the intended R-vs-C distinction at its source, but the filter alone accounts for every reachable test scenario."
     }
   ]
 }

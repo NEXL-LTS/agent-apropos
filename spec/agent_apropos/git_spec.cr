@@ -1,6 +1,8 @@
 require "../spec_helper"
 require "file_utils"
 
+private FS = AgentApropos::Filesystem::Real.new
+
 # Exercises `Git::Real` in-process (not through the built binary) against a real
 # throwaway repo, so kcov records the adapter's lines. The pure review logic that
 # consumes these primitives is covered separately with a fake git (review_spec).
@@ -129,7 +131,7 @@ describe AgentApropos::Git::Real do
       with_tracked_repo("gone.txt", "committed\n") do |dir|
         File.delete(File.join(dir, "gone.txt"))
         real = AgentApropos::Git::Real.new
-        real.removed_paths(Path[dir]).should eq(["gone.txt"])
+        real.removed_paths(Path[dir], FS).should eq(["gone.txt"])
         real.blob(Path[dir], "", "gone.txt").should eq("committed\n")
       end
     end
@@ -138,9 +140,27 @@ describe AgentApropos::Git::Real do
       with_tracked_repo("gone.txt", "committed\n") do |dir|
         git(dir, ["rm", "-q", "gone.txt"])
         real = AgentApropos::Git::Real.new
-        real.removed_paths(Path[dir]).should eq(["gone.txt"])
+        real.removed_paths(Path[dir], FS).should eq(["gone.txt"])
         real.blob(Path[dir], "", "gone.txt").should be_nil
         real.blob(Path[dir], "HEAD", "gone.txt").should eq("committed\n")
+      end
+    end
+
+    it "does not report an index-only deletion (git rm --cached) whose file is still on disk" do
+      with_tracked_repo("gone.txt", "committed\n") do |dir|
+        git(dir, ["rm", "--cached", "-q", "gone.txt"])
+        File.exists?(File.join(dir, "gone.txt")).should be_true
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should be_empty
+      end
+    end
+
+    it "does not report a path replaced by a broken symlink as removed" do
+      with_tracked_repo("gone.txt", "committed\n") do |dir|
+        git(dir, ["rm", "--cached", "-q", "gone.txt"])
+        File.delete(File.join(dir, "gone.txt"))
+        File.symlink("no-such-target", File.join(dir, "gone.txt"))
+        File.exists?(File.join(dir, "gone.txt")).should be_false
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should be_empty
       end
     end
 
@@ -150,7 +170,7 @@ describe AgentApropos::Git::Real do
         git(dir, ["add", "staged.txt"])
         File.delete(File.join(dir, "staged.txt"))
         real = AgentApropos::Git::Real.new
-        real.removed_paths(Path[dir]).should eq(["staged.txt"])
+        real.removed_paths(Path[dir], FS).should eq(["staged.txt"])
         real.blob(Path[dir], "", "staged.txt").should eq("staged only\n")
         real.blob(Path[dir], "HEAD", "staged.txt").should be_nil
       end
@@ -160,21 +180,21 @@ describe AgentApropos::Git::Real do
       with_tracked_repo("app.cr", "line one\n") do |dir|
         File.write(File.join(dir, "scratch.txt"), "never added\n")
         File.delete(File.join(dir, "scratch.txt"))
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).should be_empty
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should be_empty
       end
     end
 
     it "covers AE5: an unstaged rename reports the old path once and not the new path" do
       with_tracked_repo("old.txt", "content\n") do |dir|
         File.rename(File.join(dir, "old.txt"), File.join(dir, "new.txt"))
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).should eq(["old.txt"])
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should eq(["old.txt"])
       end
     end
 
     it "reports a staged rename's old path only, consuming both NUL-separated fields" do
       with_tracked_repo("old.txt", "content\n") do |dir|
         git(dir, ["mv", "old.txt", "new.txt"])
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).should eq(["old.txt"])
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should eq(["old.txt"])
       end
     end
 
@@ -186,14 +206,14 @@ describe AgentApropos::Git::Real do
         commit(dir, "add unusual paths")
         File.delete(File.join(dir, "has space.txt"))
         File.delete(File.join(dir, "héllo.txt"))
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).to_set.should eq(Set{"has space.txt", "héllo.txt"})
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).to_set.should eq(Set{"has space.txt", "héllo.txt"})
       end
     end
 
     it "does not report a modified-but-present file (unstaged)" do
       with_tracked_repo("app.cr", "line one\n") do |dir|
         File.write(File.join(dir, "app.cr"), "line one\nline two\n")
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).should be_empty
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should be_empty
       end
     end
 
@@ -206,7 +226,7 @@ describe AgentApropos::Git::Real do
         File.delete(File.join(dir, "a_deleted1.txt"))
         File.delete(File.join(dir, "z_deleted2.txt"))
         File.write(File.join(dir, "m_modified.cr"), "line1\nline2\n")
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).to_set.should eq(
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).to_set.should eq(
           Set{"a_deleted1.txt", "z_deleted2.txt"}
         )
       end
@@ -216,7 +236,7 @@ describe AgentApropos::Git::Real do
       with_tracked_repo("app.cr", "line one\n") do |dir|
         File.write(File.join(dir, "app.cr"), "line one\nline two\n")
         git(dir, ["add", "app.cr"])
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).should be_empty
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should be_empty
       end
     end
 
@@ -229,7 +249,7 @@ describe AgentApropos::Git::Real do
         git(dir, ["mv", "m_old.txt", "n_new.txt"])
         File.delete(File.join(dir, "a_deleted.txt"))
         File.delete(File.join(dir, "z_deleted2.txt"))
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).to_set.should eq(
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).to_set.should eq(
           Set{"a_deleted.txt", "m_old.txt", "z_deleted2.txt"}
         )
       end
@@ -247,7 +267,7 @@ describe AgentApropos::Git::Real do
         commit(dir, "add D odd.txt")
         git(dir, ["mv", "D odd.txt", "new.txt"])
         File.delete(File.join(dir, "a_plain.txt"))
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).should eq(["a_plain.txt", "D odd.txt"])
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should eq(["a_plain.txt", "D odd.txt"])
       end
     end
 
@@ -255,7 +275,7 @@ describe AgentApropos::Git::Real do
       with_tracked_repo("old.txt", "content\n") do |dir|
         git(dir, ["mv", "old.txt", "new.txt"])
         File.delete(File.join(dir, "new.txt"))
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).to_set.should eq(Set{"old.txt", "new.txt"})
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).to_set.should eq(Set{"old.txt", "new.txt"})
       end
     end
 
@@ -269,7 +289,7 @@ describe AgentApropos::Git::Real do
         File.write(File.join(dir, "D odd.txt"), "line one\nline two\nline three\n")
         File.write(File.join(dir, "copy.txt"), "line one\nline two\n")
         git(dir, ["add", "-A"])
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).should be_empty
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).should be_empty
       end
     end
 
@@ -285,14 +305,14 @@ describe AgentApropos::Git::Real do
         git(dir, ["add", "-A"])
         File.delete(File.join(dir, "a_deleted.txt"))
         File.delete(File.join(dir, "z_deleted2.txt"))
-        AgentApropos::Git::Real.new.removed_paths(Path[dir]).to_set.should eq(
+        AgentApropos::Git::Real.new.removed_paths(Path[dir], FS).to_set.should eq(
           Set{"a_deleted.txt", "z_deleted2.txt"}
         )
       end
     end
 
     it "yields no removed paths, rather than raising, when git cannot run" do
-      AgentApropos::Git::Real.new.removed_paths(Path[File.tempname("agent-apropos-missing")]).should be_empty
+      AgentApropos::Git::Real.new.removed_paths(Path[File.tempname("agent-apropos-missing")], FS).should be_empty
     end
 
     it "returns nil from #blob for a path git does not know" do

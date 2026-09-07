@@ -1,4 +1,5 @@
 require "./errors"
+require "./filesystem"
 
 module AgentApropos
   abstract class Git
@@ -13,7 +14,7 @@ module AgentApropos
 
     abstract def ls_files(repo_root : Path) : Array(String)?
 
-    abstract def removed_paths(repo_root : Path) : Array(String)
+    abstract def removed_paths(repo_root : Path, fs : Filesystem) : Array(String)
 
     abstract def blob(repo_root : Path, revision : String, path : String) : String?
 
@@ -39,17 +40,19 @@ module AgentApropos
         output.split('\0').reject(&.empty?)
       end
 
-      def removed_paths(repo_root : Path) : Array(String)
+      def removed_paths(repo_root : Path, fs : Filesystem) : Array(String)
         output = capture?(repo_root, ["status", "--porcelain", "-z", "--untracked-files=no"])
         return [] of String unless output
-        parse_removed_records(output.split('\0').reject(&.empty?))
+        records = Deque(String).new(output.split('\0').reject(&.empty?))
+        # `D `/RD/CD only prove the index entry is gone; `git rm --cached` leaves the file on disk.
+        parse_removed_records(records).reject { |relative| fs.exists?(repo_root.join(relative).to_s) }
       end
 
       def blob(repo_root : Path, revision : String, path : String) : String?
         capture?(repo_root, ["show", "#{revision}:#{path}"])
       end
 
-      private def parse_removed_records(records : Array(String)) : Array(String)
+      private def parse_removed_records(records : Deque(String)) : Array(String)
         removed = [] of String
         until records.empty?
           record = records.shift
