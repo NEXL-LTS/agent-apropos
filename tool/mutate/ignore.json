@@ -137,58 +137,30 @@
     {
       "path": "src/agent_apropos/git.cr",
       "occurrence": 1,
-      "original": "while i < records.size",
-      "mutated": "while i != records.size",
-      "reason": "`records` is always well-formed `git status -z` output, where a rename/copy status is always immediately followed by exactly one source-path field; `i` advances by 2 for that pair and by 1 for every other record, so it always lands exactly on `records.size` when the loop ends and can never step past it. `<` and `!=` agree on every reachable value of `i`."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 5,
-      "original": "end",
-      "mutated": "break\\nend",
-      "reason": "this `end` closes `ls_files`'s `if output.nil?` branch, whose last live statement is an unconditional `return nil`; a statement inserted after it is unreachable dead code and can never execute, let alone change behavior."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 5,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "the same unreachable-after-`return nil` position as the `break` entry above; dead code either way."
+      "original": "removed << status_record_path(record) if status[1]? == 'D'",
+      "mutated": "removed << status_record_path(record) if status[-1]? == 'D'",
+      "reason": "status is always exactly the two-character slice record[0, 2], so index 1 and index -1 name the identical character; the mutation cannot change which records are treated as a worktree delete."
     },
     {
       "path": "src/agent_apropos/git.cr",
       "occurrence": 1,
       "original": "elsif tracked_removal_status?(status)",
       "mutated": "next\\nelsif tracked_removal_status?(status)",
-      "reason": "inserted as the last statement of the preceding `if status.includes?('R')` branch, which is itself the last statement in the while loop's body; `next` jumps to the loop's condition check, which is exactly what falling off the end of the loop body already does. No statement in the loop body follows this branch, so the two are indistinguishable."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 1,
-      "original": "else",
-      "mutated": "next\\nelse",
-      "reason": "same reasoning as the `elsif` entry above: inserted as the last statement of the `elsif tracked_removal_status?(status)` branch, itself the last statement in the loop body, so `next` there is indistinguishable from normal fall-through."
+      "reason": "inserted as the last statement of the preceding if-branch (\"removed << source if source && status.includes?('R')\"), itself the last statement before the until loop naturally continues; next here is indistinguishable from normal fall-through."
     },
     {
       "path": "src/agent_apropos/git.cr",
       "occurrence": 9,
       "original": "end",
       "mutated": "next\\nend",
-      "reason": "closes the `if`/`elsif`/`else` chain, whose every branch is already the last statement in the while loop's body; `next` here is indistinguishable from normal fall-through no matter which branch ran, for the same reason as the two entries above."
+      "reason": "inserted as the last statement of the elsif branch (\"removed << status_record_path(record)\"), itself the last statement before the until loop naturally continues; next here is indistinguishable from normal fall-through."
     },
     {
       "path": "src/agent_apropos/git.cr",
       "occurrence": 10,
       "original": "end",
       "mutated": "next\\nend",
-      "reason": "closes the while loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
-    },
-    {
-      "path": "src/agent_apropos/git.cr",
-      "occurrence": 1,
-      "original": "removed << status_record_path(records[i]) if status[1]? == 'D'",
-      "mutated": "removed << status_record_path(records[i]) if status[-1]? == 'D'",
-      "reason": "status is always exactly the two-character slice records[i][0, 2], so index 1 and index -1 name the identical character; the mutation cannot change which records are treated as a worktree delete."
+      "reason": "closes the if/elsif chain itself, immediately before the until loop's own closing end; next here jumps to the loop condition check, which is exactly what reaching this end already does."
     }
   ]
 }

@@ -51,18 +51,15 @@ module AgentApropos
 
       private def parse_removed_records(records : Array(String)) : Array(String)
         removed = [] of String
-        i = 0
-        while i < records.size
-          status = records[i][0, 2]
+        until records.empty?
+          record = records.shift
+          status = record[0, 2]
           if status.includes?('R') || status.includes?('C')
-            removed << status_record_path(records[i]) if status[1]? == 'D'
-            records[i + 1]?.try { |source| removed << source if status.includes?('R') }
-            i += 2
+            removed << status_record_path(record) if status[1]? == 'D'
+            source = records.shift?
+            removed << source if source && status.includes?('R')
           elsif tracked_removal_status?(status)
-            removed << status_record_path(records[i])
-            i += 1
-          else
-            i += 1
+            removed << status_record_path(record)
           end
         end
         removed
