@@ -135,6 +135,24 @@ CR
   grep -qE '^[[:space:]]+next$' "$OUT"/*.cr || fail "no mutant inserted a bare next"
 }
 
+@test "an abstract def's parameter names are never mutated, unlike a concrete def's" {
+  cat >"$FIXTURE_DIR/abstract.cr" <<'CR'
+abstract class Base
+  abstract def diff(repo_root : Path, range : String) : String
+  protected abstract def config_content(existing : String?, options : Init::Options) : String
+
+  def concrete(a : Int32, b : Int32) : Int32
+    a + b
+  end
+end
+CR
+  generate abstract.cr
+
+  refute_regex "$(mutants)" 'abstract def diff\(\s*range'
+  refute_regex "$(mutants)" 'abstract def config_content\(\s*options'
+  assert_regex "$(mutants)" 'def concrete\(\s*b : Int32,a : Int32\)'
+}
+
 @test "every rules file the engine ships is accounted for" {
   local python static accounted missing=()
   python="$(head -1 "$(command -v mutate)" | sed 's|^#!||')"
