@@ -44,7 +44,7 @@ module AgentApropos
         output = capture?(repo_root, ["status", "--porcelain", "-z", "--untracked-files=no"])
         return [] of String unless output
         records = Deque(String).new(output.split('\0').reject(&.empty?))
-        # `D `/RD/CD only prove the index entry is gone; `git rm --cached` leaves the file on disk.
+        # Git's status codes alone don't prove a path is gone from disk; every candidate is checked directly.
         parse_removed_records(records).reject { |relative| fs.exists?(repo_root.join(relative).to_s) }
       end
 
@@ -53,27 +53,20 @@ module AgentApropos
       end
 
       private def parse_removed_records(records : Deque(String)) : Array(String)
-        removed = [] of String
+        candidates = [] of String
         until records.empty?
           record = records.shift
-          status = record[0, 2]
-          if status.includes?('R') || status.includes?('C')
-            removed << status_record_path(record) if status[1]? == 'D'
+          candidates << status_record_path(record)
+          if record[0]? == 'R' || record[0]? == 'C'
             source = records.shift?
-            removed << source if source && status.includes?('R')
-          elsif tracked_removal_status?(status)
-            removed << status_record_path(record)
+            candidates << source if source
           end
         end
-        removed
+        candidates
       end
 
       private def status_record_path(record : String) : String
         record[3..]
-      end
-
-      private def tracked_removal_status?(status : String) : Bool
-        status[1]? == 'D' || status == "D "
       end
 
       private def capture(repo_root : Path, args : Array(String)) : String
