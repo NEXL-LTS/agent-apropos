@@ -109,7 +109,7 @@ module AgentApropos
       end
 
       def file_edits : Array(FileEdit)
-        return ApplyPatch.parse(tool_input.try(&.command)) if tool_name == "apply_patch"
+        return ApplyPatch.parse(tool_input.try(&.command))[0] if tool_name == "apply_patch"
         path = file_path
         path ? [FileEdit.new(path, written_contents)] : [] of FileEdit
       end
@@ -122,6 +122,7 @@ module AgentApropos
       end
 
       def removals : Array(Removal)
+        return ApplyPatch.parse(tool_input.try(&.command))[1] if tool_name == "apply_patch"
         [] of Removal
       end
 
@@ -134,23 +135,25 @@ module AgentApropos
         MOVE_MARKER   = "*** Move to: "
         END_MARKER    = "*** End Patch"
 
-        def parse(command : String?) : Array(FileEdit)
-          return [] of FileEdit unless command
+        def parse(command : String?) : {Array(FileEdit), Array(Removal)}
+          return {[] of FileEdit, [] of Removal} unless command
           lines = command.lines
           edits = [] of FileEdit
+          removals = [] of Removal
           i = 0
           while i < lines.size
             line = lines[i]
             if path = (prefix(line, ADD_MARKER) || prefix(line, UPDATE_MARKER))
               i, edit = read_section(lines, i + 1, path)
               edits << edit
-            elsif prefix(line, DELETE_MARKER)
+            elsif path = prefix(line, DELETE_MARKER)
               i, _ = read_section(lines, i + 1, "")
+              removals << Removal.new(path)
             else
               i += 1
             end
           end
-          edits
+          {edits, removals}
         end
 
         private def prefix(line : String, marker : String) : String?
