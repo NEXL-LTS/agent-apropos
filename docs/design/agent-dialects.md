@@ -21,6 +21,17 @@ missing commands, specifically so a repo that wired Gemini before this fix
 picks up the corrected value on its next `init` instead of staying stuck on
 the broken one forever.
 
+Gemini CLI's shell tool, `run_shell_command`, does not fire any hook event
+(`BeforeTool` or `AfterTool`) in the versions tested (confirmed via Gemini's
+own session `.jsonl` logs for the exact internal tool name) — despite
+`write_file`/`replace` hooks firing correctly in the identical config/run,
+ruling out a config mistake, and despite reading Gemini's own bundled
+dispatch logic (`matchesToolName`/`fireAfterToolEvent`) showing no
+exclusion for shell/execute-kind tools. This is a genuine product
+limitation, not something wirable from agent-apropos's side, so Gemini has
+no removal-detection support: `Agents::Gemini` wires no shell hook at all,
+unlike Claude/Codex/Copilot/OpenCode.
+
 ## Payload parsing (`hooks/payload.cr`)
 
 `spec/fixtures/hook_payloads/` — not `Payload` itself — is the authoritative
@@ -32,13 +43,30 @@ fixture first and let the failing spec drive the parser change.
 Codex's `apply_patch` patch envelope is not a standard unified diff:
 sections start with `*** Add File: <path>`, `*** Update File: <path>`
 (optionally followed by a `*** Move to: <path>` rename), or `*** Delete
-File: <path>` — this last one per OpenAI's public `apply_patch` format spec,
-not itself independently captured live like the Add/Update shapes were —
-each running until the next such marker or `*** End Patch`. Only Add/Update
-sections become a `FileEdit`: a Delete has no newly written content to match
-a `contents` rule against, and no other wired agent's hooks fire on a pure
-delete either, so skipping it keeps Codex's scope consistent with the rest of
-the layer model.
+File: <path>`, each running until the next such marker or `*** End Patch`.
+Add/Update sections become a `FileEdit`; a Delete section becomes a
+`Payload::Removal` instead, since it carries no `+`-prefixed lines to
+collect. A Delete's `contents` match, like every other removal path, comes
+from git resolving the file's last tracked content, not from the patch
+envelope itself — the envelope only ever supplies newly written lines,
+which a delete has none of. This is also why a Delete isn't skipped the way
+it once was: Copilot and OpenCode's shell tools now fire on a pure delete
+too (a plain `rm`), so
+treating Codex's structured delete as inert would have left it the one
+wired agent unable to trigger a removal-only rule.
+
+A real captured `*** Delete File:` section names the target by its
+**absolute** path (e.g. `/repo/services/heartbeat.py`), not repo-relative
+like the Add/Update shapes' own paths — confirmed live via the e2e removal
+case, not from OpenAI's `apply_patch` format spec, which doesn't specify
+either way. `Hook#removed_relative_paths` originally passed
+`Payload::Removal#path` straight into the repo-relative `paths:` glob check
+with no relativization step, unlike `Hook#relative_edit`'s handling of every
+other path this module sees — so every structural delete's `paths:` match
+silently failed. Confirmed via a live Codex run against the e2e removal
+case: the hook fired (visible in `.cache/agent-apropos/sessions/*.json` as
+an empty `injected` list) but never matched, since an absolute path can
+never satisfy a repo-relative glob.
 
 ## Copilot (`agents/copilot.cr`)
 
@@ -78,6 +106,26 @@ config has no grouped-matcher shape (each `postToolUse` entry is a flat
 call into `Agent#sync_standard_shell_hook`, wiring `agent-apropos hook
 pre`/`post` onto a `bash`-matched entry alongside the existing `view`/
 `create|edit` ones.
+
+## OpenCode (`agents/opencode.cr`)
+
+OpenCode's shell tool is `bash` — confirmed against a real captured
+`tool.execute.before`/`tool.execute.after` payload pair for a `rm` command;
+its args carry `command`, not `filePath`. `Payload` needs no dialect-specific
+change for this: the plugin's own `makePayload` already normalizes every
+tool's args into the same snake_case `tool_input` shape Claude/Codex use
+(`file_path`, `content`, ...), so adding `command` there is enough — `Payload
+#command` (`tool_input.try(&.command) || copilot_args.try(&.command)`)
+already reads it the same way it reads Codex's `apply_patch` command.
+
+The plugin file is the one wired artifact with no existing-content
+preservation at all — its own header says "do not edit, regenerate" and
+`config_content` never reads `existing` — so `Agents::OpenCode#sync_shell_hook`
+doesn't patch anything in place: it re-renders the same template with `bash`
+added to (or left out of) both tool-name allowlists and diffs the result
+against what's already there, detecting a carried `--allow-outside-repo` by
+substring search on `existing` rather than parsing JSON, since there's no
+JSON here to parse.
 
 ## Codex (`agents/codex.cr`)
 
