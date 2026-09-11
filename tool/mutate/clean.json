@@ -5,6 +5,8 @@
     "src/agent_apropos/rendering.cr",
     "src/agent_apropos/agents/agent.cr",
     "src/agent_apropos/frontmatter.cr",
-    "src/agent_apropos/git.cr"
+    "src/agent_apropos/git.cr",
+    "src/agent_apropos/index.cr",
+    "src/agent_apropos/conventions.cr"
   ]
 }

@@ -169,6 +169,18 @@ describe AgentApropos::Convention do
     it "never fires for a doc that declares no triggers" do
       convention(%(skill: true\ndescription: "Use when X")).triggers?("any.cr", "any").should be_false
     end
+
+    it "does not fire a write-only doc for a removal event" do
+      convention(%(paths: ["app/**"])).triggers?(
+        "app/m.cr", nil, AgentApropos::Frontmatter::Event::Removed
+      ).should be_false
+    end
+
+    it "fires a removal-scoped doc only for the removal event" do
+      conv = convention(%(on: [removed]\npaths: ["app/**"]))
+      conv.triggers?("app/m.cr", nil).should be_false
+      conv.triggers?("app/m.cr", nil, AgentApropos::Frontmatter::Event::Removed).should be_true
+    end
   end
 
   describe "#triggers" do
@@ -235,6 +247,14 @@ describe AgentApropos::Conventions do
       })
       conventions = AgentApropos::Conventions.walk(root, fs, tolerant: true)
       conventions.map(&.path).should eq(["docs/conventions/a.md"])
+    end
+
+    it "defaults allow_outside to false, raising rather than reading an outside-repo conventions_dir" do
+      repo = SpecPaths.absolute("repo")
+      fs = InMemoryFS.new({"#{repo}/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n"})
+      expect_raises(AgentApropos::Config::Error, /resolves outside the repo root/) do
+        AgentApropos::Conventions.walk(Path[repo], fs)
+      end
     end
   end
 end
