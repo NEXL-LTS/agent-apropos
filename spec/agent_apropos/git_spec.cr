@@ -1,4 +1,5 @@
 require "../spec_helper"
+require "../support/fake_process"
 require "file_utils"
 
 private FS = AgentApropos::Filesystem::Real.new
@@ -49,6 +50,50 @@ private def with_tracked_repo(name : String, content : String, &)
 end
 
 describe AgentApropos::Git::Real do
+  describe "argument construction" do
+    it "runs git diff with --no-color and the range, in that order" do
+      process = FakeProcess.new
+      git = AgentApropos::Git::Real.new(process)
+      git.diff(Path["/repo"], "HEAD~1..HEAD")
+      process.calls.last.should eq(["diff", "--no-color", "HEAD~1..HEAD"])
+    end
+
+    it "runs git symbolic-ref with --short and the name, in that order" do
+      process = FakeProcess.new
+      git = AgentApropos::Git::Real.new(process)
+      git.symbolic_ref(Path["/repo"], "refs/remotes/origin/HEAD")
+      process.calls.last.should eq(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    end
+
+    it "runs git rev-parse with --verify, --quiet, and the ref, in that order" do
+      process = FakeProcess.new
+      git = AgentApropos::Git::Real.new(process)
+      git.ref_exists?(Path["/repo"], "main")
+      process.calls.last.should eq(["rev-parse", "--verify", "--quiet", "main"])
+    end
+
+    it "runs git ls-files with -z" do
+      process = FakeProcess.new
+      git = AgentApropos::Git::Real.new(process)
+      git.ls_files(Path["/repo"])
+      process.calls.last.should eq(["ls-files", "-z"])
+    end
+
+    it "runs git status with --porcelain, -z, and --untracked-files=no, in that order" do
+      process = FakeProcess.new
+      git = AgentApropos::Git::Real.new(process)
+      git.removed_paths(Path["/repo"], FS)
+      process.calls.last.should eq(["status", "--porcelain", "-z", "--untracked-files=no"])
+    end
+
+    it "runs git show with the revision and path colon-joined" do
+      process = FakeProcess.new
+      git = AgentApropos::Git::Real.new(process)
+      git.blob(Path["/repo"], "HEAD", "app.cr")
+      process.calls.last.should eq(["show", "HEAD:app.cr"])
+    end
+  end
+
   it "produces a unified diff for a range" do
     with_repo do |dir|
       diff = AgentApropos::Git::Real.new.diff(Path[dir], "main...feature")

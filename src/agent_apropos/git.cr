@@ -6,6 +6,22 @@ module AgentApropos
     class Error < AgentApropos::Error
     end
 
+    abstract class Process
+      abstract def run(args : Array(String), chdir : String) : String?
+
+      class Real < Process
+        def run(args : Array(String), chdir : String) : String?
+          stdout = IO::Memory.new
+          status = ::Process.run(
+            "git", args,
+            chdir: chdir, output: stdout, error: ::Process::Redirect::Close
+          )
+          status.success? ? stdout.to_s : nil
+        rescue IO::Error
+        end
+      end
+    end
+
     abstract def diff(repo_root : Path, range : String) : String
 
     abstract def symbolic_ref(repo_root : Path, name : String) : String?
@@ -19,6 +35,9 @@ module AgentApropos
     abstract def blob(repo_root : Path, revision : String, path : String) : String?
 
     class Real < Git
+      def initialize(@process : Process = Process::Real.new)
+      end
+
       def diff(repo_root : Path, range : String) : String
         capture(repo_root, ["diff", "--no-color", range])
       end
@@ -74,13 +93,7 @@ module AgentApropos
       end
 
       private def capture?(repo_root : Path, args : Array(String)) : String?
-        stdout = IO::Memory.new
-        status = Process.run(
-          "git", args,
-          chdir: repo_root.to_s, output: stdout, error: Process::Redirect::Close
-        )
-        status.success? ? stdout.to_s : nil
-      rescue IO::Error
+        @process.run(args, repo_root.to_s)
       end
     end
   end
