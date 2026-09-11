@@ -143,6 +143,12 @@ describe AgentApropos::Agents::Agent do
     end
   end
 
+  describe "#sync_shell_hook" do
+    it "the default (unwired) implementation is a no-op that returns existing unchanged" do
+      StubAgent.new.sync_shell_hook("anything", "label", true).should eq("anything")
+    end
+  end
+
   describe "#scaffold" do
     it "writes the config the subclass rendered, at the relative path it declared" do
       root = Path[SpecPaths.absolute("repo")]

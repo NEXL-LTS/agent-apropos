@@ -9,6 +9,9 @@
     "src/agent_apropos/index.cr",
     "src/agent_apropos/conventions.cr",
     "src/agent_apropos/hook.cr",
-    "src/agent_apropos/hooks/payload.cr"
+    "src/agent_apropos/hooks/payload.cr",
+    "src/agent_apropos/agents/claude.cr",
+    "src/agent_apropos/agents/codex.cr",
+    "src/agent_apropos/generate.cr"
   ]
 }
