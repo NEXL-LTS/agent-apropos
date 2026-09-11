@@ -66,7 +66,21 @@ module AgentApropos
         findings << Finding.new(:error, convention.path, "declares triggers but has an empty body")
       end
 
+      findings.concat(event_findings(convention))
       findings
+    end
+
+    private def event_findings(convention : Convention) : Array(Finding)
+      fm = convention.frontmatter
+      if fm.events.empty?
+        return [Finding.new(:error, convention.path, "`on:` declares no events, so this doc can never fire")]
+      end
+
+      if fm.events != Set{Frontmatter::Event::Write} && !fm.scoped?
+        return [Finding.new(:error, convention.path, "declares `on:` events with no `paths` or `contents` to match")]
+      end
+
+      [] of Finding
     end
 
     private def key_findings(convention : Convention) : Array(Finding)
