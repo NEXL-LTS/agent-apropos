@@ -63,6 +63,20 @@
       "original": "unknown = hash.keys.compact_map(&.as_s?).reject { |key| KNOWN_KEYS.includes?(key) }.sort!",
       "mutated": "unknown = hash.keys.compact_map(&.as_s?).reject { |key| KNOWN_KEYS.includes?(key) }.sort",
       "reason": "the receiver is a freshly-built Array with no other reference, and the result is immediately reassigned to `unknown`; `sort` (allocate-and-return) and `sort!` (sort-in-place-and-return) leave `unknown` holding the identical sorted contents either way."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 13,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `if record[0]? == 'R' || record[0]? == 'C'` branch in `parse_removed_records`, whose last statement is already `candidates << source if source`; `next` there is indistinguishable from normal fall-through to the until loop's own condition check."
+    },
+    {
+      "path": "src/agent_apropos/git.cr",
+      "occurrence": 14,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `parse_removed_records`'s `until records.empty?` loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
     }
   ]
 }

@@ -4,36 +4,41 @@ paths: ["tool/mutate/ignore.json"]
 # An ignore entry needs equivalence, not just "unobservable"
 
 **Rule:** Before adding an entry here, ask *why* the mutation is
-unobservable — two different reasons look identical from the mutant's
-outcome but demand different fixes. If two implementations are both
-legitimately valid (git accepts `--verify` before or after the ref on
-`rev-parse`), the code is fine as-is and the ignore entry is the right call.
-If instead the mutation proves a guard, branch, or line can never affect the
-result *because it can never be reached* given the surrounding logic — not
-two paths agreeing, but one of them being provably dead — that's dead code.
-Delete it instead; matching the same pattern elsewhere in the codebase is
-not a reason to keep it.
+unobservable. Two implementations can both be legitimately valid (git
+accepts `--verify` before or after the ref on `rev-parse`) — the code is
+fine as-is, and the entry is the right call. Or a branch can be provably
+*unreachable* given the surrounding logic, not merely unexercised — that's
+dead code; delete it instead of documenting it. Or the distinction the
+mutant erases can be real and reachable, but redundant with a *downstream
+check* that re-derives the same answer regardless — simplify the code to
+rely on that check instead of keeping the extra precision upstream.
+`git.cr`'s `removed_paths` post-filters every candidate through
+`fs.exists?`; a `parse_removed_records` that separately classified staged
+deletes, worktree deletes, and rename destinations before adding a path was
+redundant with that filter on every one of those distinctions. The fix was
+adding every destination and rename/copy source unconditionally and letting
+`fs.exists?` filter them, not nine ignore entries explaining why each
+distinction didn't matter.
 
-**Why:** An ignore entry for dead code documents the debt instead of paying
-it — it makes the mutation gate quiet about a branch that was never doing
-anything, forever. `agents/copilot.cr`'s `upgrade_bash_target` had a guard
-checking a short prefix before checking two longer prefixes that already
-imply it; the guard could never reject anything the following `if`/`elsif`
-didn't already reject on its own. The fix was deleting the guard, not
-adding a reviewed "this can't be observed" entry for it.
+**Why:** An ignore entry for dead code documents debt instead of paying it —
+`agents/copilot.cr`'s `upgrade_bash_target` once had a guard that could
+never reject anything a later check didn't already reject; deleting it was
+the fix, not a reviewed "unobservable" entry. A downstream-masked
+distinction rots the same way from the other side: the code still *looks*
+load-bearing, and nothing but the ignore-list itself reveals that it isn't.
 
-**Watch out:** The two failure modes pull in opposite directions. Reaching
-for an ignore entry before checking reachability freezes dead code into the
-codebase behind a paper trail that makes it look reviewed rather than
-removed. Reaching for a code change when the mutation genuinely is
-equivalent-but-not-dead (the git flag-order entries) means chasing an
-assertion that can never exist.
+**Watch out:** Simplify a downstream-masked distinction away only when the
+upstream precision buys nothing but documentation value. If it exists to
+*avoid* an expensive downstream check at scale (a real syscall or network
+call on a hot path) rather than a once-per-invocation call like `git.cr`'s,
+keep it — and record that performance reason, not the mutant.
 
 ## Verify
 
-- Every new entry's reason argues two implementations are both valid — never
-  that a branch is unreachable. An unreachable branch is deleted, named in
-  the commit body, with no ignore entry at all.
+- Every entry argues two implementations are valid, or that a distinction
+  is masked by a downstream check with no real cost to avoid — never that a
+  branch is unreachable (delete that instead) or that a masked distinction
+  is actually protecting an expensive call (simplify that instead).
 - `occurrence` is the 1-based index of `original` among identically-trimmed
   lines in the file (see `docs/mutation-testing.md`), verified against the
   current file, not assumed from memory.
