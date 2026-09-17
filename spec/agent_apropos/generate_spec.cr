@@ -122,7 +122,7 @@ describe AgentApropos::Generate do
     end
 
     it "fails closed by default when conventions_dir resolves outside the repo root" do
-      code, _, stderr, _ = run_generate({"/repo/agent-apropos.yml" => "conventions_dir: /outside\n"})
+      code, _, stderr, _ = run_generate({"/repo/agent-apropos.yml" => "conventions_dir: ../outside\n"})
 
       code.should eq(1)
       stderr.should contain("resolves outside the repo root")
@@ -291,7 +291,7 @@ describe AgentApropos::Generate do
     end
 
     it "fails closed by default when conventions_dir resolves outside the repo root" do
-      code, _, stderr = check_generate({"/repo/agent-apropos.yml" => "conventions_dir: /outside\n"})
+      code, _, stderr = check_generate({"/repo/agent-apropos.yml" => "conventions_dir: ../outside\n"})
 
       code.should eq(1)
       stderr.should contain("resolves outside the repo root")
