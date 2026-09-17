@@ -121,6 +121,62 @@ describe AgentApropos::Generate do
       stderr.should contain("slug collision on 'dup'")
     end
 
+    it "fails closed by default when conventions_dir resolves outside the repo root" do
+      code, _, stderr, _ = run_generate({"/repo/agent-apropos.yml" => "conventions_dir: /outside\n"})
+
+      code.should eq(1)
+      stderr.should contain("resolves outside the repo root")
+    end
+
+    it "writes every slug for a root, not just the first" do
+      alpha_path, alpha_doc = skill_doc("alpha")
+      beta_path, beta_doc = skill_doc("beta")
+      code, stdout, _, fs = run_generate({
+        alpha_path => alpha_doc,
+        beta_path  => beta_doc,
+      }, {CLAUDE_SETTINGS => "{}"})
+
+      code.should eq(0)
+      stdout.should contain("skill: wrote .claude/skills/alpha/SKILL.md")
+      stdout.should contain("skill: wrote .claude/skills/beta/SKILL.md")
+      fs.files.has_key?("/repo/.claude/skills/alpha/SKILL.md").should be_true
+      fs.files.has_key?("/repo/.claude/skills/beta/SKILL.md").should be_true
+    end
+
+    it "still writes a later slug's wrapper when an earlier slug already matches" do
+      alpha_path, alpha_doc = skill_doc("alpha")
+      beta_path, beta_doc = skill_doc("beta")
+      expected_alpha = AgentApropos::Skills.wrappers(
+        [AgentApropos::Convention.parse("docs/conventions/workflows/alpha.md", alpha_doc)]
+      )["alpha"]
+
+      code, stdout, _, fs = run_generate({
+        alpha_path                            => alpha_doc,
+        beta_path                             => beta_doc,
+        "/repo/.claude/skills/alpha/SKILL.md" => expected_alpha,
+      }, {CLAUDE_SETTINGS => "{}"})
+
+      code.should eq(0)
+      stdout.should_not contain("wrote .claude/skills/alpha")
+      stdout.should contain("skill: wrote .claude/skills/beta/SKILL.md")
+      fs.files.has_key?("/repo/.claude/skills/beta/SKILL.md").should be_true
+    end
+
+    it "prunes every orphan in a root, not just the first" do
+      path, doc = skill_doc("keep")
+      code, stdout, _, fs = run_generate({
+        path                                  => doc,
+        "/repo/.claude/skills/gone1/SKILL.md" => "stale wrapper\n",
+        "/repo/.claude/skills/gone2/SKILL.md" => "stale wrapper\n",
+      }, {CLAUDE_SETTINGS => "{}"})
+
+      code.should eq(0)
+      stdout.should contain("skill: removed orphan .claude/skills/gone1/SKILL.md")
+      stdout.should contain("skill: removed orphan .claude/skills/gone2/SKILL.md")
+      fs.files.has_key?("/repo/.claude/skills/gone1/SKILL.md").should be_false
+      fs.files.has_key?("/repo/.claude/skills/gone2/SKILL.md").should be_false
+    end
+
     describe "root gating" do
       it "writes only the root whose consumer agent is initialized" do
         path, doc = skill_doc("foo")
@@ -158,6 +214,17 @@ describe AgentApropos::Generate do
         code.should eq(0)
         stdout.should_not contain("skill: wrote")
         fs.files.keys.any?(&.includes?("skills")).should be_false
+      end
+
+      it "still writes a later root's wrapper when an earlier root is inactive" do
+        path, doc = skill_doc("foo")
+        code, stdout, _, fs = run_generate({path => doc}, {GEMINI_SETTINGS => "{}"})
+
+        code.should eq(0)
+        stdout.should contain("skill: wrote .gemini/skills/foo/SKILL.md")
+        stdout.should_not contain(".claude/skills")
+        stdout.should_not contain(".codex/skills")
+        fs.files.has_key?("/repo/.gemini/skills/foo/SKILL.md").should be_true
       end
 
       it "prunes a wrapper left behind in a root whose consumer was un-wired" do
@@ -221,6 +288,61 @@ describe AgentApropos::Generate do
       })
       code.should eq(1)
       stderr.should contain("agent-apropos generate:")
+    end
+
+    it "fails closed by default when conventions_dir resolves outside the repo root" do
+      code, _, stderr = check_generate({"/repo/agent-apropos.yml" => "conventions_dir: /outside\n"})
+
+      code.should eq(1)
+      stderr.should contain("resolves outside the repo root")
+    end
+
+    it "reports every missing wrapper in a root, not just the first" do
+      alpha_path, alpha_doc = skill_doc("alpha")
+      beta_path, beta_doc = skill_doc("beta")
+      code, stdout, _ = check_generate({
+        alpha_path => alpha_doc,
+        beta_path  => beta_doc,
+      }, {CLAUDE_SETTINGS => "{}"})
+
+      code.should eq(1)
+      stdout.should contain("missing: .claude/skills/alpha/SKILL.md")
+      stdout.should contain("missing: .claude/skills/beta/SKILL.md")
+    end
+
+    it "reports every stale wrapper in a root, not just the first" do
+      alpha_path, alpha_doc = skill_doc("alpha")
+      beta_path, beta_doc = skill_doc("beta")
+      files = run_generate({alpha_path => alpha_doc, beta_path => beta_doc}, {CLAUDE_SETTINGS => "{}"})[3].files
+      files["/repo/.claude/skills/alpha/SKILL.md"] = "hand edited alpha\n"
+      files["/repo/.claude/skills/beta/SKILL.md"] = "hand edited beta\n"
+
+      code, stdout, _ = check_generate(files, {CLAUDE_SETTINGS => "{}"})
+      code.should eq(1)
+      stdout.should contain("stale:   .claude/skills/alpha/SKILL.md")
+      stdout.should contain("stale:   .claude/skills/beta/SKILL.md")
+    end
+
+    it "reports drift when the wrapper differs even where it sorts before the expected content" do
+      path, doc = skill_doc("foo")
+      files = run_generate({path => doc})[3].files
+      files["/repo/.claude/skills/foo/SKILL.md"] = ""
+
+      code, stdout, _ = check_generate(files)
+      code.should eq(1)
+      stdout.should contain("stale:   .claude/skills/foo/SKILL.md")
+    end
+
+    it "reports every orphan in a root, not just the first" do
+      path, doc = skill_doc("keep")
+      files = run_generate({path => doc})[3].files
+      files["/repo/.claude/skills/gone1/SKILL.md"] = "orphan\n"
+      files["/repo/.claude/skills/gone2/SKILL.md"] = "orphan\n"
+
+      code, stdout, _ = check_generate(files)
+      code.should eq(1)
+      stdout.should contain("orphan:  .claude/skills/gone1/SKILL.md")
+      stdout.should contain("orphan:  .claude/skills/gone2/SKILL.md")
     end
 
     describe "root gating" do
