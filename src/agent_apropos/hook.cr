@@ -61,7 +61,7 @@ module AgentApropos
       in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
       return execute_removal(event, payload, root, stdout, fs, now, allow_outside, git) if in_root.empty?
 
-      index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, event)
+      index, session_id, state, name, pending = session_context(root, fs, allow_outside, now, payload, event)
 
       agent = Agents.find(tool) || Agents.detect(payload)
       if agent.read?(payload)
@@ -69,7 +69,6 @@ module AgentApropos
         return
       end
 
-      pending = index.docs.reject { |entry| state.injected?(entry.path) }
       matches = dedup_by_entry(in_root.flat_map do |relative, edit|
         matches_for(pending, event, root, fs, relative, edit)
       end)
@@ -82,9 +81,8 @@ module AgentApropos
       removed = removed_relative_paths(payload, root, fs, git)
       return if removed.empty?
 
-      index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, event)
+      _, session_id, state, name, pending = session_context(root, fs, allow_outside, now, payload, event)
 
-      pending = index.docs.reject { |entry| state.injected?(entry.path) }
       matches = dedup_by_entry(removed.each_with_index.flat_map { |relative, i|
         matches_for_removal(pending, root, fs, git, relative, i < REMOVAL_CONTENT_RESOLUTION_BOUND)
       }.to_a)
@@ -92,19 +90,21 @@ module AgentApropos
       deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload, removal: true)
     end
 
-    private def removed_relative_paths(payload : Payload, root : Path, fs : Filesystem, git : Git) : Array(String)
-      structural = payload.removals.map(&.path)
-      candidates = removal_command?(payload) ? structural + git.removed_paths(root, fs) : structural
-      candidates.reject { |relative| outside_root?(relative) }
-    end
-
-    private def load_pipeline_state(payload : Payload, root : Path, fs : Filesystem, allow_outside : Bool,
-                                    now : Time, event : Symbol) : {Index, String?, SessionState, String}
+    private def session_context(root : Path, fs : Filesystem, allow_outside : Bool, now : Time,
+                                payload : Payload, event : Symbol) : {Index, String?, SessionState, String, Array(Index::Entry)}
       index = load_or_build_index(root, fs, allow_outside)
       session_id = SessionState.key?(payload.session_id)
       SessionState.prune(root, fs, now)
       state = SessionState.load(root, fs, session_id)
-      {index, session_id, state, event_name(event)}
+      name = event_name(event)
+      pending = index.docs.reject { |entry| state.injected?(entry.path) }
+      {index, session_id, state, name, pending}
+    end
+
+    private def removed_relative_paths(payload : Payload, root : Path, fs : Filesystem, git : Git) : Array(String)
+      structural = payload.removals.map(&.path)
+      candidates = removal_command?(payload) ? structural + git.removed_paths(root, fs) : structural
+      candidates.reject { |relative| outside_root?(relative) }
     end
 
     private def removal_command?(payload : Payload) : Bool

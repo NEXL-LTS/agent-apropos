@@ -574,6 +574,139 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `dated.each do |entry| ... end` in prune_logs, whose last statement is already the `fs.remove` conditional; `next` here is indistinguishable from normal fall-through to the next log file."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "def sync_shell_hook(existing : String?, label : String, wire : Bool) : String?",
+      "mutated": "def sync_shell_hook(existing : String?, wire : String, label : Bool) : String?",
+      "reason": "pure identifier rename (label<->wire, each keeping its original type and position); the body only returns `existing` and never references either parameter by name, and Crystal binds positional call-site args by position, so no caller's behaviour changes."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "return groups if missing.empty?",
+      "mutated": "# return groups if missing.empty?",
+      "reason": "without this guard, control falls into `append_hook_entries(groups[target], [], timeout)`; with an empty commands array that just rebuilds the same \"hooks\" array from the same `present` entries with nothing appended, producing a structurally identical group."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)",
+      "mutated": "# return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)",
+      "reason": "any command matching the later \"agent-apropos hook pre\"/\"agent-apropos hook post\" prefixes already starts with the shorter AGENT_APROPOS_HOOK_PREFIX, so the following if/elsif already falls through to nil for anything this guard would reject; the guard is a redundant fast path."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 1,
+      "original": "SemanticVersion.parse(match[1])",
+      "mutated": "SemanticVersion.parse(match[0])",
+      "reason": "the regex's single capturing group spans its entire pattern, so the whole match (index 0) and its lone group (index 1) are byte-for-byte identical."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 1,
+      "original": "SemanticVersion.parse(match[1])",
+      "mutated": "SemanticVersion.parse(match[-1])",
+      "reason": "with exactly one capture group, index -1 (the last group) and index 1 (the only group) name the same match."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 1,
+      "original": "SemanticVersion.parse(match[1])",
+      "mutated": "SemanticVersion.parse(match[(1-1)])",
+      "reason": "(1-1) evaluates to 0, and the regex's single capturing group spans its entire pattern, so index 0 and index 1 are byte-for-byte identical."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 1,
+      "original": "def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)",
+      "mutated": "def checks( fs : Path,repo_root : Filesystem, env : Environment) : Array(Check)",
+      "reason": "pure identifier rename at fixed positions (repo_root<->fs swap names only, each keeping its original type); the body is `super + [capability_check(env)]`, and a bare `super` forwards the received arguments by position, so the rename has no effect."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 10,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the begin/rescue whose only rescue body is `return nil`; a `return` unconditionally exits the method, so anything appended after it and before this `end` is unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 10,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same begin/rescue as the break variant above: the rescue body is `return nil`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/claude.cr",
+      "occurrence": 11,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "`next` as the last statement of the `hooks.each` block body is a no-op -- the block already falls through to the next iteration identically."
+    },
+    {
+      "path": "src/agent_apropos/agents/codex.cr",
+      "occurrence": 6,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes an `unless env.which(\"codex\") ... end` whose body is `return Check.new(...)`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/codex.cr",
+      "occurrence": 6,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `unless ... end` as the break variant above: the body is an unconditional `return`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/codex.cr",
+      "occurrence": 9,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the begin/rescue whose only rescue body is `return nil`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/agents/codex.cr",
+      "occurrence": 9,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same begin/rescue as the break variant above: the rescue body is `return nil`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 8,
+      "original": "end",
+      "mutated": "break\\nend",
+      "reason": "this `end` closes the `if drift.empty? ... end` in `report_check`, whose body is `return 0`; the unconditional return makes anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 8,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "same `if drift.empty? ... end` as the break variant above: the body is an unconditional `return 0`, making anything appended before this `end` unreachable dead code."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 18,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "this `end` closes the `Agents::ALL.each` block in `sync_shell_hooks`; `next` as its last statement is a no-op."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "pending_shell_hook_updates(repo_root, fs, wire).map do |agent, _, _|",
+      "mutated": "pending_shell_hook_updates(repo_root, fs, wire).map do |agent, _|",
+      "reason": "dropping the second `_` placeholder still auto-destructures each {Agent, String, String} tuple, binding `agent` to the first element and silently discarding the rest; neither underscore was ever read, so the block's behaviour is unchanged."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "private def pending_shell_hook_updates(repo_root : Path, fs : Filesystem, wire : Bool) : Array({Agents::Agent, String, String})",
+      "mutated": "private def pending_shell_hook_updates(repo_root : Path, fs : Filesystem, wire : Bool) : Array({Agents::Agent , String, String})",
+      "reason": "whitespace inside a tuple type annotation; the declared type is identical."
     }
   ]
 }
