@@ -5,6 +5,7 @@ require "./environment"
 require "./filesystem"
 require "./check"
 require "./agents"
+require "./frontmatter"
 
 module AgentApropos
   module Doctor
@@ -17,7 +18,8 @@ module AgentApropos
             allow_outside : Bool = false) : Int32
       checks = [agent_apropos_check(env)] +
                Agents::ALL.flat_map(&.checks(repo_root, fs, env)) +
-               [index_check(repo_root, fs, allow_outside), cache_check(repo_root, fs)]
+               [index_check(repo_root, fs, allow_outside), cache_check(repo_root, fs),
+                removal_hook_check(repo_root, fs, allow_outside)]
       report(checks, stdout)
     end
 
@@ -49,6 +51,44 @@ module AgentApropos
       else
         Check.new(:warn, "index", "stale; run `agent-apropos generate`")
       end
+    end
+
+    private def removal_hook_check(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Check
+      unless removal_convention_declared?(repo_root, fs, allow_outside)
+        return Check.new(:ok, "removal hook", "no removal-triggered convention declared")
+      end
+
+      unwired = Agents::ALL.select do |agent|
+        agent.configured?(repo_root, fs) && shell_hook_capable?(agent) && !shell_hook_wired?(agent, repo_root, fs)
+      end
+
+      if unwired.empty?
+        Check.new(:ok, "removal hook", "shell-tool removal detection is wired for every capable, configured agent")
+      else
+        names = unwired.map(&.name).join(", ")
+        Check.new(:warn, "removal hook", "#{names} missing the shell-tool removal hook; run `agent-apropos generate`")
+      end
+    end
+
+    private def removal_convention_declared?(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Bool
+      conventions =
+        begin
+          Conventions.walk(repo_root, fs, allow_outside)
+        rescue AgentApropos::Error
+          return false
+        end
+      conventions.any? { |convention| convention.frontmatter.events.includes?(Frontmatter::Event::Removed) }
+    end
+
+    private def shell_hook_capable?(agent : Agents::Agent) : Bool
+      !agent.sync_shell_hook(nil, "probe", true).nil?
+    end
+
+    private def shell_hook_wired?(agent : Agents::Agent, repo_root : Path, fs : Filesystem) : Bool
+      path = repo_root.join(agent.config_relative).to_s
+      existing = fs.read?(path)
+      updated = agent.sync_shell_hook(existing, agent.config_relative.to_posix.to_s, true)
+      updated.nil? || updated == existing
     end
 
     private def cache_check(repo_root : Path, fs : Filesystem) : Check
