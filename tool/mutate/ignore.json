@@ -77,6 +77,125 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `parse_removed_records`'s `until records.empty?` loop itself; `next` as the loop body's last statement jumps to the condition check, which is exactly what reaching this `end` already does."
+    },
+    {
+      "path": "src/agent_apropos/index.cr",
+      "occurrence": 9,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `to_document`'s `String.build do |io| ... end` block, whose last statement is already `io << '\\n'`; `String.build` returns the IO's accumulated content, not the block's own return value, so `next` as the last statement changes nothing observable."
+    },
+    {
+      "path": "src/agent_apropos/conventions.cr",
+      "occurrence": 1,
+      "original": "elsif line.strip == \"## Verify\"",
+      "mutated": "next\\nelsif line.strip == \"## Verify\"",
+      "reason": "inserted as the last statement of the preceding `if capturing` branch, itself the last statement in the `each_line` block's body; `next` jumps to the next line, which is exactly what falling off the end of the block body already does."
+    },
+    {
+      "path": "src/agent_apropos/conventions.cr",
+      "occurrence": 7,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `if`/`elsif` chain inside `each_line`'s block, whose every branch is already the last statement in the block's body; `next` here is indistinguishable from normal fall-through no matter which branch ran, for the same reason as the `elsif` entry above."
+    },
+    {
+      "path": "src/agent_apropos/conventions.cr",
+      "occurrence": 8,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `each_line` block itself; `next` as the block's last statement moves to the next line, which is exactly what reaching this `end` already does."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32",
+      "mutated": "def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int-1",
+      "reason": "the mutated text `Int-1` is not a type; `crystal tool format` re-renders it as the restriction `Int` (a supertype of `Int32`, which every value this method returns already satisfies) followed by a discarded `-1` statement at the top of the body. Widening an unenforced restriction and inserting a dead statement changes nothing observable."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32",
+      "mutated": "def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int-1",
+      "reason": "same `Int-1`-parses-as-`Int`-plus-a-discarded-statement mechanism as the `run` entry above."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "private def report_check(drift : Array(String), count : Int32, stdout : IO) : Int32",
+      "mutated": "private def report_check(drift : Array(String), count : Int32, stdout : IO) : Int-1",
+      "reason": "same `Int-1`-parses-as-`Int`-plus-a-discarded-statement mechanism as the `run` entry above; the parameter's own `Int32` is untouched, only the return-type restriction is."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "slugs = wrappers.keys.sort!",
+      "mutated": "slugs = wrappers.keys.sort",
+      "reason": "`wrappers.keys` allocates a fresh Array with no other reference, immediately reassigned to `slugs`; `sort` and `sort!` leave `slugs` holding the identical sorted contents either way, the same reasoning as the analogous entry for `frontmatter.cr`'s `unknown`."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 11,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `write_wrappers`'s `slugs.each` block, whose last statement is already `stdout.puts \"skill: wrote ...\"`; `next` there is indistinguishable from normal fall-through to `slugs.each`'s next slug."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 12,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `write_wrappers`'s `Skills::ROOTS.each` block, whose last statement is already the `slugs.each` call itself; `next` there is indistinguishable from normal fall-through to the next root."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 14,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `prune_orphans`'s orphan-removal `each` block, whose last statement is already `stdout.puts \"skill: removed orphan ...\"`; `next` there is indistinguishable from normal fall-through to the next orphan slug."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 15,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `prune_orphans`'s `Skills::ROOTS.each` block, whose last statement is already the orphan-removal `each` call itself; `next` there is indistinguishable from normal fall-through to the next root."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 1,
+      "original": "elsif actual != content",
+      "mutated": "next\\nelsif actual != content",
+      "reason": "inserted as the last statement of the preceding `if actual.nil?` branch, itself the last statement of `expected.each`'s block body (the `if`/`elsif` construct's own closing `end` immediately precedes the block's `end`); `next` there is indistinguishable from normal fall-through to `expected.each`'s next slug."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 2,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `check`'s `if actual.nil? ... elsif ... end`; whichever branch ran (or neither, if the wrapper matches), `next` here reaches the same place normal fall-through to `expected.each`'s next slug already does."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 3,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `check`'s `expected.each` block itself, whose last statement is already the `if`/`elsif` construct above; `next` there is indistinguishable from normal fall-through to the next slug."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 4,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `check`'s orphan-detection `each` block, whose last statement is already `drift << \"orphan: ...\"`; `next` there is indistinguishable from normal fall-through to the next orphan slug."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 5,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `check`'s `Skills::ROOTS.each` block, whose last statement is already the orphan-detection `each` call; `next` there is indistinguishable from normal fall-through to the next root."
     }
   ]
 }
