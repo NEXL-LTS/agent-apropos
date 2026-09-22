@@ -1,0 +1,11 @@
+{
+  "sessionId": "abc123",
+  "timestamp": 1788082481412,
+  "cwd": "/repo",
+  "toolName": "bash",
+  "toolArgs": "{\"command\":\"rm scratch.txt\",\"description\":\"Remove scratch.txt file\"}",
+  "toolResult": {
+    "resultType": "success",
+    "textResultForLlm": "\n<shellId: 0 completed with exit code 0>"
+  }
+}

@@ -11,6 +11,8 @@ module AgentApropos
       HOOK_PRE_BASE  = "agent-apropos hook pre --tool copilot"
       HOOK_POST_BASE = "agent-apropos hook post --tool copilot"
 
+      BASH_MATCHER = "bash"
+
       def name : String
         "copilot"
       end
@@ -25,6 +27,93 @@ module AgentApropos
 
       def skill_root : Path
         Path[".claude", "skills"]
+      end
+
+      def sync_shell_hook(existing : String?, label : String, wire : Bool) : String?
+        root = Init.settings_root(existing, label)
+        hooks = (root["hooks"]?.try(&.as_h?)).try(&.dup) || {} of String => JSON::Any
+        entries = (hooks["postToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
+        allow_outside = owned_allow_outside?(entries)
+
+        updated = wire ? ensure_bash_entries(entries, allow_outside) : drop_bash_entries(entries)
+        return existing if updated == entries
+
+        updated_hooks = hooks.dup
+        if updated.empty?
+          updated_hooks.delete("postToolUse")
+        else
+          updated_hooks["postToolUse"] = JSON::Any.new(updated)
+        end
+
+        updated_root = root.dup
+        if updated_hooks.empty?
+          updated_root.delete("hooks")
+        else
+          updated_root["hooks"] = JSON::Any.new(updated_hooks)
+        end
+        JSON::Any.new(updated_root).to_pretty_json + "\n"
+      end
+
+      private def owned_allow_outside?(entries : Array(JSON::Any)) : Bool
+        entries.any? do |entry|
+          command = entry.as_h?.try(&.["command"]?).try(&.as_s?)
+          !command.nil? && command.starts_with?(AGENT_APROPOS_HOOK_PREFIX) && command.ends_with?(ALLOW_OUTSIDE_FLAG)
+        end
+      end
+
+      private def ensure_bash_entries(entries : Array(JSON::Any), allow_outside : Bool) : Array(JSON::Any)
+        desired = [hook_command(HOOK_PRE_BASE, allow_outside), hook_command(HOOK_POST_BASE, allow_outside)]
+        refreshed = entries.map { |entry| refresh_bash_entry(entry, desired) }
+        present = bash_commands(refreshed)
+        missing = desired.reject { |command| present.includes?(command) }
+        refreshed + missing.map { |command| bash_entry(command) }
+      end
+
+      private def refresh_bash_entry(entry : JSON::Any, desired : Array(String)) : JSON::Any
+        hash = entry.as_h?
+        return entry unless hash
+        return entry unless hash["matcher"]?.try(&.as_s?) == BASH_MATCHER
+        command = hash["command"]?.try(&.as_s?)
+        return entry unless command
+        target = desired.includes?(command) ? command : upgrade_bash_target(command, desired)
+        target ? bash_entry(target) : entry
+      end
+
+      private def upgrade_bash_target(command : String, desired : Array(String)) : String?
+        return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
+        if command.starts_with?(HOOK_PRE_BASE)
+          desired.find(&.starts_with?(HOOK_PRE_BASE))
+        elsif command.starts_with?(HOOK_POST_BASE)
+          desired.find(&.starts_with?(HOOK_POST_BASE))
+        end
+      end
+
+      private def drop_bash_entries(entries : Array(JSON::Any)) : Array(JSON::Any)
+        entries.reject do |entry|
+          hash = entry.as_h?
+          next false unless hash
+          command = hash["command"]?.try(&.as_s?)
+          hash["matcher"]?.try(&.as_s?) == BASH_MATCHER &&
+            !command.nil? && command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
+        end
+      end
+
+      private def bash_commands(entries : Array(JSON::Any)) : Array(String)
+        entries.compact_map do |entry|
+          hash = entry.as_h?
+          next nil unless hash
+          next nil unless hash["matcher"]?.try(&.as_s?) == BASH_MATCHER
+          hash["command"]?.try(&.as_s?)
+        end
+      end
+
+      private def bash_entry(command : String) : JSON::Any
+        JSON::Any.new({
+          "type"       => JSON::Any.new("command"),
+          "matcher"    => JSON::Any.new(BASH_MATCHER),
+          "command"    => JSON::Any.new(command),
+          "timeoutSec" => JSON::Any.new(HOOK_TIMEOUT.to_i64),
+        })
       end
 
       protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
