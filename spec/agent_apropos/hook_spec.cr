@@ -110,6 +110,18 @@ private def copilot_shell_json(command : String, session_id : String? = "s", cwd
   {sessionId: session_id, toolName: "bash", cwd: cwd, toolArgs: tool_args}.to_json
 end
 
+private def apply_patch_delete_json(path : String, session_id : String? = "s", cwd : String? = REPO) : String
+  command = "*** Begin Patch\n*** Delete File: #{path}\n*** End Patch"
+  {session_id: session_id, tool_name: "apply_patch", cwd: cwd, tool_input: {command: command}}.to_json
+end
+
+private def apply_patch_add_and_delete_json(added_path : String, added_content : String, deleted_path : String,
+                                            session_id : String? = "s", cwd : String? = REPO) : String
+  command = "*** Begin Patch\n*** Add File: #{added_path}\n+#{added_content}\n" \
+            "*** Delete File: #{deleted_path}\n*** End Patch"
+  {session_id: session_id, tool_name: "apply_patch", cwd: cwd, tool_input: {command: command}}.to_json
+end
+
 describe AgentApropos::Hook do
   describe ".pre" do
     it "injects a matching path-scoped rule before the edit" do
@@ -752,6 +764,35 @@ describe AgentApropos::Hook do
       stdout.should contain("Convention (docs/conventions/a.md):")
     end
 
+    it "detects a structural removal from a Codex apply_patch Delete File section" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      code, stdout = invoke(:post, apply_patch_delete_json("src/app.cr"), fs)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+    end
+
+    # A real captured Codex apply_patch Delete File section names the file by
+    # its ABSOLUTE path (confirmed live — see spec/fixtures/hook_payloads/
+    # codex_pre_tool_use_apply_patch_delete.json), unlike every other removal
+    # source (a shell `rm` argument, or git status output), which is already
+    # repo-relative. Missing this relativization silently dropped every
+    # structural removal path this glob check ever saw, since an absolute
+    # path never matches a repo-relative `paths:` pattern.
+    it "still matches when the Delete File section names the file by its absolute path" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      code, stdout = invoke(:post, apply_patch_delete_json("#{REPO}/src/app.cr"), fs)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+    end
+
+    it "delivers both a write match and a removal match from one apply_patch bundling an Add and a Delete" do
+      fs = InMemoryFS.new({A_PATH => A_DOC, MODELS_PATH => "---\non: [removed]\npaths: [\"lib/**\"]\n---\n# M\n\nBody.\n"})
+      code, stdout = invoke(:post, apply_patch_add_and_delete_json("src/new.cr", "content", "lib/old.cr"), fs)
+      code.should eq(0)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+      stdout.should contain("Convention (docs/conventions/models.md):")
+    end
+
     it "says the convention fired because the path is missing, not that this command removed it" do
       fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
       git = FakeGit.new(removed: ["src/app.cr"])
@@ -944,7 +985,7 @@ describe AgentApropos::Hook do
       context = JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s
       context.should contain(
         "\n\n_Scope: this convention fired because a tracked file whose path matches `app/**` " \
-        "and whose last committed contents matched `\\bx\\b` is now missing from the " \
+        "and whose last tracked contents matched `\\bx\\b` is now missing from the " \
         "working tree — not necessarily because this command removed it. Apply it to any " \
         "other matching removal this session; it will not be shown again._"
       )

@@ -13,6 +13,11 @@
 // denied never suppresses a rule it did not actually deliver.
 // Both fail open: any error produces no output and never blocks an edit.
 // See docs/conventions/README.md for the layer model.
+//
+// "bash" is wired onto both events the same way, only when a removal-
+// triggered convention exists (see Generate#pending_shell_hook_updates) —
+// its args carry `command`, not `filePath`, confirmed against a real
+// captured `tool.execute.after` payload, not upstream docs.
 
 export const AgentAproposPlugin = async ({ worktree, client }) => {
   // Session ID tracked through events; also read from input.sessionID when
@@ -57,6 +62,7 @@ export const AgentAproposPlugin = async ({ worktree, client }) => {
         new_string: args?.newString,
         offset:     args?.offset,
         limit:      args?.limit,
+        command:    args?.command,
       },
     }
   }
@@ -79,7 +85,7 @@ export const AgentAproposPlugin = async ({ worktree, client }) => {
     "tool.execute.before": async (input, output) => {
       if (!["edit", "write", "apply_patch"].includes(input.tool)) return
       const args = output?.args ?? input.args
-      if (!args?.filePath) return
+      if (!args?.filePath && !args?.command) return
       const ctx = await callHook("pre", makePayload(input, args))
       await inject(input.sessionID ?? sessionID, ctx)
     },
@@ -93,7 +99,7 @@ export const AgentAproposPlugin = async ({ worktree, client }) => {
     "tool.execute.after": async (input, output) => {
       if (!["edit", "write", "apply_patch", "read"].includes(input.tool)) return
       const args = output?.args ?? input.args
-      if (!args?.filePath) return
+      if (!args?.filePath && !args?.command) return
       const ctx = await callHook("post", makePayload(input, args))
       await inject(input.sessionID ?? sessionID, ctx)
     },
