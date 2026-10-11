@@ -291,25 +291,29 @@ trap restore_sources EXIT
 trap 'interrupt 130' INT
 trap 'interrupt 143' TERM
 
-# One worktree, detached at HEAD, with the working tree's own uncommitted
-# changes to tracked files replayed on top — a developer running this against
-# a dirty tree gets the same mutants a plain (non-parallel) run would. `lib/`
-# is a shards install, gitignored and identical for every worker, so it is
-# shared via a symlink rather than reinstalled per worktree.
+# One worktree, detached at HEAD, with the working tree's own dirty state
+# replayed on top — a developer running this against a dirty tree gets the
+# same mutants a plain (non-parallel) run would. `lib/` is a shards install,
+# gitignored and identical for every worker, so it is shared via a symlink
+# rather than reinstalled per worktree.
 #
-# `git diff | apply` covers every tracked file (modified, added-but-uncommitted,
-# deleted, renamed) but, like `git diff` itself, has no notion of a file that
-# was never `git add`-ed at all. $2, the file this worktree exists to mutate,
-# is copied in directly afterward as a belt-and-suspenders fix for exactly
-# that case — an explicit target is not required to be tracked.
+# `git diff | apply` covers every tracked file (modified, staged-but-
+# uncommitted, deleted, renamed); like `git diff` itself, it has no notion of
+# a file that was never `git add`-ed at all. Every untracked-but-not-ignored
+# file is therefore copied in directly too — a worker may need any of them
+# (a new source file, a new sibling spec for it, a new fixture), not only
+# whichever one it was asked to mutate.
 new_worktree() {
-  local idx="$1" src="$2" wt
+  local idx="$1" wt
   wt="$workdir/wt-$idx"
   git worktree add --quiet --detach "$wt" HEAD >/dev/null
   worktrees+=("$wt")
   git diff --binary HEAD | git -C "$wt" apply --allow-empty 2>/dev/null || true
-  mkdir -p "$wt/$(dirname "$src")"
-  cp "$root/$src" "$wt/$src"
+  local f
+  while IFS= read -r f; do
+    mkdir -p "$wt/$(dirname "$f")"
+    cp "$root/$f" "$wt/$f"
+  done < <(git ls-files --others --exclude-standard)
   ln -s "$root/lib" "$wt/lib" 2>/dev/null || true
   seed_worker_cache "$wt"
   printf '%s' "$wt"
@@ -387,10 +391,11 @@ run_worker() {
   fi
 }
 
-# `wc -l` undercounts a file with no trailing newline; every generated,
-# tracked Crystal source has one (the formatter adds it), and a whole-file
-# sweep only runs on tracked sources.
-line_count() { wc -l <"$1"; }
+# `wc -l` counts newline bytes, undercounting a file whose last line has none
+# — real here, since an explicit target (unlike a diff-scoped one) is not
+# required to be a tracked, formatter-clean Crystal source. `awk`'s NR counts
+# that final line too.
+line_count() { awk 'END { print NR }' "$1"; }
 
 mutate_file() {
   local src="$1" lines_file="${2:-}"
@@ -421,7 +426,7 @@ mutate_file() {
   local -a outs=()
   for ((i = 0; i < n; i++)); do
     local wt out
-    wt="$(new_worktree "$i" "$src")"
+    wt="$(new_worktree "$i")"
     out="$workdir/out.$i"
     outs+=("$out")
     run_worker "$wt" "$src" "$chunk_prefix.$i" "$out" &
