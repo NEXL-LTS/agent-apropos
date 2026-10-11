@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
 # Mutation-score gate. See docs/mutation-testing.md.
 #
-# Usage: scripts/mutate.sh [--base <ref>] [<source-file> ...]
+# Usage: scripts/mutate.sh [--base <ref>] [--jobs <N>] [<source-file> ...]
 #
 #   --base <ref>   compare against this ref instead of the PR base
+#   --jobs <N>     parallel workers for a large target (default: min(nproc, 8))
 #   <source-file>  mutate in full, ignoring the diff
+#
+# Per-file mutation (generate + test every mutant) is delegated to
+# scripts/mutate-worker.sh. A target large enough to be worth it is sharded by
+# line number across --jobs isolated git worktrees, run concurrently, and the
+# results merged; a small target runs through a single worker directly in the
+# repo root, unchanged from before this file had a --jobs flag at all.
 set -euo pipefail
+
+# Resolved from this file's own location, not the target repo's root: the
+# bats suite runs this exact script against a throwaway fixture repo, where
+# `git rev-parse --show-toplevel` would point at the fixture, not here.
+self_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKER="$self_dir/mutate-worker.sh"
 
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -15,16 +28,27 @@ IGNORE_FILE="tool/mutate/ignore.json"
 NO_SPEC_FILE="tool/mutate/no-spec.json"
 CLEAN_FILE="tool/mutate/clean.json"
 
-MUTANT_SIBLING_TIMEOUT=30
-MUTANT_SUITE_TIMEOUT=180
-BASELINE_SPEC_TIMEOUT=900
+# Below this, a target runs through a single worker in $root with no worktree:
+# the overhead of `git worktree add` plus a shards symlink is not worth paying
+# for a handful of lines, and the vast majority of PR-scoped runs are exactly
+# that small.
+MIN_LINES_PER_WORKER=15
 
 die() {
   echo "error: $*" >&2
   exit 2
 }
 
+default_jobs() {
+  local n
+  n="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+  [ "$n" -gt 8 ] && n=8
+  [ "$n" -lt 1 ] && n=1
+  printf '%s' "$n"
+}
+
 base_ref=""
+jobs="$(default_jobs)"
 explicit_files=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -37,8 +61,17 @@ while [ "$#" -gt 0 ]; do
       base_ref="${1#--base=}"
       shift
       ;;
+    --jobs)
+      [ "$#" -ge 2 ] || die "--jobs needs a number"
+      jobs="$2"
+      shift 2
+      ;;
+    --jobs=*)
+      jobs="${1#--jobs=}"
+      shift
+      ;;
     -h | --help)
-      sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     -*)
@@ -51,6 +84,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+case "$jobs" in
+  '' | *[!0-9]*) die "--jobs must be a positive integer" ;;
+esac
+[ "$jobs" -ge 1 ] || die "--jobs must be a positive integer"
+
 command -v mutate >/dev/null 2>&1 ||
   die "the mutation engine is not on PATH; install it with
   python3 -m pip install --require-hashes --no-deps -r tool/mutate/requirements.txt"
@@ -60,6 +98,7 @@ for tool in setsid timeout; do
     die "$tool is not on PATH; the mutation gate needs it to bound and reap a mutant's spec run"
 done
 
+[ -x "$WORKER" ] || die "$WORKER is missing or not executable"
 [ -f "$RULES" ] || die "$RULES is missing; the engine would silently generate nothing without it"
 
 command -v jq >/dev/null 2>&1 || die "jq is not on PATH; the reviewed lists are JSON"
@@ -175,18 +214,6 @@ occurrences_of() {
                         END { print n + 0 }' "$2"
 }
 
-ignored_mutant() {
-  local path="$1" occurrence="$2" original="$3" mutated="$4" entry
-  while IFS= read -r entry; do
-    [ "$(field "$entry" 1)" = "$path" ] || continue
-    [ "$(field "$entry" 2)" = "$occurrence" ] || continue
-    [ "$(field "$entry" 3)" = "$original" ] || continue
-    [ "$(field "$entry" 4)" = "$mutated" ] || continue
-    return 0
-  done < <(records "$IGNORE_FILE" '.equivalent[] | [.path, (.occurrence|tostring), .original, .mutated]')
-  return 1
-}
-
 resolve_base() {
   [ -n "$base_ref" ] && { printf '%s' "$base_ref"; return 0; }
   if [ -n "${GITHUB_BASE_REF:-}" ]; then
@@ -232,226 +259,185 @@ changed_files_matching() {
   git diff --name-only --no-ext-diff --diff-filter=d "$merge_base" -- "$@"
 }
 
-mutant_line_from_log() {
-  local log="$1" mutant="$2"
-  sed -n "s|^PROCESSING MUTANT: \([0-9]*\):.*\[written to ${mutant//|/\|}\].*|\1|p" "$log" | head -n1
-}
-
-# Fallback only. Wrong for an insertion mutant whose inserted line equals the one
-# below it, which is why the log is preferred.
-mutant_line() {
-  awk 'NR == FNR { original[FNR] = $0; next }
-       $0 != original[FNR] { print FNR; exit }' "$1" "$2"
-}
-
-# Inserted lines fold onto one, so an ignore-list key stays one record.
-mutant_text() {
-  local source="$1" mutant="$2" line="$3" span
-  span=$(($(wc -l <"$mutant") - $(wc -l <"$source") + 1))
-  sed -n "${line},$((line + span - 1))p" "$mutant" |
-    awk '{ gsub(/^[ \t]+|[ \t]+$/, ""); printf "%s%s", sep, $0; sep = "\\n" }'
-}
-
-trimmed_line() {
-  sed -n "${2}p" "$1" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
-}
-
-occurrence_index() {
-  awk -v target="$2" 'NR <= target { line = $0; gsub(/^[ \t]+|[ \t]+$/, "", line)
-                                     if (NR == target) want = line
-                                     lines[NR] = line }
-                      END { for (i = 1; i <= target; i++) if (lines[i] == want) n++; print n }' "$1"
-}
-
 workdir="$(mktemp -d)"
-restore_list="$workdir/restore"
-: >"$restore_list"
+worktrees=()
+worker_pids=()
 
-# Every step is non-fatal and the original status is restored: under `set -e` one
-# failed `cp` would abort the loop, leaving later files still holding a mutant.
 restore_sources() {
   local status=$?
-  local src backup
-  while IFS=$'\t' read -r src backup; do
-    if [ -f "$backup" ]; then cp "$backup" "$src" || echo "error: could not restore $src from $backup" >&2; fi
-  done <"$restore_list" || true
+  local wt
+  for wt in ${worktrees[@]+"${worktrees[@]}"}; do
+    git worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
+  done
+  git worktree prune 2>/dev/null || true
   rm -rf "$workdir" || true
-  # The engine leaves these in the working tree. Unquoted: quoting them would
-  # hand `rm` the literal pattern and clean nothing.
-  rm -f .tmp_mutant.*.cr .um.mutant_output.* 2>/dev/null || true
-  find src -name '*.um.backup.*' -delete 2>/dev/null || true
   exit "$status"
 }
 
+# A signal caught here does not, by itself, reach a backgrounded worker unless
+# the whole process group was signalled (the common case, but not guaranteed)
+# — so it is forwarded explicitly. Each worker is a full mutate-worker.sh
+# process with its own INT/TERM trap, so this just gets that cleanup started
+# rather than doing it here.
 interrupt() {
-  local status="$1"
-  if [ -n "$spec_leader" ]; then kill -KILL -- -"$spec_leader" 2>/dev/null || true; fi
+  local status="$1" pid
+  for pid in ${worker_pids[@]+"${worker_pids[@]}"}; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
   exit "$status"
 }
-spec_leader=""
 
 trap restore_sources EXIT
 trap 'interrupt 130' INT
 trap 'interrupt 143' TERM
 
-protect() {
-  local src="$1" backup="$workdir/backup/$src"
-  mkdir -p "$(dirname "$backup")"
-  cp "$src" "$backup"
-  printf '%s\t%s\n' "$src" "$backup" >>"$restore_list"
-  printf '%s' "$backup"
+# One worktree, detached at HEAD, with the working tree's own uncommitted
+# changes to tracked files replayed on top — a developer running this against
+# a dirty tree gets the same mutants a plain (non-parallel) run would. `lib/`
+# is a shards install, gitignored and identical for every worker, so it is
+# shared via a symlink rather than reinstalled per worktree.
+#
+# `git diff | apply` covers every tracked file (modified, added-but-uncommitted,
+# deleted, renamed) but, like `git diff` itself, has no notion of a file that
+# was never `git add`-ed at all. $2, the file this worktree exists to mutate,
+# is copied in directly afterward as a belt-and-suspenders fix for exactly
+# that case — an explicit target is not required to be tracked.
+new_worktree() {
+  local idx="$1" src="$2" wt
+  wt="$workdir/wt-$idx"
+  git worktree add --quiet --detach "$wt" HEAD >/dev/null
+  worktrees+=("$wt")
+  git diff --binary HEAD | git -C "$wt" apply --allow-empty 2>/dev/null || true
+  mkdir -p "$wt/$(dirname "$src")"
+  cp "$root/$src" "$wt/$src"
+  ln -s "$root/lib" "$wt/lib" 2>/dev/null || true
+  seed_worker_cache "$wt"
+  printf '%s' "$wt"
 }
 
-spec_target_for() {
-  local spec
-  spec="$(sibling_spec_for "$1")"
-  [ -f "$spec" ] && { printf '%s' "$spec"; return 0; }
-  printf 'spec'
+# `crystal spec`/`crystal build` write the compiled binary to a fixed filename
+# inside CRYSTAL_CACHE_DIR (e.g. crystal-run-spec.tmp), not one namespaced by
+# PID or target — two concurrent invocations sharing a cache dir clobber that
+# file (confirmed empirically: one gets "Text file busy", the other "No such
+# file or directory", both from the compiler itself, not from mutated code).
+# Every worktree therefore gets its own cache dir; seeding it from whatever
+# is already warm means a worker still gets the stdlib's cached semantic
+# analysis instead of starting stone cold.
+seed_worker_cache() {
+  local wt="$1" shared="${CRYSTAL_CACHE_DIR:-$HOME/.cache/crystal}" dest="$wt/.mutate-cache"
+  mkdir -p "$dest"
+  [ -d "$shared" ] && cp -a "$shared/." "$dest/" 2>/dev/null
+  true
 }
 
-# A red tree would score every survivor killed. Checked once, on first need.
-full_suite_checked=""
-ensure_full_suite_green() {
-  [ -z "$full_suite_checked" ] || return 0
-  full_suite_checked="yes"
-  local src backup
-  while IFS=$'\t' read -r src backup; do
-    cp "$backup" "$src"
-  done <"$restore_list"
-  run_spec spec "$BASELINE_SPEC_TIMEOUT" ||
-    die "crystal spec does not pass against unmutated source; fix the suite before running the gate"
-}
-
-# `crystal spec` execs a separate binary, which a timeout aimed at its direct
-# child would leave running — hence the session, and the group kill.
-# Set by run_spec: whether the timeout ended the run, however it had to. GNU
-# timeout exits 124 when SIGTERM was enough and 137 when the process ignored it
-# and --kill-after had to SIGKILL, so the status alone is not the signal.
-spec_timed_out=""
-
-run_spec() {
-  local target="$1" limit="${2:-}" status=0
-  local -a command=(crystal spec)
-  spec_timed_out=""
-  if [ "$target" = "spec" ]; then
-    limit="${limit:-$MUTANT_SUITE_TIMEOUT}"
-  else
-    limit="${limit:-$MUTANT_SIBLING_TIMEOUT}"
-    command+=("$target")
-  fi
-
-  setsid timeout --kill-after=5s "$limit" "${command[@]}" >/dev/null 2>&1 &
-  spec_leader=$!
-  wait "$spec_leader" || status=$?
-  kill -KILL -- -"$spec_leader" 2>/dev/null || true
-  spec_leader=""
-  case "$status" in
-    124 | 137) spec_timed_out="yes" ;;
-  esac
-  return "$status"
-}
-
-# `crystal build` on the spec directory fails with "Is a directory", which the
-# engine reads as "does not compile" — every mutant discarded, module ungated.
-ENTRY_POINT="src/agent_apropos.cr"
-
-compile_gate_cmd() {
-  local source="$1" target="$2"
-  [ "$target" = "spec" ] && target="$ENTRY_POINT"
-  printf 'crystal tool format - < %q > /dev/null 2>&1 && crystal build --no-codegen %q > /dev/null 2>&1' \
-    "$source" "$target"
+# Splits a whitespace-separated list of line numbers into up to `$2` roughly
+# equal, contiguous (by list order, not by line-number gaps) chunks, written
+# one per line to files under $workdir named `$1.0`, `$1.1`, ... Prints how
+# many chunk files it actually wrote — fewer than `$2` when there are fewer
+# lines than workers.
+chunk_lines() {
+  local -a lines=($1)
+  local prefix="$2" want="$3" total="${#lines[@]}" n i start size extra chunk
+  n="$want"
+  [ "$n" -gt "$total" ] && n="$total"
+  [ "$n" -lt 1 ] && n=1
+  size=$((total / n))
+  extra=$((total % n))
+  start=0
+  for ((i = 0; i < n; i++)); do
+    chunk=$size
+    [ "$i" -lt "$extra" ] && chunk=$((chunk + 1))
+    printf '%s\n' "${lines[@]:start:chunk}" >"$prefix.$i"
+    start=$((start + chunk))
+  done
+  printf '%s' "$n"
 }
 
 survivors=()
-earned=()
 generated=0
 valid=0
 killed=0
 timed_out=0
 
+# Parses one worker's COUNTS/SURVIVOR output (file $1, written by run_worker)
+# and folds it into the running totals above.
+absorb_worker_output() {
+  local output="$1" kind
+  while IFS=$'\t' read -r kind a b c d; do
+    case "$kind" in
+      COUNTS)
+        generated=$((generated + a))
+        valid=$((valid + b))
+        killed=$((killed + c))
+        timed_out=$((timed_out + d))
+        ;;
+      SURVIVOR)
+        survivors+=("$a	$b	$c")
+        ;;
+    esac
+  done <"$output"
+}
+
+run_worker() {
+  local dir="$1" src="$2" lines_file="${3:-}" out="$4"
+  if [ "$dir" = "$root" ]; then
+    (cd "$dir" && "$WORKER" "$src" "$lines_file") >"$out"
+  else
+    (cd "$dir" && CRYSTAL_CACHE_DIR="$dir/.mutate-cache" "$WORKER" "$src" "$lines_file") >"$out"
+  fi
+}
+
+# `wc -l` undercounts a file with no trailing newline; every generated,
+# tracked Crystal source has one (the formatter adds it), and a whole-file
+# sweep only runs on tracked sources.
+line_count() { wc -l <"$1"; }
+
 mutate_file() {
   local src="$1" lines_file="${2:-}"
-  local spec_target mutant_dir backup line original mutated occurrence
-  local -a gen_args=()
+  local -a all_lines=()
+  local total out
 
-  spec_target="$(spec_target_for "$src")"
-
-  if [ "$spec_target" = "spec" ]; then
-    ensure_full_suite_green
+  if [ -z "$lines_file" ]; then
+    local n
+    n="$(line_count "$src")"
+    for ((i = 1; i <= n; i++)); do all_lines+=("$i"); done
   else
-    run_spec "$spec_target" "$BASELINE_SPEC_TIMEOUT" ||
-      die "$spec_target does not pass against unmutated source; fix the suite before running the gate"
+    all_lines=($(cat "$lines_file"))
+  fi
+  total="${#all_lines[@]}"
+
+  if [ "$jobs" -le 1 ] || [ "$total" -lt $((jobs * MIN_LINES_PER_WORKER)) ]; then
+    out="$workdir/out.0"
+    run_worker "$root" "$src" "$lines_file" "$out"
+    absorb_worker_output "$out"
+    return 0
   fi
 
-  mutant_dir="$workdir/mutants/$src"
-  mkdir -p "$mutant_dir"
+  local chunk_prefix="$workdir/chunk.$(printf '%s' "$src" | tr -c 'A-Za-z0-9' '_')"
+  local n
+  n="$(chunk_lines "${all_lines[*]}" "$chunk_prefix" "$jobs")"
 
-  backup="$(protect "$src")"
-
-  gen_args=("$src" --only "$RULES" --mutantDir "$mutant_dir" --noFastCheck
-    --cmd "$(compile_gate_cmd "$src" "$spec_target")")
-  [ -n "$lines_file" ] && gen_args+=(--lines "$lines_file")
-
-  # The exit status alone is not enough: a missing rules file makes the engine
-  # print COULD NOT FIND RULE FILE and exit 0.
-  local engine_status=0
-  mutate "${gen_args[@]}" >"$mutant_dir/generate.log" 2>&1 || engine_status=$?
-  cp "$backup" "$src"
-
-  [ "$engine_status" -eq 0 ] ||
-    die "the mutation engine exited $engine_status on $src; see $mutant_dir/generate.log"
-  grep -q 'MUTANTS GENERATED BY RULES' "$mutant_dir/generate.log" ||
-    die "the mutation engine generated nothing on $src; see $mutant_dir/generate.log"
-  ! grep -qE 'COULD NOT FIND RULE FILE|FAILED TO COMPILE RULE|WARNING: Applying mutation raised|DOES NOT MATCH EXPECTED FORMAT' \
-    "$mutant_dir/generate.log" ||
-    die "$RULES did not load cleanly; see $mutant_dir/generate.log"
-
-  generated=$((generated + $(grep -c '^PROCESSING MUTANT:' "$mutant_dir/generate.log" || true)))
-
-  for mutant in "$mutant_dir"/*.cr; do
-    [ -f "$mutant" ] || continue
-
-    line="$(mutant_line_from_log "$mutant_dir/generate.log" "$mutant")"
-    [ -n "$line" ] || line="$(mutant_line "$backup" "$mutant")"
-    [ -n "$line" ] || continue
-    original="$(trimmed_line "$backup" "$line")"
-    mutated="$(mutant_text "$backup" "$mutant" "$line")"
-    occurrence="$(occurrence_index "$backup" "$line")"
-
-    valid=$((valid + 1))
-    cp "$mutant" "$src"
-    local status=0
-    run_spec "$spec_target" || status=$?
-    [ -n "$spec_timed_out" ] && timed_out=$((timed_out + 1))
-    if [ "$status" -eq 0 ]; then
-      # The sibling run over-reports: a mutant killed only by a non-sibling spec
-      # survives it. Nothing wider to ask when the sibling WAS the whole suite.
-      cp "$backup" "$src"
-      ensure_full_suite_green
-      cp "$mutant" "$src"
-      local suite_status=0
-      if [ "$spec_target" != "spec" ]; then
-        run_spec spec || suite_status=$?
-        [ -n "$spec_timed_out" ] && timed_out=$((timed_out + 1))
-      fi
-      if [ "$suite_status" -eq 0 ]; then
-        cp "$backup" "$src"
-        if ignored_mutant "$src" "$occurrence" "$original" "$mutated"; then
-          killed=$((killed + 1))
-        else
-          survivors+=("$src:$line	$original	$mutated")
-        fi
-      else
-        cp "$backup" "$src"
-        killed=$((killed + 1))
-      fi
-    else
-      cp "$backup" "$src"
-      killed=$((killed + 1))
-    fi
+  worker_pids=()
+  local -a outs=()
+  for ((i = 0; i < n; i++)); do
+    local wt out
+    wt="$(new_worktree "$i" "$src")"
+    out="$workdir/out.$i"
+    outs+=("$out")
+    run_worker "$wt" "$src" "$chunk_prefix.$i" "$out" &
+    worker_pids+=("$!")
   done
 
-  cp "$backup" "$src"
+  local failed=0 pid
+  for pid in "${worker_pids[@]}"; do
+    wait "$pid" || failed=1
+  done
+  worker_pids=()
+  [ "$failed" -eq 0 ] || die "a parallel worker on $src failed; see above"
+
+  for out in "${outs[@]}"; do
+    absorb_worker_output "$out"
+  done
 }
 
 check_sibling_specs
@@ -552,6 +538,7 @@ if [ "${#targets[@]}" -eq 0 ]; then
   exit 0
 fi
 
+earned=()
 for i in "${!targets[@]}"; do
   file="${targets[$i]}"
   lines="${target_lines[$i]}"
