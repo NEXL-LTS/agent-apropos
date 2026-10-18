@@ -755,3 +755,18 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   assert_output --partial 'src/lib/thing.cr (whole file'
   assert_output --partial '3 mutants generated'
 }
+
+@test "a sharded run over two large targets cleans up every worktree" {
+  for f in big_a big_b; do
+    for i in $(seq 1 40); do printf 'def m%s\n  1 + 1\nend\n' "$i"; done >"$REPO/src/lib/$f.cr"
+    printf 'it works\n' >"$REPO/spec/lib/${f}_spec.cr"
+  done
+  git -C "$REPO" add -A
+  git -C "$REPO" commit --quiet -m 'big'
+
+  run_gate --jobs 2 src/lib/big_a.cr src/lib/big_b.cr
+
+  assert_success
+  run git -C "$REPO" worktree list
+  assert_equal "${#lines[@]}" 1
+}

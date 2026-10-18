@@ -262,14 +262,21 @@ changed_files_matching() {
 workdir="$(mktemp -d)"
 worktrees=()
 worker_pids=()
+target_seq=0
+new_wt=""
 
-restore_sources() {
-  local status=$?
+remove_worktrees() {
   local wt
   for wt in ${worktrees[@]+"${worktrees[@]}"}; do
     git worktree remove --force "$wt" 2>/dev/null || rm -rf "$wt"
   done
+  worktrees=()
   git worktree prune 2>/dev/null || true
+}
+
+restore_sources() {
+  local status=$?
+  remove_worktrees
   rm -rf "$workdir" || true
   exit "$status"
 }
@@ -303,12 +310,21 @@ trap 'interrupt 143' TERM
 # file is therefore copied in directly too — a worker may need any of them
 # (a new source file, a new sibling spec for it, a new fixture), not only
 # whichever one it was asked to mutate.
+#
+# Sets $new_wt rather than printing the path: it must run in the current shell
+# for `worktrees` to record the worktree for cleanup. The replay uses the same
+# pinned diff flags as the parser above and is fatal if it cannot be applied —
+# a silent fallback would mutate different source than the non-parallel path.
 new_worktree() {
-  local idx="$1" wt
-  wt="$workdir/wt-$idx"
+  local idx="$1" wt patch
+  wt="$workdir/wt-$target_seq-$idx"
+  patch="$workdir/dirty-$target_seq-$idx.patch"
   git worktree add --quiet --detach "$wt" HEAD >/dev/null
   worktrees+=("$wt")
-  git diff --binary HEAD | git -C "$wt" apply --allow-empty 2>/dev/null || true
+  git diff --binary --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ HEAD >"$patch" ||
+    die "could not generate the dirty-tree patch for the parallel workers"
+  git -C "$wt" apply --allow-empty "$patch" ||
+    die "could not replay the dirty tree into $wt"
   local f
   while IFS= read -r f; do
     mkdir -p "$wt/$(dirname "$f")"
@@ -316,7 +332,7 @@ new_worktree() {
   done < <(git ls-files --others --exclude-standard)
   ln -s "$root/lib" "$wt/lib" 2>/dev/null || true
   seed_worker_cache "$wt"
-  printf '%s' "$wt"
+  new_wt="$wt"
 }
 
 # `crystal spec`/`crystal build` write the compiled binary to a fixed filename
@@ -422,14 +438,17 @@ mutate_file() {
   local n
   n="$(chunk_lines "${all_lines[*]}" "$chunk_prefix" "$jobs")"
 
+  target_seq=$((target_seq + 1))
   worker_pids=()
   local -a outs=()
   for ((i = 0; i < n; i++)); do
     local wt out
-    wt="$(new_worktree "$i")"
-    out="$workdir/out.$i"
+    new_worktree "$i"
+    wt="$new_wt"
+    out="$workdir/out.$target_seq.$i"
     outs+=("$out")
-    run_worker "$wt" "$src" "$chunk_prefix.$i" "$out" &
+    # exec, so $! is the worker itself and interrupt's TERM reaches it.
+    (cd "$wt" && CRYSTAL_CACHE_DIR="$wt/.mutate-cache" exec "$WORKER" "$src" "$chunk_prefix.$i") >"$out" &
     worker_pids+=("$!")
   done
 
@@ -439,6 +458,7 @@ mutate_file() {
   done
   worker_pids=()
   [ "$failed" -eq 0 ] || die "a parallel worker on $src failed; see above"
+  remove_worktrees
 
   for out in "${outs[@]}"; do
     absorb_worker_output "$out"
