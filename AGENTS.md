@@ -18,10 +18,9 @@ even where the global Crystal cache is not writable.
 - `make spec` — run the spec suite
 - `make lint` — run ameba (zero findings required)
 - `make dup` — check `src/**/*.cr` for code duplication (jscpd; zero clones required)
-- `make devcontainer-spec` — bats tests for `.devcontainer/initialize.sh` (deterministic, offline)
 - `make installer-spec` — bats tests for `install.sh`'s platform gate (deterministic, offline)
 - `make plans-check` — fail if any plan doc is committed under `docs/plans/` (plans are deleted in the PR that implements them); `make plans-spec` runs its bats tests
-- `make check` — lint + spec + dup + devcontainer-spec + hooks-spec + installer-spec + mutate-spec + plans checks (the fast local gate)
+- `make check` — lint + spec + dup + installer-spec + mutate-spec + plans checks (the fast local gate)
 - `make coverage` — run specs under kcov and enforce the 100% line-coverage gate
 - `make mutate` — the mutation gate on the lines the change touched; blocking in CI. A file `tool/mutate/clean.json` does not name is mutated in full, and clearing it is part of your change. A survivor is a suspected bug, not a missing assertion — see `docs/mutation-testing.md`. `make mutate-rules-spec` covers the operator set (slow; needs the engine)
 - `make e2e` (or `bash e2e/run.sh`) — the **live** end-to-end suite: this is what "e2e tests" means

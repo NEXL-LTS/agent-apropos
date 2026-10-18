@@ -1,0 +1,67 @@
+name: devcontainer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: agent-apropos-devcontainer:ci
+      CST_VERSION: v1.22.1
+      CST_SHA256: fa35e89512a8978585f76cf41397956d2e3a30c62c2ad3fb857b1597074d14ca
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, so gitleaks scans every commit, not just the tip.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate compose files
+        run: |
+          HOST_SSH_AUTH_SOCK=/dev/null docker compose \
+            -f .devcontainer/docker-compose.yml \
+            -f .devcontainer/compose.ssh.yml \
+            -f .devcontainer/compose.docker.yml \
+            config --quiet
+
+      - name: Build image
+        run: docker build -f .devcontainer/Dockerfile -t "$IMAGE" .
+
+      - name: Install container-structure-test
+        run: |
+          curl -fsSL --retry 5 -o /usr/local/bin/container-structure-test \
+            "https://github.com/GoogleContainerTools/container-structure-test/releases/download/${CST_VERSION}/container-structure-test-linux-amd64"
+          echo "${CST_SHA256}  /usr/local/bin/container-structure-test" | sha256sum -c -
+          chmod +x /usr/local/bin/container-structure-test
+
+      - name: Structure test
+        run: container-structure-test test --image "$IMAGE" --config .devcontainer/container-structure-test.yaml
+
+      # Backstop for commits made outside the container, where the lefthook
+      # pre-commit hook does not run.
+      - name: Secret scan (full history)
+        run: |
+          # Run as the checkout's owner, or git rejects the repo as "dubious ownership".
+          docker run --rm --entrypoint gitleaks --user "$(id -u):$(id -g)" -e HOME=/tmp \
+            -v "$PWD:/repo" -w /repo "$IMAGE" \
+            git --redact --no-banner --verbose .
+
+  # Starts the container the way start.sh does and checks it behaves: SSH agent
+  # forwarding, Claude settings, commit hook, project toolchain, nested Docker, and
+  # dropping back to unprivileged. The runner's UID (1001) also exercises the
+  # image's UID remapping, which the default 1000 build above does not.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Smoke test
+        run: .devcontainer/smoke-test.sh
