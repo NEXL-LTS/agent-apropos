@@ -278,8 +278,10 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # A line-scoped run is minutes; changing a backfilled module's spec widens the
-    # gate to that whole module. A backstop, not the expected cost.
-    timeout-minutes: 60
+    # gate to that whole module. scripts/mutate.sh now shards a large target
+    # across parallel workers, but this stays a generous backstop rather than
+    # the expected cost.
+    timeout-minutes: 90
     permissions:
       contents: read
     steps:
