@@ -4,14 +4,9 @@
   "service": "app",
   "workspaceFolder": "/workspace",
   "remoteUser": "vscode",
-  "initializeCommand": [
-    "bash",
-    "${localWorkspaceFolder}/.devcontainer/initialize.sh"
-  ],
   "customizations": {
     "vscode": {
       "extensions": [
-        "crystal-lang-tools.crystal-lang",
         "anthropic.claude-code"
       ],
       "settings": {
@@ -19,5 +14,5 @@
       }
     }
   },
-  "postCreateCommand": "make deps && make install && crystal --version && agent-apropos --version && .devcontainer/install_agents.sh"
+  "postStartCommand": ".devcontainer/postStartCommand.sh"
 }

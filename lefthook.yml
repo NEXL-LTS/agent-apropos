@@ -1,0 +1,6 @@
+# Run by the dev container's baked-in git hooks (core.hooksPath in the image;
+# see .devcontainer/git-hooks/), not installed into .git/hooks.
+pre-commit:
+  commands:
+    gitleaks:
+      run: gitleaks git --pre-commit --staged --redact --no-banner --verbose
