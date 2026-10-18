@@ -770,3 +770,39 @@ spec_runs() { grep -c '^spec' "$STUB_LOG" || true; }
   run git -C "$REPO" worktree list
   assert_equal "${#lines[@]}" 1
 }
+
+make_big_target() {
+  for i in $(seq 1 40); do printf 'def m%s\n  1 + 1\nend\n' "$i"; done >"$REPO/src/lib/big.cr"
+  printf 'it works\n' >"$REPO/spec/lib/big_spec.cr"
+  git -C "$REPO" add -A
+  git -C "$REPO" commit --quiet -m 'big'
+}
+
+@test "a sharded run adds every shard's counts together" {
+  make_big_target
+
+  run_gate --jobs 2 src/lib/big.cr
+
+  assert_success
+  assert_output --partial '120 mutants generated, 120 compiled, 120 killed, 0 surviving'
+}
+
+@test "a survivor in a shard fails the gate" {
+  make_big_target
+  export STUB_SIBLING_SURVIVES=1
+
+  run_gate --jobs 2 src/lib/big.cr
+
+  assert_failure
+  assert_output --partial '120 mutants generated'
+  [[ "$stderr" == *'src/lib/big.cr:'* ]] || fail "expected a survivor to be named: $stderr"
+}
+
+@test "an absolute explicit target is repo-relativised before sharding" {
+  make_big_target
+
+  run_gate --jobs 2 "$REPO/src/lib/big.cr"
+
+  assert_success
+  assert_output --partial 'mutation gate: src/lib/big.cr (whole file'
+}

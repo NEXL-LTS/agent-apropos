@@ -274,24 +274,41 @@ remove_worktrees() {
   git worktree prune 2>/dev/null || true
 }
 
+# Kills a process and everything under it, deepest first, so a worker blocked
+# on the foreground engine (which defers the worker's own TERM trap) cannot
+# outlive the worktree it runs in.
+kill_tree() {
+  local pid="$1" child
+  for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+    kill_tree "$child"
+  done
+  kill -TERM "$pid" 2>/dev/null || true
+}
+
+stop_workers() {
+  local pid
+  for pid in ${worker_pids[@]+"${worker_pids[@]}"}; do
+    kill_tree "$pid"
+  done
+  for pid in ${worker_pids[@]+"${worker_pids[@]}"}; do
+    wait "$pid" 2>/dev/null || true
+  done
+  worker_pids=()
+}
+
 restore_sources() {
   local status=$?
+  stop_workers
   remove_worktrees
   rm -rf "$workdir" || true
   exit "$status"
 }
 
 # A signal caught here does not, by itself, reach a backgrounded worker unless
-# the whole process group was signalled (the common case, but not guaranteed)
-# — so it is forwarded explicitly. Each worker is a full mutate-worker.sh
-# process with its own INT/TERM trap, so this just gets that cleanup started
-# rather than doing it here.
+# the whole process group was signalled, so exiting hands off to the EXIT trap,
+# which stops and reaps every worker before removing its worktree.
 interrupt() {
-  local status="$1" pid
-  for pid in ${worker_pids[@]+"${worker_pids[@]}"}; do
-    kill -TERM "$pid" 2>/dev/null || true
-  done
-  exit "$status"
+  exit "$1"
 }
 
 trap restore_sources EXIT
@@ -427,7 +444,8 @@ mutate_file() {
   fi
   total="${#all_lines[@]}"
 
-  if [ "$jobs" -le 1 ] || [ "$total" -lt $((jobs * MIN_LINES_PER_WORKER)) ]; then
+  # An absolute path would have every shard mutate the same original checkout.
+  if [ "$jobs" -le 1 ] || [[ "$src" == /* ]] || [ "$total" -lt $((jobs * MIN_LINES_PER_WORKER)) ]; then
     out="$workdir/out.0"
     run_worker "$root" "$src" "$lines_file" "$out"
     absorb_worker_output "$out"
@@ -513,6 +531,8 @@ widen_target_to_whole_file() {
 if [ "${#explicit_files[@]}" -gt 0 ]; then
   for file in "${explicit_files[@]}"; do
     [ -f "$file" ] || die "$file does not exist"
+    # Repo-relative where possible, so a shard resolves it inside its own worktree.
+    file="${file#"$root"/}"
     targets+=("$file")
     target_lines+=("")
   done
