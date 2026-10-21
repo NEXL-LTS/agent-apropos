@@ -48,7 +48,6 @@ module AgentApropos
         include JSON::Serializable
         getter path : String?
         getter file_text : String?
-        getter old_str : String?
         getter new_str : String?
 
         getter view_range : JSON::Any?
@@ -57,7 +56,6 @@ module AgentApropos
       def self.parse(json : String) : Payload?
         from_json(json)
       rescue JSON::ParseException
-        nil
       end
 
       def session_id : String?
@@ -100,7 +98,6 @@ module AgentApropos
         return nil unless raw
         CopilotArgs.from_json(raw)
       rescue JSON::ParseException
-        nil
       end
 
       struct FileEdit
@@ -115,6 +112,17 @@ module AgentApropos
         return ApplyPatch.parse(tool_input.try(&.command)) if tool_name == "apply_patch"
         path = file_path
         path ? [FileEdit.new(path, written_contents)] : [] of FileEdit
+      end
+
+      struct Removal
+        getter path : String
+
+        def initialize(@path)
+        end
+      end
+
+      def removals : Array(Removal)
+        [] of Removal
       end
 
       module ApplyPatch

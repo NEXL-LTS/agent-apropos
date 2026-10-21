@@ -6,12 +6,15 @@ require "../../src/agent_apropos/git"
 # `Git::Real` itself is covered in git_spec.
 class FakeGit < AgentApropos::Git
   getter diffed_range : String? = nil
+  getter? removed_paths_called = false
+  getter blob_requests = [] of {String, String}
 
   def initialize(@diff_text : String = "", @symbolic : String? = nil,
                  @refs : Array(String) = [] of String, @diff_raises : Bool = false,
                  @tracked : Array(String)? = [] of String, @ls_files_raises : Bool = false,
                  @removed : Array(String) = [] of String,
-                 @blobs : Hash(String, String) = {} of String => String)
+                 @blobs : Hash(String, String) = {} of String => String,
+                 @removed_paths_raises : Bool = false)
   end
 
   def diff(repo_root : Path, range : String) : String
@@ -33,11 +36,14 @@ class FakeGit < AgentApropos::Git
     @tracked
   end
 
-  def removed_paths(repo_root : Path, fs : Filesystem) : Array(String)
+  def removed_paths(repo_root : Path, fs : AgentApropos::Filesystem) : Array(String)
+    @removed_paths_called = true
+    raise AgentApropos::Git::Error.new("status boom") if @removed_paths_raises
     @removed
   end
 
   def blob(repo_root : Path, revision : String, path : String) : String?
+    @blob_requests << {revision, path}
     @blobs["#{revision}:#{path}"]?
   end
 end
