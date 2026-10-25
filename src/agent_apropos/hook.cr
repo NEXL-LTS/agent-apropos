@@ -296,10 +296,10 @@ module AgentApropos
     private def prune_logs(fs : Filesystem, log_dir : Path, now : Time) : Nil
       cutoff = (now - LOG_MAX_AGE).to_unix
       dated = fs.glob(log_dir, "*.log").compact_map do |file|
-        stamp = Path[file].basename(".log").partition('-').first.to_i64?
+        stamp = Path[file].basename.partition('-').first.to_i64?
         {stamp, file} if stamp
       end
-      keep = dated.sort_by! { |stamp, _| -stamp }.first(LOG_MAX_FILES).to_set
+      keep = dated.sort_by { |stamp, _| -stamp }.first(LOG_MAX_FILES).to_set
       dated.each do |entry|
         stamp, file = entry
         fs.remove(file) if stamp < cutoff || !keep.includes?(entry)
