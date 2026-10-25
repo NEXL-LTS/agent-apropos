@@ -270,6 +270,19 @@ describe AgentApropos::Hook::Payload do
       edits[0].written_contents.should eq(["x"])
     end
 
+    it "ends the preceding section at an Add or Update File line with no path" do
+      ["*** Add File: ", "*** Update File: "].each do |header|
+        json = {
+          tool_name:  "apply_patch",
+          tool_input: {command: "*** Begin Patch\n*** Update File: a.cr\n+x\n#{header}\n+y\n*** End Patch\n"},
+        }.to_json
+        edits = parse(json).file_edits
+        edits.size.should eq(1)
+        edits[0].path.should eq("a.cr")
+        edits[0].written_contents.should eq(["x"])
+      end
+    end
+
     it "parses an envelope that is missing its Begin Patch line" do
       json = {
         tool_name:  "apply_patch",
