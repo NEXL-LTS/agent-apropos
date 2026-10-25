@@ -247,6 +247,61 @@ describe AgentApropos::Hook::Payload do
       edits[0].path.should eq("keep.py")
       edits[0].written_contents.should eq(["added"])
     end
+
+    it "does not treat lines after End Patch as written content" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Add File: a.py\n+x\n*** End Patch\n+stray\n"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("a.py")
+      edits[0].written_contents.should eq(["x"])
+    end
+
+    it "ends the preceding section at a Delete File line" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Update File: a.cr\n+x\n*** Delete File: b.cr\n+y\n*** End Patch\n"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("a.cr")
+      edits[0].written_contents.should eq(["x"])
+    end
+
+    it "parses an envelope that is missing its Begin Patch line" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Add File: a.py\n+x\n*** End Patch\n"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("a.py")
+      edits[0].written_contents.should eq(["x"])
+    end
+
+    it "parses a truncated envelope with no End Patch line into exactly one edit" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Add File: a.py\n+x"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.size.should eq(1)
+      edits[0].path.should eq("a.py")
+      edits[0].written_contents.should eq(["x"])
+    end
+
+    it "parses each section once when a truncated envelope ends on a section header" do
+      json = {
+        tool_name:  "apply_patch",
+        tool_input: {command: "*** Begin Patch\n*** Add File: a.py\n+x\n*** Add File: b.py"},
+      }.to_json
+      edits = parse(json).file_edits
+      edits.map(&.path).should eq(["a.py", "b.py"])
+      edits[0].written_contents.should eq(["x"])
+      edits[1].written_contents.should be_empty
+    end
   end
 
   describe "#removals" do

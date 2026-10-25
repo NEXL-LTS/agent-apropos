@@ -134,23 +134,33 @@ module AgentApropos
         MOVE_MARKER   = "*** Move to: "
         END_MARKER    = "*** End Patch"
 
+        private class Section
+          property path : String
+          getter added = [] of String
+
+          def initialize(@path : String)
+          end
+        end
+
         def parse(command : String?) : Array(FileEdit)
           return [] of FileEdit unless command
-          lines = command.lines
-          edits = [] of FileEdit
-          i = 0
-          while i < lines.size
-            line = lines[i]
+          sections = [] of Section
+          current = nil
+          command.each_line do |line|
             if path = (prefix(line, ADD_MARKER) || prefix(line, UPDATE_MARKER))
-              i, edit = read_section(lines, i + 1, path)
-              edits << edit
-            elsif prefix(line, DELETE_MARKER)
-              i, _ = read_section(lines, i + 1, "")
-            else
-              i += 1
+              current = Section.new(path)
+              sections << current
+            elsif section_marker?(line)
+              current = nil
+            elsif current
+              if moved = prefix(line, MOVE_MARKER)
+                current.path = moved
+              elsif line.starts_with?("+")
+                current.added << line[1..]
+              end
             end
           end
-          edits
+          sections.map { |section| FileEdit.new(section.path, section.added) }
         end
 
         private def prefix(line : String, marker : String) : String?
@@ -162,22 +172,6 @@ module AgentApropos
         private def section_marker?(line : String) : Bool
           line.starts_with?(ADD_MARKER) || line.starts_with?(UPDATE_MARKER) ||
             line.starts_with?(DELETE_MARKER) || line.starts_with?(END_MARKER)
-        end
-
-        private def read_section(lines : Array(String), start : Int32, path : String) : {Int32, FileEdit}
-          added = [] of String
-          effective_path = path
-          i = start
-          while i < lines.size && !section_marker?(lines[i])
-            line = lines[i]
-            if moved = prefix(line, MOVE_MARKER)
-              effective_path = moved
-            elsif line.starts_with?("+")
-              added << line[1..]
-            end
-            i += 1
-          end
-          {i, FileEdit.new(effective_path, added)}
         end
       end
     end
