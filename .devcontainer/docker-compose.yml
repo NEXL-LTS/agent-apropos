@@ -1,3 +1,10 @@
+# Base definition shared by VS Code and start.sh. It deliberately mounts nothing
+# from the host but this checkout: no ~/.ssh, no ~/.claude, no home directory.
+# .git/hooks and .git/config are mounted read-only on top, so a prompt-injected
+# command in here can't plant code that host git later runs. .devcontainer/ is
+# left writable so agents can maintain it; review changes before running them.
+# start.sh layers compose.ssh.yml (agent forwarding) and, with --docker,
+# compose.docker.yml (privileged nested Docker) on top of it.
 services:
   app:
     build:
@@ -8,50 +15,29 @@ services:
         USER_GID: ${USER_GID:-1000}
     volumes:
       - ..:/workspace:cached
-      - ${HOME}/.claude.json:/home/vscode/.claude.json
-      - ${HOME}/.ssh:/home/vscode/.ssh:ro
-      - claude-data:/home/vscode/.claude
-      # `opencode auth login` writes the credential to ~/.local/share/opencode
-      # (confirmed via `opencode debug paths`), NOT ~/.config/opencode — that
-      # directory only holds config (opencode.json, AGENTS.md). Mounting only
-      # .config here silently drops auth on every rebuild, so live OpenCode e2e
-      # tests (e2e/tests/layer*.bats) always skip for "not authenticated".
-      - opencode-data:/home/vscode/.local/share/opencode
-      - opencode-config:/home/vscode/.config/opencode
-      # Gemini CLI, Codex CLI, GitHub Copilot CLI, and Cursor CLI each keep
-      # their OAuth/session credentials under a single dotdir in $HOME
-      # (confirmed by probing each CLI directly — none split config from
-      # auth the way OpenCode does), so one named volume per CLI is enough.
-      # Each persists once you run its login flow inside the container:
-      # `gemini` (browser OAuth on first prompt), `codex login`,
-      # `copilot` + `/login`, `agent login`.
-      - gemini-data:/home/vscode/.gemini
-      - codex-data:/home/vscode/.codex
-      - copilot-data:/home/vscode/.copilot
-      - cursor-data:/home/vscode/.cursor
-      - npm-cache:/home/vscode/.npm
-    # kcov (the coverage gate) drives the spec binary under ptrace and calls
-    # personality() to disable ASLR. The default container sandbox blocks both,
-    # so `make coverage` needs these two relaxations (see the Dockerfile note).
+      # Host git runs hooks from here, and commands named in .git/config
+      # (core.fsmonitor, core.sshCommand, aliases, filters...). The container's
+      # own hooks come from the image; see core.hooksPath in the Dockerfile.
+      - ../.git/hooks:/workspace/.git/hooks:ro
+      - ../.git/config:/workspace/.git/config:ro
+      - claude-config:/home/vscode/.claude
+    # GH_TOKEN=... for gh, from a host file outside the checkout, where the
+    # container can't read or change it. A fine-grained token scoped to this
+    # repo is enough. No `environment:` pass-through on purpose: an unset
+    # pass-through overrides the file with nothing.
+    env_file:
+      - path: ${HOME}/.config/NEXL-LTS/agent-apropos/gh.env
+        required: false
+    # kcov (the `make coverage` gate) drives the specs under ptrace and calls
+    # personality() to disable ASLR, which Docker's default seccomp profile blocks.
+    # This relaxes the syscall filter (not the read-only mounts or the missing sudo).
     cap_add:
       - SYS_PTRACE
     security_opt:
       - seccomp:unconfined
-    command: sleep infinity
-    # Agent credentials live in .devcontainer/.env (gitignored). Loading the
-    # whole file means a new key only has to be added there, not mirrored into
-    # an `environment:` list here. `required: false` keeps a fresh clone
-    # without the file buildable — the live e2e agents just stay unauthenticated.
-    env_file:
-      - path: .env
-        required: false
 
 volumes:
-  claude-data:
-  opencode-data:
-  opencode-config:
-  gemini-data:
-  codex-data:
-  copilot-data:
-  cursor-data:
-  npm-cache:
+  # A fixed name, so the Claude login is shared by every container for this
+  # repo — VS Code's and start.sh's, across checkouts and rebuilds.
+  claude-config:
+    name: agent-apropos-claude-config

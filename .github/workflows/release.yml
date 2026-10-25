@@ -76,7 +76,7 @@ jobs:
           "$workdir/bin/agent-apropos" --version
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.name }}
           path: |
@@ -89,7 +89,7 @@ jobs:
         # zizmor: ignore[superfluous-actions] the matrix legs attach to a
         # single release; this action handles the create-or-update race that a
         # hand-rolled `gh release` script would not.
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             ${{ matrix.name }}
@@ -277,7 +277,7 @@ jobs:
           & (Join-Path $env:AGENT_APROPOS_BIN_DIR 'agent-apropos.exe') --version
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: agent-apropos-windows-x86_64
           path: |
@@ -290,7 +290,7 @@ jobs:
         # zizmor: ignore[superfluous-actions] the release legs attach to a
         # single release; this action handles the create-or-update race that a
         # hand-rolled `gh release` script would not.
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             agent-apropos-windows-x86_64.exe
@@ -413,7 +413,7 @@ jobs:
           "$workdir/bin/agent-apropos" --version
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.name }}
           path: |
@@ -426,7 +426,7 @@ jobs:
         # zizmor: ignore[superfluous-actions] the matrix legs attach to a
         # single release; this action handles the create-or-update race that a
         # hand-rolled `gh release` script would not.
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: |
             ${{ matrix.name }}

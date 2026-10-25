@@ -10,6 +10,7 @@
     "src/agent_apropos/conventions.cr",
     "src/agent_apropos/generate.cr",
     "src/agent_apropos/hook.cr",
-    "src/agent_apropos/hooks/payload.cr"
+    "src/agent_apropos/hooks/payload.cr",
+    "src/agent_apropos/session_state.cr"
   ]
 }
