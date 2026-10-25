@@ -109,27 +109,6 @@
     {
       "path": "src/agent_apropos/generate.cr",
       "occurrence": 1,
-      "original": "def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32",
-      "mutated": "def run(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int-1",
-      "reason": "the mutated text `Int-1` is not a type; `crystal tool format` re-renders it as the restriction `Int` (a supertype of `Int32`, which every value this method returns already satisfies) followed by a discarded `-1` statement at the top of the body. Widening an unenforced restriction and inserting a dead statement changes nothing observable."
-    },
-    {
-      "path": "src/agent_apropos/generate.cr",
-      "occurrence": 1,
-      "original": "def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32",
-      "mutated": "def check(repo_root : Path, fs : Filesystem, stdout : IO, stderr : IO, allow_outside : Bool = false) : Int-1",
-      "reason": "same `Int-1`-parses-as-`Int`-plus-a-discarded-statement mechanism as the `run` entry above."
-    },
-    {
-      "path": "src/agent_apropos/generate.cr",
-      "occurrence": 1,
-      "original": "private def report_check(drift : Array(String), count : Int32, stdout : IO) : Int32",
-      "mutated": "private def report_check(drift : Array(String), count : Int32, stdout : IO) : Int-1",
-      "reason": "same `Int-1`-parses-as-`Int`-plus-a-discarded-statement mechanism as the `run` entry above; the parameter's own `Int32` is untouched, only the return-type restriction is."
-    },
-    {
-      "path": "src/agent_apropos/generate.cr",
-      "occurrence": 1,
       "original": "slugs = wrappers.keys.sort!",
       "mutated": "slugs = wrappers.keys.sort",
       "reason": "`wrappers.keys` allocates a fresh Array with no other reference, immediately reassigned to `slugs`; `sort` and `sort!` leave `slugs` holding the identical sorted contents either way, the same reasoning as the analogous entry for `frontmatter.cr`'s `unknown`."
@@ -196,6 +175,97 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `check`'s `Skills::ROOTS.each` block, whose last statement is already the orphan-detection `each` call; `next` there is indistinguishable from normal fall-through to the next root."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 1,
+      "original": "body = copilot ? {additionalContext: context} : {hookSpecificOutput: {hookEventName: event_name, additionalContext: context}}",
+      "mutated": "body = copilot ? {additionalContext: context} : {hookSpecificOutput:  { additionalContext: context,hookEventName: event_name}}",
+      "reason": "swaps the order of the two members of the `hookSpecificOutput` JSON object. JSON object member order is not significant, and every consumer (Claude Code, Gemini CLI, OpenCode) parses the output as JSON, so both orders carry the same hook response."
+    },
+    {
+      "path": "src/agent_apropos/hook.cr",
+      "occurrence": 42,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `prune_logs`'s `dated.each do |entry| … end`; `Array#each` discards the block's value, so a `next` after the final `fs.remove … if …` is the same as falling off the block's end."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "elsif section_marker?(line)",
+      "mutated": "next\\nelsif section_marker?(line)",
+      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "elsif current",
+      "mutated": "next\\nelsif current",
+      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 1,
+      "original": "elsif line.starts_with?(\"+\")",
+      "mutated": "next\\nelsif line.starts_with?(\"+\")",
+      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 22,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 23,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
+    },
+    {
+      "path": "src/agent_apropos/hooks/payload.cr",
+      "occurrence": 24,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 1,
+      "original": "LEADING_REJECT = {'.', '-'}",
+      "mutated": "LEADING_REJECT =  { '-','.'}",
+      "reason": "LEADING_REJECT is only ever consulted with Tuple#includes?, which does not depend on element order; swapping the two characters (plus the argument-swap operator's incidental whitespace) cannot change which ids are rejected."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 7,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `Document#to_document`'s `String.build do |io| ... end` block, whose last statement is already `io << '\\n'`; `String.build` returns the IO's accumulated content, not the block's own return value, so `next` as the last statement changes nothing observable."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 13,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `prune`'s `fs.glob(...).each do |file| ... end` block, whose last statement is already the `fs.remove(file) if ...` guard; `Array#each` discards the block's value, so `next` as the block's last statement moves to the next file exactly as reaching this `end` does."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 1,
+      "original": "nil",
+      "mutated": "# nil",
+      "reason": "the sole statement of `parse`'s `rescue JSON::ParseException` body; an empty rescue body evaluates to nil, so commenting it out leaves `parse` returning nil on a parse failure exactly as the explicit `nil` does."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 1,
+      "original": "entries = @injected.values.sort_by!(&.path)",
+      "mutated": "entries = @injected.values.sort_by(&.path)",
+      "reason": "`Hash#values` returns a freshly-allocated Array on every call, so sorting it in place mutates nothing `@injected` holds; `sort_by` (allocate-and-return) and `sort_by!` (sort-in-place-and-return) leave `entries` holding the identical sorted contents. `sort_by!` is kept because ameba's Performance/ChainedCallWithNoBang requires it after `values`."
     }
   ]
 }
