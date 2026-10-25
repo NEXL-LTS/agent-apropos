@@ -11,12 +11,10 @@ module AgentApropos
 
     LEADING_REJECT = {'.', '-'}
 
+    SEPARATORS = Path.separators(Path::Kind::WINDOWS)
+
     struct Cause
       include JSON::Serializable
-
-      getter event : String
-      getter file : String
-      getter matched_patterns : Array(String)
 
       def initialize(@event : String, @file : String, @matched_patterns : Array(String))
       end
@@ -26,7 +24,6 @@ module AgentApropos
       include JSON::Serializable
 
       getter path : String
-      getter cause : Cause
 
       def initialize(@path : String, @cause : Cause)
       end
@@ -47,7 +44,7 @@ module AgentApropos
       getter injected : Array(Injection)
       getter? notified : Bool = false
 
-      def initialize(@updated_at : Int64, @injected : Array(Injection), @notified : Bool = false)
+      def initialize(@updated_at : Int64, @injected : Array(Injection), @notified : Bool)
       end
 
       def to_document : String
@@ -67,14 +64,9 @@ module AgentApropos
       return nil unless session_id
       return nil if session_id.empty? || session_id.bytesize > MAX_ID_BYTES
       return nil if LEADING_REJECT.includes?(session_id[0])
-      return nil if session_id.each_char.any?(&.control?)
-      return nil unless single_component?(session_id)
+      return nil if session_id.each_char.any? { |char| char.control? || SEPARATORS.includes?(char) }
+      return nil if Path.windows(session_id).anchor
       session_id
-    end
-
-    private def self.single_component?(session_id : String) : Bool
-      path = Path.windows(session_id)
-      path.parts == [session_id] && path.anchor.nil?
     end
 
     def self.load(repo_root : Path, fs : Filesystem, session_id : String?) : SessionState
@@ -127,7 +119,7 @@ module AgentApropos
 
     def save(repo_root : Path, fs : Filesystem, session_id : String?, now : Time) : Nil
       return unless session_id = SessionState.key?(session_id)
-      entries = @injected.values.sort_by! { |entry| {entry.path, entry.cause.file} }
+      entries = @injected.values.sort_by!(&.path)
       document = Document.new(now.to_unix, entries, @notified)
       fs.write(SessionState.file_for(repo_root, session_id).to_s, document.to_document)
     end
