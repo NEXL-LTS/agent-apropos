@@ -169,6 +169,14 @@ describe AgentApropos::SessionState do
     end
   end
 
+  describe "#add_all" do
+    it "records every entry it is given" do
+      state = AgentApropos::SessionState.new
+      state.add_all([{"a.md", cause(file: "src/a.cr")}, {"b.md", cause(file: "src/b.cr")}])
+      state.injected.sort.should eq(["a.md", "b.md"])
+    end
+  end
+
   describe "#notify!" do
     it "marks the state notified" do
       state = AgentApropos::SessionState.new
