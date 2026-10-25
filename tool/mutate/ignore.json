@@ -231,6 +231,41 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 1,
+      "original": "LEADING_REJECT = {'.', '-'}",
+      "mutated": "LEADING_REJECT =  { '-','.'}",
+      "reason": "LEADING_REJECT is only ever consulted with Tuple#includes?, which does not depend on element order; swapping the two characters (plus the argument-swap operator's incidental whitespace) cannot change which ids are rejected."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 7,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `Document#to_document`'s `String.build do |io| ... end` block, whose last statement is already `io << '\\n'`; `String.build` returns the IO's accumulated content, not the block's own return value, so `next` as the last statement changes nothing observable."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 13,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes `prune`'s `fs.glob(...).each do |file| ... end` block, whose last statement is already the `fs.remove(file) if ...` guard; `Array#each` discards the block's value, so `next` as the block's last statement moves to the next file exactly as reaching this `end` does."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 1,
+      "original": "nil",
+      "mutated": "# nil",
+      "reason": "the sole statement of `parse`'s `rescue JSON::ParseException` body; an empty rescue body evaluates to nil, so commenting it out leaves `parse` returning nil on a parse failure exactly as the explicit `nil` does."
+    },
+    {
+      "path": "src/agent_apropos/session_state.cr",
+      "occurrence": 1,
+      "original": "entries = @injected.values.sort_by!(&.path)",
+      "mutated": "entries = @injected.values.sort_by(&.path)",
+      "reason": "`Hash#values` returns a freshly-allocated Array on every call, so sorting it in place mutates nothing `@injected` holds; `sort_by` (allocate-and-return) and `sort_by!` (sort-in-place-and-return) leave `entries` holding the identical sorted contents. `sort_by!` is kept because ameba's Performance/ChainedCallWithNoBang requires it after `values`."
     }
   ]
 }
