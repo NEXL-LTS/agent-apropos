@@ -117,6 +117,10 @@ module AgentApropos
       @injected[rule_path] ||= Injection.new(rule_path, cause)
     end
 
+    def add_all(entries : Enumerable({String, Cause})) : Nil
+      entries.each { |rule_path, cause| add(rule_path, cause) }
+    end
+
     def notify! : Nil
       @notified = true
     end
