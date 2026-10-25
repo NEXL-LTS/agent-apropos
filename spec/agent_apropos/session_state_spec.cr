@@ -44,6 +44,24 @@ private class PhantomFS < AgentApropos::Filesystem
   end
 end
 
+# An in-memory filesystem whose listing also names files that read? cannot
+# resolve, ahead of the real ones — a file vanishing mid-prune must not stop
+# the files listed after it from being pruned.
+private class VanishingFS < InMemoryFS
+  def initialize(@vanished : Array(String), files : Hash(String, String))
+    super(files)
+  end
+
+  def glob(base : Path, pattern : String) : Array(String)
+    @vanished + super
+  end
+end
+
+private def session_document(updated_at : Time) : String
+  injection = AgentApropos::SessionState::Injection.new("a.md", cause)
+  AgentApropos::SessionState::Document.new(updated_at.to_unix, [injection], false).to_json
+end
+
 describe AgentApropos::SessionState do
   describe ".key?" do
     it "accepts a plain opaque id" do
@@ -75,6 +93,11 @@ describe AgentApropos::SessionState do
     it "rejects a path with an inner separator" do
       AgentApropos::SessionState.key?("a/b").should be_nil
       AgentApropos::SessionState.key?("a\\b").should be_nil
+    end
+
+    it "rejects an id ending in a separator, which would name a hidden file in a subdirectory" do
+      AgentApropos::SessionState.key?("abc/").should be_nil
+      AgentApropos::SessionState.key?("abc\\").should be_nil
     end
 
     it "rejects a Windows drive-relative id" do
@@ -159,6 +182,15 @@ describe AgentApropos::SessionState do
       AgentApropos::SessionState.load(ROOT, InMemoryFS.new, "s").notified?.should be_false
     end
 
+    it "keeps the injected set and reads notified? as false from a document written without the flag" do
+      document = %({"updated_at":#{NOW.to_unix},"injected":[{"path":"a.md","cause":{"event":"PreToolUse","file":"src/a.cr","matched_patterns":[]}}]})
+      fs = InMemoryFS.new({session_path("s") => document})
+
+      loaded = AgentApropos::SessionState.load(ROOT, fs, "s")
+      loaded.injected?("a.md").should be_true
+      loaded.notified?.should be_false
+    end
+
     it "round-trips a persisted notified flag" do
       fs = InMemoryFS.new
       state = AgentApropos::SessionState.new
@@ -225,6 +257,17 @@ describe AgentApropos::SessionState do
         JSON
     end
 
+    it "orders entries by rule path, not by the file that triggered them, so the document is stable" do
+      fs = InMemoryFS.new
+      state = AgentApropos::SessionState.new
+      state.add("z.md", cause(file: "src/a.cr"))
+      state.add("a.md", cause(file: "src/z.cr"))
+      state.save(ROOT, fs, "s", NOW)
+
+      written = fs.files[session_path("s")]
+      written.index!(%("path": "a.md")).should be < written.index!(%("path": "z.md"))
+    end
+
     it "keeps the first cause when the same rule is added twice for the same file" do
       fs = InMemoryFS.new
       state = AgentApropos::SessionState.new
@@ -269,8 +312,8 @@ describe AgentApropos::SessionState do
   describe ".prune" do
     it "removes session files older than the max age and keeps fresh ones" do
       injection = AgentApropos::SessionState::Injection.new("a.md", cause)
-      old = AgentApropos::SessionState::Document.new((NOW - 8.days).to_unix, [injection])
-      fresh = AgentApropos::SessionState::Document.new((NOW - 1.day).to_unix, [injection])
+      old = AgentApropos::SessionState::Document.new((NOW - 8.days).to_unix, [injection], false)
+      fresh = AgentApropos::SessionState::Document.new((NOW - 1.day).to_unix, [injection], false)
       fs = InMemoryFS.new({
         session_path("old")   => old.to_json,
         session_path("fresh") => fresh.to_json,
@@ -280,6 +323,42 @@ describe AgentApropos::SessionState do
 
       fs.removed.should eq([session_path("old")])
       fs.files.has_key?(session_path("fresh")).should be_true
+    end
+
+    it "keeps a session file exactly seven days old: the max age is inclusive" do
+      fs = InMemoryFS.new({session_path("edge") => session_document(NOW - 7.days)})
+      AgentApropos::SessionState.prune(ROOT, fs, NOW)
+      fs.removed.should be_empty
+    end
+
+    it "removes a session file one second past the max age" do
+      fs = InMemoryFS.new({session_path("stale") => session_document(NOW - 7.days - 1.second)})
+      AgentApropos::SessionState.prune(ROOT, fs, NOW)
+      fs.removed.should eq([session_path("stale")])
+    end
+
+    it "removes every expired session file, not just the first" do
+      fs = InMemoryFS.new({
+        session_path("one") => session_document(NOW - 8.days),
+        session_path("two") => session_document(NOW - 9.days),
+      })
+      AgentApropos::SessionState.prune(ROOT, fs, NOW)
+      fs.removed.should eq([session_path("one"), session_path("two")])
+    end
+
+    it "keeps pruning past a session file that vanished after listing" do
+      fs = VanishingFS.new([session_path("gone")], {session_path("old") => session_document(NOW - 8.days)})
+      AgentApropos::SessionState.prune(ROOT, fs, NOW)
+      fs.removed.should eq([session_path("old")])
+    end
+
+    it "keeps pruning past a corrupt session file" do
+      fs = InMemoryFS.new({
+        session_path("bad") => "{broken",
+        session_path("old") => session_document(NOW - 8.days),
+      })
+      AgentApropos::SessionState.prune(ROOT, fs, NOW)
+      fs.removed.should eq([session_path("old")])
     end
 
     it "ages out an old-format (flat string array) session file on schedule" do
