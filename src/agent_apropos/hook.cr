@@ -32,36 +32,41 @@ module AgentApropos
                      "whatever file or construct you're touching into your " \
                      "context, as you read and edit files."
 
+    private enum Phase
+      Pre
+      Post
+    end
+
     def pre(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
             override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
             allow_outside : Bool = false, git : Git = Git::Real.new) : Int32
-      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
+      deliver(Phase::Pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
     end
 
     def post(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
              override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
              allow_outside : Bool = false, git : Git = Git::Real.new) : Int32
-      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
+      deliver(Phase::Post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
     end
 
-    private def deliver(event : Symbol, io_in : IO, stdout : IO, fs : Filesystem,
+    private def deliver(phase : Phase, io_in : IO, stdout : IO, fs : Filesystem,
                         now : Time, override_root : String?, verbose : Bool, tool : String?,
                         allow_outside : Bool, git : Git) : Int32
       payload = Payload.parse(io_in.gets_to_end)
       root = resolve_root(override_root, payload)
-      execute(event, payload, root, stdout, fs, now, tool, allow_outside, git) if payload && root
+      execute(phase, payload, root, stdout, fs, now, tool, allow_outside, git) if payload && root
       0
     rescue ex
       log_failure(fs, override_root, verbose, now, ex)
       0
     end
 
-    private def execute(event : Symbol, payload : Payload, root : Path, stdout : IO, fs : Filesystem,
+    private def execute(phase : Phase, payload : Payload, root : Path, stdout : IO, fs : Filesystem,
                         now : Time, tool : String?, allow_outside : Bool, git : Git) : Nil
       in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
-      return execute_removal(event, payload, root, stdout, fs, now, allow_outside, git) if in_root.empty?
+      return execute_removal(phase, payload, root, stdout, fs, now, allow_outside, git) if in_root.empty?
 
-      index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, event)
+      index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, phase)
 
       agent = Agents.find(tool) || Agents.detect(payload)
       if agent.read?(payload)
@@ -71,18 +76,18 @@ module AgentApropos
 
       pending = index.docs.reject { |entry| state.injected?(entry.path) }
       matches = dedup_by_entry(in_root.flat_map do |relative, edit|
-        matches_for(pending, event, root, fs, relative, edit)
+        matches_for(pending, phase, root, fs, relative, edit)
       end)
 
       deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload)
     end
 
-    private def execute_removal(event : Symbol, payload : Payload, root : Path, stdout : IO,
+    private def execute_removal(phase : Phase, payload : Payload, root : Path, stdout : IO,
                                 fs : Filesystem, now : Time, allow_outside : Bool, git : Git) : Nil
       removed = removed_relative_paths(payload, root, fs, git)
       return if removed.empty?
 
-      index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, event)
+      index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, phase)
 
       pending = index.docs.reject { |entry| state.injected?(entry.path) }
       matches = dedup_by_entry(removed.each_with_index.flat_map { |relative, i|
@@ -99,12 +104,12 @@ module AgentApropos
     end
 
     private def load_pipeline_state(payload : Payload, root : Path, fs : Filesystem, allow_outside : Bool,
-                                    now : Time, event : Symbol) : {Index, String?, SessionState, String}
+                                    now : Time, phase : Phase) : {Index, String?, SessionState, String}
       index = load_or_build_index(root, fs, allow_outside)
       session_id = SessionState.key?(payload.session_id)
       SessionState.prune(root, fs, now)
       state = SessionState.load(root, fs, session_id)
-      {index, session_id, state, event_name(event)}
+      {index, session_id, state, event_name(phase)}
     end
 
     private def removal_command?(payload : Payload) : Bool
@@ -168,9 +173,9 @@ module AgentApropos
       "#{notice}\n\n#{context}"
     end
 
-    private def matches_for(entries : Array(Index::Entry), event : Symbol, root : Path,
+    private def matches_for(entries : Array(Index::Entry), phase : Phase, root : Path,
                             fs : Filesystem, relative : String, edit : Payload::FileEdit) : Array(Match)
-      content = content_for(event, edit, root, fs, relative)
+      content = content_for(phase, edit, root, fs, relative)
       entries.compact_map do |entry|
         patterns = entry.triggers(relative, content)
         next unless patterns
@@ -178,11 +183,11 @@ module AgentApropos
       end
     end
 
-    private def content_for(event : Symbol, edit : Payload::FileEdit, root : Path,
+    private def content_for(phase : Phase, edit : Payload::FileEdit, root : Path,
                             fs : Filesystem, relative : String) : String?
       pieces = edit.written_contents
       return pieces.join('\n') unless pieces.empty?
-      return nil if event == :pre
+      return nil if phase.pre?
       fs.read?(root.join(relative).to_s)
     end
 
@@ -269,8 +274,11 @@ module AgentApropos
       stdout.puts
     end
 
-    private def event_name(event : Symbol) : String
-      event == :pre ? "PreToolUse" : "PostToolUse"
+    private def event_name(phase : Phase) : String
+      case phase
+      in .pre?  then "PreToolUse"
+      in .post? then "PostToolUse"
+      end
     end
 
     private def resolve_root(override_root : String?, payload : Payload?) : Path?
