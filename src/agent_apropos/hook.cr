@@ -38,14 +38,14 @@ module AgentApropos
     end
 
     def pre(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-            override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
-            allow_outside : Bool = false, git : Git = Git::Real.new) : Int32
+            override_root : String?, verbose : Bool, tool : String?,
+            allow_outside : Bool, git : Git = Git::Real.new) : Int32
       deliver(Phase::Pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
     end
 
     def post(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-             override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
-             allow_outside : Bool = false, git : Git = Git::Real.new) : Int32
+             override_root : String?, verbose : Bool, tool : String?,
+             allow_outside : Bool, git : Git = Git::Real.new) : Int32
       deliver(Phase::Post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
     end
 

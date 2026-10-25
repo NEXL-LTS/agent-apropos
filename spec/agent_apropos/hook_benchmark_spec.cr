@@ -21,7 +21,7 @@ describe "AgentApropos::Hook performance" do
                tool_input: {file_path: "src/pkg_137/x.cr"}}.to_json
 
     elapsed = Time.measure do
-      AgentApropos::Hook.pre(IO::Memory.new(payload), IO::Memory.new, fs, Time.utc, "/repo")
+      AgentApropos::Hook.pre(IO::Memory.new(payload), IO::Memory.new, fs, Time.utc, "/repo", false, nil, false)
     end
 
     elapsed.total_milliseconds.should be < 200
