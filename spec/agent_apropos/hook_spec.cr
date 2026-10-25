@@ -838,6 +838,24 @@ describe AgentApropos::Hook do
       git.blob_requests.size.should eq(1)
     end
 
+    it "reads no blob for a removal when no pending doc declares contents" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      git = FakeGit.new(removed: ["src/app.cr"], blobs: {":src/app.cr" => "anything"})
+      invoke(:pre, shell_json("rm src/app.cr"), fs, git: git)
+      git.blob_requests.should be_empty
+    end
+
+    it "fires every removal doc whose contents match the resolved blob of one removed path" do
+      fs = InMemoryFS.new({
+        DB_PATH     => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nBody.\n",
+        MODELS_PATH => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# Models\n\nBody.\n",
+      })
+      git = FakeGit.new(removed: ["lib/x.cr"], blobs: {":lib/x.cr" => "db.transaction do"})
+      _, stdout = invoke(:pre, shell_json("rm lib/x.cr"), fs, git: git)
+      stdout.should contain("Convention (docs/conventions/db.md):")
+      stdout.should contain("Convention (docs/conventions/models.md):")
+    end
+
     it "records every matching doc, not just the first, when several match one removal" do
       fs = InMemoryFS.new({
         A_PATH  => A_REMOVED_DOC,
