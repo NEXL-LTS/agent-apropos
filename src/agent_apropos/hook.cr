@@ -124,9 +124,7 @@ module AgentApropos
       combined = combine(notice, build_context(root, fs, matches.map(&.entry), removal))
       return if combined.empty?
 
-      matches.each do |match|
-        state.add(match.entry.path, SessionState::Cause.new(name, match.relative, match.patterns))
-      end
+      state.add_all(matches.map { |match| {match.entry.path, SessionState::Cause.new(name, match.relative, match.patterns)} })
       state.notify! if notice
       state.save(root, fs, session_id, now)
       emit(stdout, name, combined, payload.copilot?)
@@ -139,9 +137,7 @@ module AgentApropos
       recorded = index.docs.select { |entry| read.includes?(entry.path) }
       return if recorded.empty?
 
-      recorded.each do |entry|
-        state.add(entry.path, SessionState::Cause.new(name, entry.path, [] of String))
-      end
+      state.add_all(recorded.map { |entry| {entry.path, SessionState::Cause.new(name, entry.path, [] of String)} })
       state.save(root, fs, session_id, now)
     end
 
