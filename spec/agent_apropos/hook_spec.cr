@@ -845,6 +845,16 @@ describe AgentApropos::Hook do
       git.blob_requests.should be_empty
     end
 
+    it "reads no blob for a removal when only write-triggered docs declare contents" do
+      fs = InMemoryFS.new({
+        A_PATH  => A_REMOVED_DOC,
+        DB_PATH => "---\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nBody.\n",
+      })
+      git = FakeGit.new(removed: ["src/app.cr"], blobs: {":src/app.cr" => "db.transaction do"})
+      invoke(:pre, shell_json("rm src/app.cr"), fs, git: git)
+      git.blob_requests.should be_empty
+    end
+
     it "fires every removal doc whose contents match the resolved blob of one removed path" do
       fs = InMemoryFS.new({
         DB_PATH     => "---\non: [removed]\ncontents: ['\\btransaction\\b']\n---\n# DB\n\nBody.\n",

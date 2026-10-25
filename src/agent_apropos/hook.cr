@@ -184,7 +184,9 @@ module AgentApropos
 
     private def matches_for_removal(entries : Array(Index::Entry), root : Path, fs : Filesystem,
                                     git : Git, relative : String, resolve_content : Bool) : Array(Match)
-      needs = resolve_content && entries.any? { |entry| !entry.contents.empty? }
+      needs = resolve_content && entries.any? do |entry|
+        entry.events.includes?(Frontmatter::Event::Removed) && !entry.contents.empty?
+      end
       content = needs ? resolve_removed_content(root, git, relative) : nil
       entries.compact_map do |entry|
         patterns = entry.triggers(relative, content, Frontmatter::Event::Removed)
