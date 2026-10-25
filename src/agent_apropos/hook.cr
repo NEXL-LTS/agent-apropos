@@ -154,12 +154,7 @@ module AgentApropos
     private record Match, entry : Index::Entry, patterns : Array(String), relative : String
 
     private def dedup_by_entry(matches : Array(Match)) : Array(Match)
-      seen = Set(String).new
-      matches.select do |match|
-        next false if seen.includes?(match.entry.path)
-        seen << match.entry.path
-        true
-      end
+      matches.uniq(&.entry.path)
     end
 
     private def session_notice(state : SessionState, session_id : String?) : String?
@@ -222,7 +217,7 @@ module AgentApropos
     end
 
     private def build_context(root : Path, fs : Filesystem, entries : Array(Index::Entry),
-                              removal : Bool = false) : String
+                              removal : Bool) : String
       docs = entries.compact_map do |entry|
         text = fs.read?(root.join(entry.path).to_s)
         next unless text
@@ -257,21 +252,8 @@ module AgentApropos
     end
 
     private def emit(stdout : IO, event_name : String, context : String, copilot : Bool) : Nil
-      JSON.build(stdout) do |json|
-        json.object do
-          if copilot
-            json.field "additionalContext", context
-          else
-            json.field "hookSpecificOutput" do
-              json.object do
-                json.field "hookEventName", event_name
-                json.field "additionalContext", context
-              end
-            end
-          end
-        end
-      end
-      stdout.puts
+      body = copilot ? {additionalContext: context} : {hookSpecificOutput: {hookEventName: event_name, additionalContext: context}}
+      stdout.puts body.to_json
     end
 
     private def event_name(phase : Phase) : String
