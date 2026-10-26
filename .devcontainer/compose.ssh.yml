@@ -1,0 +1,10 @@
+# Forwards the host's ssh-agent socket (start.sh sets HOST_SSH_AUTH_SOCK after
+# making sure an agent with a key is running). The container can ask the agent
+# to sign, but the private key itself never enters the container.
+# VS Code doesn't use this file: Dev Containers forwards the agent on its own.
+services:
+  app:
+    volumes:
+      - ${HOST_SSH_AUTH_SOCK:?start.sh sets HOST_SSH_AUTH_SOCK}:/run/ssh-agent.sock
+    environment:
+      - SSH_AUTH_SOCK=/run/ssh-agent.sock

@@ -1,0 +1,179 @@
+# .devcontainer/Dockerfile spec: the executable documentation of what the image
+# ships. Each command test asserts a pinned version, so when the Dockerfile
+# changes a pin, update the matching test in the same commit; CI
+# (.github/workflows/devcontainer-ci.yml) fails otherwise.
+#
+# Image design:
+#   • Crystal 1.20.3 (matches CI) and jscpd are pinned; kcov, bats and the
+#     compiler libraries come from the archive.
+#   • Base ubuntu:26.04. Node 22, Python 3, gosu and Docker come from the Ubuntu
+#     archive, so their tests below pin the series, not the patch release;
+#     gh and gitleaks are checksummed release binaries and pinned exactly.
+#   • Remote user `vscode`, UID/GID matched to the host at build time, so the
+#     bind-mounted checkout and the forwarded ssh-agent socket line up.
+#   • ENTRYPOINT /entrypoint.sh starts as root, starts dockerd only when
+#     ENABLE_DOCKER=1 (compose.docker.yml, privileged), then gosu-drops to vscode.
+#   • CLAUDE_CONFIG_DIR is a named volume, so the Claude login survives rebuilds.
+#   • No sudo, so the read-only mounts in docker-compose.yml hold against Claude.
+#   • Git hooks are baked in and enabled by core.hooksPath, since the checkout's
+#     .git/hooks is mounted read-only.
+
+schemaVersion: 2.0.0
+
+metadataTest:
+  workdir: "/workspace"
+  entrypoint: ["/entrypoint.sh"]
+  cmd: ["sleep", "infinity"]
+  user: root
+  envVars:
+    - key: CLAUDE_CONFIG_DIR
+      value: /home/vscode/.claude
+    - key: DISABLE_AUTOUPDATER
+      value: "1"
+
+fileExistenceTests:
+  - name: workspace mount point exists
+    path: /workspace
+    shouldExist: true
+    uid: 1000
+
+  - name: Claude config dir exists and is vscode-owned (seeds the volume's ownership)
+    path: /home/vscode/.claude
+    shouldExist: true
+    uid: 1000
+
+  - name: no sudo binary (root would let Claude undo the read-only mounts)
+    path: /usr/bin/sudo
+    shouldExist: false
+
+  - name: no sudoers grant for vscode
+    path: /etc/sudoers.d/vscode
+    shouldExist: false
+
+  - name: baked pre-commit hook is root-owned and executable
+    path: /usr/local/share/git-hooks/pre-commit
+    shouldExist: true
+    uid: 0
+    permissions: '-rwxr-xr-x'
+
+  - name: entrypoint script installed
+    path: /entrypoint.sh
+    shouldExist: true
+    isExecutableBy: any
+
+fileContentTests:
+  - name: vscode user in /etc/passwd with correct home and shell
+    path: /etc/passwd
+    expectedContents: ['vscode:x:1000:1000:[^:]*:/home/vscode:/bin/bash']
+
+  - name: ubuntu base user was renamed, not left alongside vscode
+    path: /etc/passwd
+    excludedContents: ['^ubuntu:']
+
+  - name: vscode is a member of the docker group (for start.sh --docker)
+    path: /etc/group
+    expectedContents: ['docker:x:\d+:.*vscode']
+
+  - name: git uses the image's hooks, not the checkout's
+    path: /etc/gitconfig
+    expectedContents: ['hooksPath = /usr/local/share/git-hooks', 'default = current']
+
+  - name: GitHub SSH host keys are pinned
+    path: /etc/ssh/ssh_known_hosts
+    expectedContents: ['github\.com ssh-ed25519 ']
+
+commandTests:
+  # ── Runtimes ─────────────────────────────────────────────────────────────
+  - name: node is 22.x (Ubuntu 26.04 archive)
+    command: node
+    args: ["--version"]
+    # A major-version jump would mean the base image moved; fail rather than drift.
+    expectedOutput: ['^v22\.']
+
+  - name: python3 is 3.14 (Ubuntu 26.04 archive)
+    command: python3
+    args: ["--version"]
+    expectedOutput: ['Python 3\.14\.']
+
+  - name: python venv module available (for scripts Claude runs)
+    command: python3
+    args: ["-m", "venv", "--help"]
+    exitCode: 0
+
+  # ── Tooling ──────────────────────────────────────────────────────────────
+  - name: gh is 2.102.0 (GH_VERSION)
+    command: gh
+    args: ["--version"]
+    expectedOutput: ['gh version 2\.102\.0']
+
+  - name: gitleaks is 8.30.1 (GITLEAKS_VERSION)
+    command: gitleaks
+    args: ["version"]
+    expectedOutput: ['8\.30\.1']
+
+  - name: lefthook is 2.1.15 (LEFTHOOK_VERSION)
+    command: lefthook
+    args: ["version"]
+    expectedOutput: ['2\.1\.15']
+
+  - name: gosu is 1.19 (Ubuntu 26.04 archive)
+    command: gosu
+    args: ["--version"]
+    expectedOutput: ['1\.19']
+
+  - name: claude CLI available
+    command: claude
+    args: ["--version"]
+    # Deliberately unpinned (see the Dockerfile); just assert the CLI runs.
+    exitCode: 0
+
+  - name: docker CLI and daemon installed (daemon only runs with --docker)
+    command: bash
+    args: ["-c", "docker --version && dockerd --version && containerd --version"]
+    expectedOutput: ['Docker version']
+
+  - name: bubblewrap and socat installed (Claude Code's Linux sandbox)
+    command: bash
+    args: ["-c", "bwrap --version && socat -V"]
+    expectedOutput: ['bubblewrap \d']
+
+  - name: baseline utilities installed
+    command: bash
+    args: ["-c", "git --version && jq --version && rg --version && ssh -V"]
+    exitCode: 0
+
+  # ── Crystal toolchain ────────────────────────────────────────────────────
+  - name: crystal is 1.20.3 (CRYSTAL_VERSION)
+    command: crystal
+    args: ["--version"]
+    expectedOutput: ['Crystal 1\.20\.3']
+
+  - name: shards installed with crystal
+    command: shards
+    args: ["--version"]
+    exitCode: 0
+
+  - name: a compiled Crystal program links and runs (libs for openssl/xml/yaml/gmp/pcre2)
+    command: bash
+    args: ["-c", "cd /tmp && echo 'require \"openssl\"; require \"xml\"; require \"yaml\"; puts \"linked-ok\"' > t.cr && crystal run t.cr"]
+    expectedOutput: ['linked-ok']
+
+  - name: jscpd is 5.0.14 (JSCPD_VERSION)
+    command: jscpd
+    args: ["--version"]
+    expectedOutput: ['5\.0\.14']
+
+  - name: kcov installed (Ubuntu 26.04 archive)
+    command: kcov
+    args: ["--version"]
+    expectedOutput: ['kcov']
+
+  - name: bats and its helper libraries resolve through BATS_LIB_PATH
+    command: bash
+    args: ["-c", "bats --version && test -f \"$BATS_LIB_PATH/bats-support/load.bash\" && test -f \"$BATS_LIB_PATH/bats-assert/load.bash\""]
+    exitCode: 0
+
+  - name: mutation engine on PATH
+    command: mutate
+    args: ["--help"]
+    exitCode: 0

@@ -11,6 +11,7 @@
     "src/agent_apropos/generate.cr",
     "src/agent_apropos/hook.cr",
     "src/agent_apropos/hooks/payload.cr",
+    "src/agent_apropos/session_state.cr",
     "src/agent_apropos/agents/claude.cr",
     "src/agent_apropos/agents/codex.cr"
   ]
