@@ -185,7 +185,7 @@
     },
     {
       "path": "src/agent_apropos/hook.cr",
-      "occurrence": 42,
+      "occurrence": 41,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes `prune_logs`'s `dated.each do |entry| … end`; `Array#each` discards the block's value, so a `next` after the final `fs.remove … if …` is the same as falling off the block's end."

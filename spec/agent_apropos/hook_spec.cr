@@ -105,6 +105,10 @@ private def shell_json(command : String, session_id : String? = "s", cwd : Strin
   {session_id: session_id, tool_name: "Bash", cwd: cwd, tool_input: {command: command}}.to_json
 end
 
+private def apply_patch_json(patch : String) : String
+  {session_id: "s", tool_name: "apply_patch", cwd: REPO, tool_input: {command: patch}}.to_json
+end
+
 describe AgentApropos::Hook do
   describe ".pre" do
     it "injects a matching path-scoped rule before the edit" do
@@ -853,6 +857,34 @@ describe AgentApropos::Hook do
       git = FakeGit.new(removed: ["src/app.cr"], blobs: {":src/app.cr" => "db.transaction do"})
       invoke(:pre, shell_json("rm src/app.cr"), fs, git: git)
       git.blob_requests.should be_empty
+    end
+
+    it "matches a removal convention against an absolute Delete File path" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      patch = "*** Begin Patch\n*** Delete File: #{REPO}/src/old.cr\n*** End Patch\n"
+      _, stdout = invoke(:pre, apply_patch_json(patch), fs)
+      stdout.should contain("Convention (docs/conventions/a.md):")
+    end
+
+    it "does not ask git for removed paths when an apply_patch's text merely contains a removal verb" do
+      fs = InMemoryFS.new({A_PATH => A_REMOVED_DOC})
+      git = FakeGit.new(removed: ["src/app.cr"])
+      patch = "*** Begin Patch\n*** Add File: src/new.cr\n+rm = find(id)\n*** End Patch\n"
+      invoke(:pre, apply_patch_json(patch), fs, git: git)
+      git.removed_paths_called?.should be_false
+    end
+
+    it "delivers both the write and the removal conventions for a patch that adds and deletes" do
+      fs = InMemoryFS.new({
+        A_PATH      => A_REMOVED_DOC,
+        MODELS_PATH => "---\npaths: [\"app/**\"]\n---\n# Models\n\nBody.\n",
+      })
+      patch = "*** Begin Patch\n*** Add File: app/new.cr\n+x\n*** Delete File: src/old.cr\n*** End Patch\n"
+      _, stdout = invoke(:pre, apply_patch_json(patch), fs)
+      stdout.should contain("Convention (docs/conventions/models.md):")
+      stdout.should contain("Convention (docs/conventions/a.md):")
+      stdout.should contain("is now missing from the working tree")
+      stdout.should contain("this convention applies to every file")
     end
 
     it "fires every removal doc whose contents match the resolved blob of one removed path" do

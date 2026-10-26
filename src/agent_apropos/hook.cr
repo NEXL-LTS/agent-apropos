@@ -64,7 +64,8 @@ module AgentApropos
     private def execute(phase : Phase, payload : Payload, root : Path, stdout : IO, fs : Filesystem,
                         now : Time, tool : String?, allow_outside : Bool, git : Git) : Nil
       in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
-      return execute_removal(phase, payload, root, stdout, fs, now, allow_outside, git) if in_root.empty?
+      removed = removed_relative_paths(payload, root, fs, git)
+      return if in_root.empty? && removed.empty?
 
       index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, phase)
 
@@ -75,30 +76,16 @@ module AgentApropos
       end
 
       pending = index.docs.reject { |entry| state.injected?(entry.path) }
-      matches = dedup_by_entry(in_root.flat_map do |relative, edit|
-        matches_for(pending, phase, root, fs, relative, edit)
-      end)
-
-      deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload)
-    end
-
-    private def execute_removal(phase : Phase, payload : Payload, root : Path, stdout : IO,
-                                fs : Filesystem, now : Time, allow_outside : Bool, git : Git) : Nil
-      removed = removed_relative_paths(payload, root, fs, git)
-      return if removed.empty?
-
-      index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, phase)
-
-      pending = index.docs.reject { |entry| state.injected?(entry.path) }
-      matches = dedup_by_entry(removed.each_with_index.flat_map { |relative, i|
+      writes = in_root.flat_map { |relative, edit| matches_for(pending, phase, root, fs, relative, edit) }
+      removals = removed.each_with_index.flat_map { |relative, i|
         matches_for_removal(pending, root, fs, git, relative, i < REMOVAL_CONTENT_RESOLUTION_BOUND)
-      }.to_a)
+      }.to_a
 
-      deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload, removal: true)
+      deliver_matches(dedup_by_entry(writes + removals), state, root, fs, session_id, now, name, stdout, payload)
     end
 
     private def removed_relative_paths(payload : Payload, root : Path, fs : Filesystem, git : Git) : Array(String)
-      structural = payload.removals.map(&.path)
+      structural = payload.removals.map { |removal| relativize(root, removal.path) }
       candidates = removal_command?(payload) ? structural + git.removed_paths(root, fs) : structural
       candidates.reject { |relative| outside_root?(relative) }
     end
@@ -113,15 +100,16 @@ module AgentApropos
     end
 
     private def removal_command?(payload : Payload) : Bool
+      return false if payload.tool_name == "apply_patch"
       command = payload.tool_input.try(&.command)
       !command.nil? && REMOVAL_VERB_PATTERN.matches?(command)
     end
 
     private def deliver_matches(matches : Array(Match), state : SessionState, root : Path, fs : Filesystem,
                                 session_id : String?, now : Time, name : String, stdout : IO,
-                                payload : Payload, removal : Bool = false) : Nil
+                                payload : Payload) : Nil
       notice = session_notice(state, session_id)
-      combined = combine(notice, build_context(root, fs, matches.map(&.entry), removal))
+      combined = combine(notice, build_context(root, fs, matches))
       return if combined.empty?
 
       state.add_all(matches.map { |match| {match.entry.path, SessionState::Cause.new(name, match.relative, match.patterns)} })
@@ -147,7 +135,7 @@ module AgentApropos
       {relative, edit}
     end
 
-    private record Match, entry : Index::Entry, patterns : Array(String), relative : String
+    private record Match, entry : Index::Entry, patterns : Array(String), relative : String, removal : Bool
 
     private def dedup_by_entry(matches : Array(Match)) : Array(Match)
       matches.uniq(&.entry.path)
@@ -170,7 +158,7 @@ module AgentApropos
       entries.compact_map do |entry|
         patterns = entry.triggers(relative, content)
         next unless patterns
-        Match.new(entry, patterns, relative)
+        Match.new(entry, patterns, relative, false)
       end
     end
 
@@ -191,7 +179,7 @@ module AgentApropos
       entries.compact_map do |entry|
         patterns = entry.triggers(relative, content, Frontmatter::Event::Removed)
         next unless patterns
-        Match.new(entry, patterns, relative)
+        Match.new(entry, patterns, relative, true)
       end
     end
 
@@ -214,13 +202,13 @@ module AgentApropos
     rescue
     end
 
-    private def build_context(root : Path, fs : Filesystem, entries : Array(Index::Entry),
-                              removal : Bool) : String
-      docs = entries.compact_map do |entry|
+    private def build_context(root : Path, fs : Filesystem, matches : Array(Match)) : String
+      docs = matches.compact_map do |match|
+        entry = match.entry
         text = fs.read?(root.join(entry.path).to_s)
         next unless text
         _, body = Frontmatter.split(text)
-        note = removal ? removal_scope_note(entry) : scope_note(entry)
+        note = match.removal ? removal_scope_note(entry) : scope_note(entry)
         {entry.path, body.strip + note}
       end
       Rendering.context(docs)
