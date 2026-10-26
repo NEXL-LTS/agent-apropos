@@ -78,21 +78,9 @@ module AgentApropos
       end
 
       private def agent_apropos_events(content : String) : Set(String)?
-        parsed =
-          begin
-            JSON.parse(content)
-          rescue JSON::ParseException
-            return nil
-          end
-        hooks = parsed.as_h?.try(&.["hooks"]?).try(&.as_h?)
-        events = Set(String).new
-        return events unless hooks
-        hooks.each do |event, groups|
-          array = groups.as_a?
-          next unless array
-          events << event if array.any? { |group| agent_apropos_group?(group) }
-        end
-        events
+        hooks = JSON.parse(content).as_h?.try(&.["hooks"]?).try(&.as_h?) || {} of String => JSON::Any
+        hooks.select { |_, groups| groups.as_a?.try(&.any? { |group| agent_apropos_group?(group) }) }.keys.to_set
+      rescue JSON::ParseException
       end
 
       private def capability_check(env : Environment) : Check
@@ -112,9 +100,9 @@ module AgentApropos
       end
 
       private def extract_version(output : String) : SemanticVersion?
-        match = output.match(/(\d+\.\d+\.\d+)/)
-        return nil unless match
-        SemanticVersion.parse(match[1])
+        version = output[/\d+\.\d+\.\d+/]?
+        return nil unless version
+        SemanticVersion.parse(version)
       end
 
       private def min_version : SemanticVersion

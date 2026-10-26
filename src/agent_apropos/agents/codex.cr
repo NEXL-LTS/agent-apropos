@@ -34,9 +34,7 @@ module AgentApropos
       end
 
       protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
-        unless env.which("codex")
-          return Check.new(:ok, "codex", "not on PATH; skipped hook check")
-        end
+        return Check.new(:ok, "codex", "not on PATH; skipped hook check") unless env.which("codex")
 
         content = fs.read?(repo_root.join(HOOKS_RELATIVE).to_s)
         return Check.new(:warn, "codex", ".codex/hooks.json absent; run `agent-apropos init --tool codex`") unless content
@@ -52,14 +50,10 @@ module AgentApropos
       end
 
       private def wired?(content : String) : Bool?
-        parsed =
-          begin
-            JSON.parse(content)
-          rescue JSON::ParseException
-            return nil
-          end
+        parsed = JSON.parse(content)
         command_prefix_present?(parsed, "PreToolUse", HOOK_PRE_BASE) &&
           command_prefix_present?(parsed, "PostToolUse", HOOK_POST_BASE)
+      rescue JSON::ParseException
       end
 
       private def command_prefix_present?(parsed : JSON::Any, event : String, prefix : String) : Bool
