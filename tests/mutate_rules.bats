@@ -254,6 +254,52 @@ CR
     fail "no mutant inserted next as the last statement of the if"
 }
 
+@test "swapping two identical items is never generated, being whitespace-only" {
+  cat >"$FIXTURE_DIR/same.cr" <<'CR'
+def same(a, k)
+  Array({String, String})
+  {Agents::Agent, String, String}
+  qux(a , a)
+  bar(k=1, k=2)
+  baz(k: 1, k: 2)
+end
+CR
+  generate same.cr
+
+  local mutant
+  for mutant in "$OUT"/*.cr; do
+    if diff -w -q "$FIXTURE_DIR/same.cr" "$mutant" >/dev/null; then
+      fail "whitespace-only mutant: $(diff "$FIXTURE_DIR/same.cr" "$mutant" | sed -n 's/^> //p')"
+    fi
+  done
+}
+
+@test "swapping two different items is still generated" {
+  cat >"$FIXTURE_DIR/differ.cr" <<'CR'
+def differ(a, b, x, y)
+  foo(a, b)
+  {x, y}
+  [1, 2]
+  bar(k=1, j=2)
+  baz(k: 1, j: 2)
+  Array({Int32, String})
+  qux(a, ab)
+end
+CR
+  generate differ.cr
+
+  run mutated_lines differ.cr
+  assert_line 'def differ ( b,a, x, y)'
+  assert_line '  foo ( b,a)'
+  assert_line '   { y,x}'
+  assert_line '   [ 2,1]'
+  assert_line '  bar( j=1,k=2)'
+  assert_line '  baz( j: 1,k: 2)'
+  assert_line '  baz ( j: 2,k: 1)'
+  assert_line '  Array( { String,Int32})'
+  assert_line '  qux ( ab,a)'
+}
+
 @test "every rules file the engine ships is accounted for" {
   local python static accounted missing=()
   python="$(head -1 "$(command -v mutate)" | sed 's|^#!||')"
