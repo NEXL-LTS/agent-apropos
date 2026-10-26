@@ -48,4 +48,11 @@ describe "hook payload fixtures" do
     payload.tool_name.should eq("Bash")
     payload.file_edits.should be_empty
   end
+
+  it "parses a Codex apply_patch Delete File section as a removal, not a discarded edit" do
+    payload = parse_fixture("codex_pre_tool_use_apply_patch_delete.json")
+    payload.tool_name.should eq("apply_patch")
+    payload.file_edits.should be_empty
+    payload.removals.map(&.path).should eq(["/repo/lib/old_helper.cr"])
+  end
 end

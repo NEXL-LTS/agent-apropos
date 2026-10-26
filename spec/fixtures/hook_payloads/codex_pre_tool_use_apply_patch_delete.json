@@ -1,0 +1,14 @@
+{
+  "session_id": "abc123",
+  "turn_id": "turn456",
+  "transcript_path": "/home/u/.codex/sessions/2026/07/26/rollout-abc123.jsonl",
+  "cwd": "/repo",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "bypassPermissions",
+  "tool_name": "apply_patch",
+  "tool_input": {
+    "command": "*** Begin Patch\n*** Delete File: /repo/lib/old_helper.cr\n*** End Patch\n"
+  },
+  "tool_use_id": "call_def789"
+}
