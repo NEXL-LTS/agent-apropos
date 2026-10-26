@@ -121,8 +121,6 @@ module AgentApropos
 
         present = matching.flat_map { |i| present_commands(groups[i]) }
         missing = commands.reject { |command| present.includes?(command) }
-        return groups if missing.empty?
-
         target = matching.first
         groups[target] = append_hook_entries(groups[target], missing, timeout)
         groups
@@ -164,7 +162,6 @@ module AgentApropos
       end
 
       private def upgrade_target(command : String, commands : Array(String)) : String?
-        return nil unless command.starts_with?(AGENT_APROPOS_HOOK_PREFIX)
         if command.starts_with?("agent-apropos hook pre")
           commands.find(&.starts_with?("agent-apropos hook pre"))
         elsif command.starts_with?("agent-apropos hook post")
