@@ -191,48 +191,6 @@
       "reason": "closes `prune_logs`'s `dated.each do |entry| … end`; `Array#each` discards the block's value, so a `next` after the final `fs.remove … if …` is the same as falling off the block's end."
     },
     {
-      "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 1,
-      "original": "elsif section_marker?(line)",
-      "mutated": "next\\nelsif section_marker?(line)",
-      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
-    },
-    {
-      "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 1,
-      "original": "elsif current",
-      "mutated": "next\\nelsif current",
-      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
-    },
-    {
-      "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 1,
-      "original": "elsif line.starts_with?(\"+\")",
-      "mutated": "next\\nelsif line.starts_with?(\"+\")",
-      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
-    },
-    {
-      "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 22,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
-    },
-    {
-      "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 23,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
-    },
-    {
-      "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 24,
-      "original": "end",
-      "mutated": "next\\nend",
-      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
-    },
-    {
       "path": "src/agent_apropos/session_state.cr",
       "occurrence": 1,
       "original": "LEADING_REJECT = {'.', '-'}",
@@ -266,13 +224,6 @@
       "original": "entries = @injected.values.sort_by!(&.path)",
       "mutated": "entries = @injected.values.sort_by(&.path)",
       "reason": "`Hash#values` returns a freshly-allocated Array on every call, so sorting it in place mutates nothing `@injected` holds; `sort_by` (allocate-and-return) and `sort_by!` (sort-in-place-and-return) leave `entries` holding the identical sorted contents. `sort_by!` is kept because ameba's Performance/ChainedCallWithNoBang requires it after `values`."
-    },
-    {
-      "path": "src/agent_apropos/hooks/payload.cr",
-      "occurrence": 1,
-      "original": "elsif path = prefix(line, DELETE_MARKER)",
-      "mutated": "next\\nelsif path = prefix(line, DELETE_MARKER)",
-      "reason": "a `next` inserted after the last statement of `parse`'s `command.each_line do |line| … end` block (the trailing `if`/`elsif` chain is the block's last statement). `String#each_line` discards the block's value, so ending the iteration early here is the same as falling off its end. Verified: a bare `next` is a no-op only where the block value is unused, which is the case for `each_line`."
     }
   ]
 }

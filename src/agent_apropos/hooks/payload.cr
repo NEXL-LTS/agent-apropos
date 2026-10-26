@@ -148,24 +148,27 @@ module AgentApropos
           removals = [] of Removal
           return {edits: [] of FileEdit, removals: removals} unless command
           current = nil
-          command.each_line do |line|
-            if path = (prefix(line, ADD_MARKER) || prefix(line, UPDATE_MARKER))
-              current = Section.new(path)
-              sections << current
-            elsif path = prefix(line, DELETE_MARKER)
-              removals << Removal.new(path)
-              current = nil
-            elsif section_marker?(line)
-              current = nil
-            elsif current
-              if moved = prefix(line, MOVE_MARKER)
-                current.path = moved
-              elsif line.starts_with?("+")
-                current.added << line[1..]
-              end
-            end
-          end
+          command.each_line { |line| current = step(line, current, sections, removals) }
           {edits: sections.map { |section| FileEdit.new(section.path, section.added) }, removals: removals}
+        end
+
+        private def step(line : String, current : Section?, sections : Array(Section),
+                         removals : Array(Removal)) : Section?
+          if path = (prefix(line, ADD_MARKER) || prefix(line, UPDATE_MARKER))
+            section = Section.new(path)
+            sections << section
+            section
+          elsif path = prefix(line, DELETE_MARKER)
+            removals << Removal.new(path)
+            nil
+          elsif current && !section_marker?(line)
+            if moved = prefix(line, MOVE_MARKER)
+              current.path = moved
+            elsif line.starts_with?("+")
+              current.added << line[1..]
+            end
+            current
+          end
         end
 
         private def prefix(line : String, marker : String) : String?
