@@ -105,7 +105,7 @@ module AgentApropos
           (groups.as_a? || [] of JSON::Any).any? do |group|
             (group.as_h?.try(&.["hooks"]?).try(&.as_a?) || [] of JSON::Any).any? do |hook|
               command = hook.as_h?.try(&.["command"]?).try(&.as_s?)
-              !command.nil? && command.starts_with?(AGENT_APROPOS_HOOK_PREFIX) && command.ends_with?(ALLOW_OUTSIDE_FLAG)
+              !command.nil? && command.starts_with?(AGENT_APROPOS_HOOK_PREFIX) && command.split.includes?(ALLOW_OUTSIDE_FLAG)
             end
           end
         end
@@ -129,9 +129,11 @@ module AgentApropos
       private def drop_owned_commands(groups : Array(JSON::Any), matcher : String) : Array(JSON::Any)
         groups.compact_map do |group|
           next group unless group_matcher(group) == matcher
-          kept = (group.as_h?.try(&.["hooks"]?).try(&.as_a?) || [] of JSON::Any).reject do |hook|
+          hooks = group.as_h?.try(&.["hooks"]?).try(&.as_a?) || [] of JSON::Any
+          owned, kept = hooks.partition do |hook|
             hook.as_h?.try(&.["command"]?).try(&.as_s?).try(&.starts_with?(AGENT_APROPOS_HOOK_PREFIX))
           end
+          next group if owned.empty?
           next nil if kept.empty?
           hash = group.as_h.dup
           hash["hooks"] = JSON::Any.new(kept)
