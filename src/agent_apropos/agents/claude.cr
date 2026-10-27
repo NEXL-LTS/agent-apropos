@@ -42,13 +42,13 @@ module AgentApropos
         hooks = (root["hooks"]?.try(&.as_h?)).try(&.dup) || {} of String => JSON::Any
 
         pre_groups = (hooks["PreToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
-        pre_groups = ensure_commands(pre_groups, "Edit|Write", [hook_pre], CLAUDE_HOOK_TIMEOUT)
+        pre_groups = ensure_command(pre_groups, "Edit|Write", hook_pre, CLAUDE_HOOK_TIMEOUT)
         pre_groups = drop_owned_commands(pre_groups, "Read")
         hooks["PreToolUse"] = JSON::Any.new(pre_groups)
 
         post_groups = (hooks["PostToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
-        post_groups = ensure_commands(post_groups, "Edit|Write", [hook_post], CLAUDE_HOOK_TIMEOUT)
-        post_groups = ensure_commands(post_groups, "Read", [hook_post], CLAUDE_HOOK_TIMEOUT)
+        post_groups = ensure_command(post_groups, "Edit|Write", hook_post, CLAUDE_HOOK_TIMEOUT)
+        post_groups = ensure_command(post_groups, "Read", hook_post, CLAUDE_HOOK_TIMEOUT)
         hooks["PostToolUse"] = JSON::Any.new(post_groups)
 
         root["hooks"] = JSON::Any.new(hooks)

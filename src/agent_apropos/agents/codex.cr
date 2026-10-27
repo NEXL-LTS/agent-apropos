@@ -78,7 +78,7 @@ module AgentApropos
       end
 
       private def wire_event(hooks : Hash(String, JSON::Any), event : String, command : String) : Nil
-        hooks[event] = JSON::Any.new(ensure_commands(event_groups(hooks, event), MATCHER, [command], HOOK_TIMEOUT.to_i64))
+        hooks[event] = JSON::Any.new(ensure_command(event_groups(hooks, event), MATCHER, command, HOOK_TIMEOUT.to_i64))
       end
     end
   end
