@@ -27,7 +27,7 @@ module AgentApropos
       end
 
       def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
-        super + [capability_check(env)]
+        super(repo_root, fs, env) + [capability_check(env)]
       end
 
       def skill_root : Path

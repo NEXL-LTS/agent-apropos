@@ -219,25 +219,11 @@
       "reason": "pure identifier rename (label<->wire, each keeping its original type and position); the body only returns `existing` and never references either parameter by name, and Crystal binds positional call-site args by position, so no caller's behaviour changes."
     },
     {
-      "path": "src/agent_apropos/agents/claude.cr",
-      "occurrence": 1,
-      "original": "def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)",
-      "mutated": "def checks( fs : Path,repo_root : Filesystem, env : Environment) : Array(Check)",
-      "reason": "pure identifier rename at fixed positions (repo_root<->fs swap names only, each keeping its original type); the body is `super + [capability_check(env)]`, and a bare `super` forwards the received arguments by position, so the rename has no effect."
-    },
-    {
       "path": "src/agent_apropos/generate.cr",
       "occurrence": 18,
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the `pending_shell_hook_updates(...).each` block in `sync_shell_hooks`; `Array#each` discards the block's value, so a trailing `next` is the same as falling off the block's end."
-    },
-    {
-      "path": "src/agent_apropos/generate.cr",
-      "occurrence": 1,
-      "original": "pending_shell_hook_updates(repo_root, fs, wire).map do |agent, _, _|",
-      "mutated": "pending_shell_hook_updates(repo_root, fs, wire).map do |agent, _|",
-      "reason": "dropping the second `_` placeholder still auto-destructures each {Agent, String, String} tuple, binding `agent` to the first element and silently discarding the rest; neither underscore was ever read, so the block's behaviour is unchanged."
     }
   ]
 }
