@@ -16,7 +16,12 @@ module AgentApropos
     ROOT_FILE_MAX = 150
     SKILL_DOC_MAX = 500
 
-    record Finding, severity : Symbol, location : String, message : String
+    enum Severity
+      Error
+      Warning
+    end
+
+    record Finding, severity : Severity, location : String, message : String
 
     def run(repo_root : Path, fs : Filesystem, git : Git, strict : Bool,
             stdout : IO, stderr : IO, allow_outside : Bool = false) : Int32
@@ -33,7 +38,6 @@ module AgentApropos
       linted.each { |convention| findings.concat(doc_findings(convention, tracked)) }
       findings.concat(root_file_findings(repo_root, fs))
       findings.concat(wrapper_findings(repo_root, fs, linted, ignored, allow_outside))
-      findings
     end
 
     private def parse_docs(repo_root : Path, fs : Filesystem, allow_outside : Bool) : {Array(Convention), Array(Finding)}
@@ -66,7 +70,20 @@ module AgentApropos
         findings << Finding.new(:error, convention.path, "declares triggers but has an empty body")
       end
 
-      findings
+      findings.concat(event_findings(convention))
+    end
+
+    private def event_findings(convention : Convention) : Array(Finding)
+      fm = convention.frontmatter
+      if fm.events.empty?
+        return [Finding.new(:error, convention.path, "`on:` declares no events, so this doc can never fire")]
+      end
+
+      if fm.events != Set{Frontmatter::Event::Write} && !fm.scoped?
+        return [Finding.new(:error, convention.path, "declares `on:` events with no `paths` or `contents` to match")]
+      end
+
+      [] of Finding
     end
 
     private def key_findings(convention : Convention) : Array(Finding)
@@ -174,19 +191,24 @@ module AgentApropos
       findings.sort_by! { |finding| {finding.location, finding.message} }
       findings.each { |finding| stdout.puts "#{label(finding.severity)}  #{finding.location}: #{finding.message}" }
 
-      errors = findings.count { |finding| finding.severity == :error }
-      warnings = findings.count { |finding| finding.severity == :warning }
+      errors = findings.count(&.severity.error?)
+      warnings = findings.count(&.severity.warning?)
       if findings.empty?
         stdout.puts "lint: clean"
       else
         stdout.puts "lint: #{errors} error(s), #{warnings} warning(s)"
       end
 
-      errors > 0 || (strict && warnings > 0) ? 1 : 0
+      findings.any? { |finding| strict || finding.severity.error? } ? 1 : 0
     end
 
-    private def label(severity : Symbol) : String
-      severity == :error ? "error" : "warn "
+    private def label(severity : Severity) : String
+      case severity
+      in .error?
+        "error"
+      in .warning?
+        "warn "
+      end
     end
   end
 end

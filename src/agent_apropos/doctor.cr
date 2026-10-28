@@ -5,6 +5,7 @@ require "./environment"
 require "./filesystem"
 require "./check"
 require "./agents"
+require "./frontmatter"
 
 module AgentApropos
   module Doctor
@@ -12,12 +13,14 @@ module AgentApropos
 
     INDEX_RELATIVE = Path[".cache", "agent-apropos", "index.json"]
     PROBE_RELATIVE = Path[".cache", "agent-apropos", ".doctor-probe"]
+    WALK_HINT      = "run `agent-apropos lint`, or pass --allow-outside-repo if conventions_dir is outside the repo root"
 
     def run(repo_root : Path, fs : Filesystem, env : Environment, stdout : IO, stderr : IO,
             allow_outside : Bool = false) : Int32
       checks = [agent_apropos_check(env)] +
                Agents::ALL.flat_map(&.checks(repo_root, fs, env)) +
-               [index_check(repo_root, fs, allow_outside), cache_check(repo_root, fs)]
+               [index_check(repo_root, fs, allow_outside), cache_check(repo_root, fs),
+                removal_hook_check(repo_root, fs, allow_outside)]
       report(checks, stdout)
     end
 
@@ -40,8 +43,7 @@ module AgentApropos
         begin
           Conventions.walk(repo_root, fs, allow_outside)
         rescue AgentApropos::Error
-          return Check.new(:warn, "index", "cannot evaluate freshness; run `agent-apropos lint`, " \
-                                           "or pass --allow-outside-repo if conventions_dir is outside the repo root")
+          return Check.new(:warn, "index", "cannot evaluate freshness; #{WALK_HINT}")
         end
 
       if index.covers?(conventions)
@@ -49,6 +51,37 @@ module AgentApropos
       else
         Check.new(:warn, "index", "stale; run `agent-apropos generate`")
       end
+    end
+
+    private def removal_hook_check(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Check
+      conventions =
+        begin
+          Conventions.walk(repo_root, fs, allow_outside)
+        rescue AgentApropos::Error
+          return Check.new(:warn, "removal hook", "cannot evaluate removal conventions; #{WALK_HINT}")
+        end
+      unless conventions.any?(&.frontmatter.events.includes?(Frontmatter::Event::Removed))
+        return Check.new(:ok, "removal hook", "no removal-triggered convention declared")
+      end
+
+      unwired = Agents::ALL.select do |agent|
+        agent.configured?(repo_root, fs) && !shell_hook_wired?(agent, repo_root, fs)
+      end
+
+      if unwired.empty?
+        Check.new(:ok, "removal hook", "shell-tool removal detection is wired for every capable, configured agent")
+      else
+        names = unwired.map(&.name).join(", ")
+        Check.new(:warn, "removal hook", "#{names} shell-tool removal hook missing or out of date; run `agent-apropos generate`")
+      end
+    rescue ex : Init::Error
+      Check.new(:warn, "removal hook", ex.message.to_s)
+    end
+
+    private def shell_hook_wired?(agent : Agents::Agent, repo_root : Path, fs : Filesystem) : Bool
+      path = repo_root.join(agent.config_relative).to_s
+      existing = fs.read?(path)
+      agent.sync_shell_hook(existing, agent.config_relative.to_posix.to_s, true) == existing
     end
 
     private def cache_check(repo_root : Path, fs : Filesystem) : Check
@@ -62,19 +95,19 @@ module AgentApropos
 
     private def report(checks : Array(Check), stdout : IO) : Int32
       checks.each { |check| stdout.puts "#{marker(check.status)}  #{check.name}: #{check.detail}" }
-      failures = checks.count { |check| check.status == :fail }
-      warnings = checks.count { |check| check.status == :warn }
+      failures = checks.count(&.status.fail?)
+      warnings = checks.count(&.status.warn?)
       stdout.puts "doctor: #{failures} failure(s), #{warnings} warning(s)"
-      failures > 0 ? 1 : 0
+      checks.any?(&.status.fail?) ? 1 : 0
     end
 
-    private def marker(status : Symbol) : String
+    private def marker(status : Check::Status) : String
       case status
-      when :ok
+      in .ok?
         "ok  "
-      when :warn
+      in .warn?
         "warn"
-      else
+      in .fail?
         "fail"
       end
     end

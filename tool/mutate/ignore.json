@@ -224,6 +224,13 @@
       "original": "end",
       "mutated": "next\\nend",
       "reason": "closes the `pending_shell_hook_updates(...).each` block in `sync_shell_hooks`; `Array#each` discards the block's value, so a trailing `next` is the same as falling off the block's end."
+    },
+    {
+      "path": "src/agent_apropos/lint.cr",
+      "occurrence": 1,
+      "original": "ROOT_FILES = {\"AGENTS.md\", \"CLAUDE.md\"}",
+      "mutated": "ROOT_FILES =  { \"CLAUDE.md\",\"AGENTS.md\"}",
+      "reason": "`root_file_findings` checks each name independently and `report` sorts all findings by location before printing, so the tuple's iteration order never reaches the output."
     }
   ]
 }
