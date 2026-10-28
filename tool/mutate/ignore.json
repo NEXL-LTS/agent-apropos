@@ -4,20 +4,6 @@
     {
       "path": "src/agent_apropos/rendering.cr",
       "occurrence": 1,
-      "original": "def context(docs : Array({String, String})) : String",
-      "mutated": "def context(docs : Array( { String,String})) : String",
-      "reason": "whitespace inside a type annotation; the argument-swap operator moved spaces, not arguments. The tuple's element types stay in the same positions, so the declared type is identical."
-    },
-    {
-      "path": "src/agent_apropos/rendering.cr",
-      "occurrence": 1,
-      "original": "private def summarized(docs : Array({String, String})) : String",
-      "mutated": "private def summarized(docs : Array( { String,String})) : String",
-      "reason": "the same whitespace-only type-annotation shuffle as the context entry above; the declared type is unchanged."
-    },
-    {
-      "path": "src/agent_apropos/rendering.cr",
-      "occurrence": 1,
       "original": "body.split(\"\\n\\n\", 2).first.strip",
       "mutated": "body.split(\"\\n\\n\", (2+1)).first.strip",
       "reason": "only .first is read, so every limit of 2 or more yields the same element; 2 is simply the cheapest of them."
@@ -224,6 +210,20 @@
       "original": "entries = @injected.values.sort_by!(&.path)",
       "mutated": "entries = @injected.values.sort_by(&.path)",
       "reason": "`Hash#values` returns a freshly-allocated Array on every call, so sorting it in place mutates nothing `@injected` holds; `sort_by` (allocate-and-return) and `sort_by!` (sort-in-place-and-return) leave `entries` holding the identical sorted contents. `sort_by!` is kept because ameba's Performance/ChainedCallWithNoBang requires it after `values`."
+    },
+    {
+      "path": "src/agent_apropos/agents/agent.cr",
+      "occurrence": 1,
+      "original": "def sync_shell_hook(existing : String?, label : String, wire : Bool) : String?",
+      "mutated": "def sync_shell_hook(existing : String?, wire : String, label : Bool) : String?",
+      "reason": "pure identifier rename (label<->wire, each keeping its original type and position); the body only returns `existing` and never references either parameter by name, and Crystal binds positional call-site args by position, so no caller's behaviour changes."
+    },
+    {
+      "path": "src/agent_apropos/generate.cr",
+      "occurrence": 18,
+      "original": "end",
+      "mutated": "next\\nend",
+      "reason": "closes the `pending_shell_hook_updates(...).each` block in `sync_shell_hooks`; `Array#each` discards the block's value, so a trailing `next` is the same as falling off the block's end."
     }
   ]
 }
