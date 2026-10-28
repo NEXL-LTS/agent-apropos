@@ -448,6 +448,23 @@ describe AgentApropos::Agents::Claude do
     end
   end
 
+  describe "#scaffold after #sync_shell_hook" do
+    it "drops --allow-outside-repo from the generated Bash hooks when init reruns without it" do
+      agent = AgentApropos::Agents::Claude.new
+      fs = InMemoryFS.new
+      run_scaffold(fs, AgentApropos::Init::Options.new(allow_outside_repo: true))
+      fs.files[SETTINGS_PATH] = agent.sync_shell_hook(fs.files[SETTINGS_PATH], "settings", true).as(String)
+
+      run_scaffold(fs)
+      hooks = JSON.parse(fs.files[SETTINGS_PATH])["hooks"]
+      commands = ["PreToolUse", "PostToolUse"].flat_map do |event|
+        hooks[event].as_a.select { |group| group["matcher"] == "Bash" }.flat_map { |group| group["hooks"].as_a.map(&.["command"].as_s) }
+      end
+      commands.should eq(["agent-apropos hook pre --tool claude", "agent-apropos hook post --tool claude"])
+      agent.sync_shell_hook(fs.files[SETTINGS_PATH], "settings", true).should eq(fs.files[SETTINGS_PATH])
+    end
+  end
+
   describe "#sync_shell_hook" do
     it "returns existing verbatim, byte-for-byte, when nothing needs to change" do
       sync("{}", false).should eq("{}")
@@ -498,6 +515,20 @@ describe AgentApropos::Agents::Claude do
       wired = JSON.parse(sync(seed, true).as(String))
       bash_pre = wired["hooks"]["PreToolUse"].as_a.find! { |group| group["matcher"] == "Bash" }
       bash_pre["hooks"][0]["command"].as_s.should eq("agent-apropos hook pre --tool claude --allow-outside-repo")
+    end
+
+    it "detects an --allow-outside-repo flag that is not the command's last argument" do
+      seed = %({"hooks":{"PreToolUse":[) +
+             %({"matcher":"Edit|Write","hooks":[{"type":"command","command":"agent-apropos hook pre --allow-outside-repo --tool claude"}]}) +
+             %(]}})
+      wired = JSON.parse(sync(seed, true).as(String))
+      bash_pre = wired["hooks"]["PreToolUse"].as_a.find! { |group| group["matcher"] == "Bash" }
+      bash_pre["hooks"][0]["command"].as_s.should eq("agent-apropos hook pre --tool claude --allow-outside-repo")
+    end
+
+    it "leaves an already-empty Bash group untouched when it holds nothing of its own to drop" do
+      existing = %({"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}]}})
+      sync(existing, false).should eq(existing)
     end
 
     it "upgrades its own outdated Bash-matcher command when the allow-outside state changes between runs" do

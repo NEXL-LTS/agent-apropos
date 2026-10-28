@@ -109,7 +109,7 @@ module AgentApropos
       end
 
       def file_edits : Array(FileEdit)
-        return ApplyPatch.parse(tool_input.try(&.command))[0] if tool_name == "apply_patch"
+        return ApplyPatch.parse(tool_input.try(&.command))[:edits] if tool_name == "apply_patch"
         path = file_path
         path ? [FileEdit.new(path, written_contents)] : [] of FileEdit
       end
@@ -122,7 +122,7 @@ module AgentApropos
       end
 
       def removals : Array(Removal)
-        return ApplyPatch.parse(tool_input.try(&.command))[1] if tool_name == "apply_patch"
+        return ApplyPatch.parse(tool_input.try(&.command))[:removals] if tool_name == "apply_patch"
         [] of Removal
       end
 
@@ -135,25 +135,40 @@ module AgentApropos
         MOVE_MARKER   = "*** Move to: "
         END_MARKER    = "*** End Patch"
 
-        def parse(command : String?) : {Array(FileEdit), Array(Removal)}
-          return {[] of FileEdit, [] of Removal} unless command
-          lines = command.lines
-          edits = [] of FileEdit
-          removals = [] of Removal
-          i = 0
-          while i < lines.size
-            line = lines[i]
-            if path = (prefix(line, ADD_MARKER) || prefix(line, UPDATE_MARKER))
-              i, edit = read_section(lines, i + 1, path)
-              edits << edit
-            elsif path = prefix(line, DELETE_MARKER)
-              i, _ = read_section(lines, i + 1, "")
-              removals << Removal.new(path)
-            else
-              i += 1
-            end
+        private class Section
+          property path : String
+          getter added = [] of String
+
+          def initialize(@path : String)
           end
-          {edits, removals}
+        end
+
+        def parse(command : String?) : {edits: Array(FileEdit), removals: Array(Removal)}
+          sections = [] of Section
+          removals = [] of Removal
+          return {edits: [] of FileEdit, removals: removals} unless command
+          current = nil
+          command.each_line { |line| current = step(line, current, sections, removals) }
+          {edits: sections.map { |section| FileEdit.new(section.path, section.added) }, removals: removals}
+        end
+
+        private def step(line : String, current : Section?, sections : Array(Section),
+                         removals : Array(Removal)) : Section?
+          if path = (prefix(line, ADD_MARKER) || prefix(line, UPDATE_MARKER))
+            section = Section.new(path)
+            sections << section
+            section
+          elsif path = prefix(line, DELETE_MARKER)
+            removals << Removal.new(path)
+            nil
+          elsif current && !section_marker?(line)
+            if moved = prefix(line, MOVE_MARKER)
+              current.path = moved
+            elsif line.starts_with?("+")
+              current.added << line[1..]
+            end
+            current
+          end
         end
 
         private def prefix(line : String, marker : String) : String?
@@ -165,22 +180,6 @@ module AgentApropos
         private def section_marker?(line : String) : Bool
           line.starts_with?(ADD_MARKER) || line.starts_with?(UPDATE_MARKER) ||
             line.starts_with?(DELETE_MARKER) || line.starts_with?(END_MARKER)
-        end
-
-        private def read_section(lines : Array(String), start : Int32, path : String) : {Int32, FileEdit}
-          added = [] of String
-          effective_path = path
-          i = start
-          while i < lines.size && !section_marker?(lines[i])
-            line = lines[i]
-            if moved = prefix(line, MOVE_MARKER)
-              effective_path = moved
-            elsif line.starts_with?("+")
-              added << line[1..]
-            end
-            i += 1
-          end
-          {i, FileEdit.new(effective_path, added)}
         end
       end
     end
