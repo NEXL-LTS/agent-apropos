@@ -33,6 +33,16 @@ private class ReadOnlyFS < InMemoryFS
   end
 end
 
+# Records every write so a spec can see what the cache probe put on disk.
+private class RecordingFS < InMemoryFS
+  getter writes = [] of {String, String}
+
+  def write(path : String, content : String) : Nil
+    @writes << {path, content}
+    super
+  end
+end
+
 private def index_for(text : String) : String
   AgentApropos::Index.build([AgentApropos::Convention.parse("docs/conventions/a.md", text)]).to_document
 end
@@ -155,7 +165,7 @@ describe AgentApropos::Doctor do
     it "warns when a removal convention exists and a configured agent's shell hook is absent" do
       fs = InMemoryFS.new({DOC_PATH => REMOVAL_DOC_TEXT, SETTINGS_PATH => FULL_SETTINGS})
       _, stdout = run_doctor(fs, FakeEnv.new)
-      stdout.should contain("warn  removal hook: claude missing the shell-tool removal hook; run `agent-apropos generate`")
+      stdout.should contain("warn  removal hook: claude shell-tool removal hook missing or out of date; run `agent-apropos generate`")
     end
 
     it "reports ok when the shell hook is already wired" do
@@ -178,7 +188,7 @@ describe AgentApropos::Doctor do
         "/repo/.codex/hooks.json" => "{}",
       })
       _, stdout = run_doctor(fs, FakeEnv.new)
-      stdout.should contain("warn  removal hook: claude, codex missing the shell-tool removal hook")
+      stdout.should contain("warn  removal hook: claude, codex shell-tool removal hook missing or out of date")
     end
 
     it "detects a removal convention when only one of several docs declares it" do
@@ -188,22 +198,35 @@ describe AgentApropos::Doctor do
         SETTINGS_PATH                 => FULL_SETTINGS,
       })
       _, stdout = run_doctor(fs, FakeEnv.new)
-      stdout.should contain("warn  removal hook: claude missing the shell-tool removal hook")
+      stdout.should contain("warn  removal hook: claude shell-tool removal hook missing or out of date")
     end
 
-    it "reports ok rather than warning when conventions cannot be evaluated" do
+    it "warns rather than reporting ok when conventions cannot be evaluated" do
       fs = InMemoryFS.new({
         "/repo/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n",
         SETTINGS_PATH             => "{}",
       })
       _, stdout = run_doctor(fs, FakeEnv.new)
-      stdout.should contain("ok    removal hook: no removal-triggered convention declared")
+      stdout.should contain("warn  removal hook: cannot evaluate removal conventions; run `agent-apropos lint`")
+    end
+
+    it "warns about a malformed agent config instead of aborting the report" do
+      fs = InMemoryFS.new({DOC_PATH => REMOVAL_DOC_TEXT, SETTINGS_PATH => "{not json"})
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("warn  removal hook: existing .claude/settings.json is not valid JSON")
+      stdout.should contain("cache: .cache/agent-apropos is writable")
     end
 
     it "probes and removes the exact .cache/agent-apropos/.doctor-probe path" do
       fs = InMemoryFS.new
       run_doctor(fs, FakeEnv.new)
       fs.removed.should contain("/repo/.cache/agent-apropos/.doctor-probe")
+    end
+
+    it "probes with data, not an empty file, so a cache that cannot accept bytes fails" do
+      fs = RecordingFS.new
+      run_doctor(fs, FakeEnv.new)
+      fs.writes.should eq([{"/repo/.cache/agent-apropos/.doctor-probe", "ok"}])
     end
 
     it "defaults allow_outside to false, refusing to see a removal convention outside the repo root" do
@@ -215,7 +238,7 @@ describe AgentApropos::Doctor do
       stdout = IO::Memory.new
       stderr = IO::Memory.new
       AgentApropos::Doctor.run(ROOT, fs, FakeEnv.new, stdout, stderr)
-      stdout.to_s.should contain("ok    removal hook: no removal-triggered convention declared")
+      stdout.to_s.should contain("warn  removal hook: cannot evaluate removal conventions")
     end
   end
 

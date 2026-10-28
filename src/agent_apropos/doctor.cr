@@ -13,8 +13,7 @@ module AgentApropos
 
     INDEX_RELATIVE = Path[".cache", "agent-apropos", "index.json"]
     PROBE_RELATIVE = Path[".cache", "agent-apropos", ".doctor-probe"]
-    UNWALKABLE     = "cannot evaluate freshness; run `agent-apropos lint`, " \
-                     "or pass --allow-outside-repo if conventions_dir is outside the repo root"
+    WALK_HINT      = "run `agent-apropos lint`, or pass --allow-outside-repo if conventions_dir is outside the repo root"
 
     def run(repo_root : Path, fs : Filesystem, env : Environment, stdout : IO, stderr : IO,
             allow_outside : Bool = false) : Int32
@@ -44,7 +43,7 @@ module AgentApropos
         begin
           Conventions.walk(repo_root, fs, allow_outside)
         rescue AgentApropos::Error
-          return Check.new(:warn, "index", UNWALKABLE)
+          return Check.new(:warn, "index", "cannot evaluate freshness; #{WALK_HINT}")
         end
 
       if index.covers?(conventions)
@@ -55,7 +54,13 @@ module AgentApropos
     end
 
     private def removal_hook_check(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Check
-      unless removal_convention_declared?(repo_root, fs, allow_outside)
+      conventions =
+        begin
+          Conventions.walk(repo_root, fs, allow_outside)
+        rescue AgentApropos::Error
+          return Check.new(:warn, "removal hook", "cannot evaluate removal conventions; #{WALK_HINT}")
+        end
+      unless conventions.any?(&.frontmatter.events.includes?(Frontmatter::Event::Removed))
         return Check.new(:ok, "removal hook", "no removal-triggered convention declared")
       end
 
@@ -67,18 +72,10 @@ module AgentApropos
         Check.new(:ok, "removal hook", "shell-tool removal detection is wired for every capable, configured agent")
       else
         names = unwired.map(&.name).join(", ")
-        Check.new(:warn, "removal hook", "#{names} missing the shell-tool removal hook; run `agent-apropos generate`")
+        Check.new(:warn, "removal hook", "#{names} shell-tool removal hook missing or out of date; run `agent-apropos generate`")
       end
-    end
-
-    private def removal_convention_declared?(repo_root : Path, fs : Filesystem, allow_outside : Bool) : Bool
-      conventions =
-        begin
-          Conventions.walk(repo_root, fs, allow_outside)
-        rescue AgentApropos::Error
-          return false
-        end
-      conventions.any? { |convention| convention.frontmatter.events.includes?(Frontmatter::Event::Removed) }
+    rescue ex : Init::Error
+      Check.new(:warn, "removal hook", ex.message.to_s)
     end
 
     private def shell_hook_wired?(agent : Agents::Agent, repo_root : Path, fs : Filesystem) : Bool
@@ -89,7 +86,7 @@ module AgentApropos
 
     private def cache_check(repo_root : Path, fs : Filesystem) : Check
       probe = repo_root.join(PROBE_RELATIVE).to_s
-      fs.write(probe, "")
+      fs.write(probe, "ok")
       fs.remove(probe)
       Check.new(:ok, "cache", ".cache/agent-apropos is writable")
     rescue
