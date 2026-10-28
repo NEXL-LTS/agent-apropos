@@ -13,6 +13,8 @@ module AgentApropos
 
     INDEX_RELATIVE = Path[".cache", "agent-apropos", "index.json"]
     PROBE_RELATIVE = Path[".cache", "agent-apropos", ".doctor-probe"]
+    UNWALKABLE     = "cannot evaluate freshness; run `agent-apropos lint`, " \
+                     "or pass --allow-outside-repo if conventions_dir is outside the repo root"
 
     def run(repo_root : Path, fs : Filesystem, env : Environment, stdout : IO, stderr : IO,
             allow_outside : Bool = false) : Int32
@@ -42,8 +44,7 @@ module AgentApropos
         begin
           Conventions.walk(repo_root, fs, allow_outside)
         rescue AgentApropos::Error
-          return Check.new(:warn, "index", "cannot evaluate freshness; run `agent-apropos lint`, " \
-                                           "or pass --allow-outside-repo if conventions_dir is outside the repo root")
+          return Check.new(:warn, "index", UNWALKABLE)
         end
 
       if index.covers?(conventions)
@@ -59,7 +60,7 @@ module AgentApropos
       end
 
       unwired = Agents::ALL.select do |agent|
-        agent.configured?(repo_root, fs) && shell_hook_capable?(agent) && !shell_hook_wired?(agent, repo_root, fs)
+        agent.configured?(repo_root, fs) && !shell_hook_wired?(agent, repo_root, fs)
       end
 
       if unwired.empty?
@@ -80,20 +81,15 @@ module AgentApropos
       conventions.any? { |convention| convention.frontmatter.events.includes?(Frontmatter::Event::Removed) }
     end
 
-    private def shell_hook_capable?(agent : Agents::Agent) : Bool
-      !agent.sync_shell_hook(nil, "probe", true).nil?
-    end
-
     private def shell_hook_wired?(agent : Agents::Agent, repo_root : Path, fs : Filesystem) : Bool
       path = repo_root.join(agent.config_relative).to_s
       existing = fs.read?(path)
-      updated = agent.sync_shell_hook(existing, agent.config_relative.to_posix.to_s, true)
-      updated.nil? || updated == existing
+      agent.sync_shell_hook(existing, agent.config_relative.to_posix.to_s, true) == existing
     end
 
     private def cache_check(repo_root : Path, fs : Filesystem) : Check
       probe = repo_root.join(PROBE_RELATIVE).to_s
-      fs.write(probe, "ok")
+      fs.write(probe, "")
       fs.remove(probe)
       Check.new(:ok, "cache", ".cache/agent-apropos is writable")
     rescue
@@ -102,19 +98,19 @@ module AgentApropos
 
     private def report(checks : Array(Check), stdout : IO) : Int32
       checks.each { |check| stdout.puts "#{marker(check.status)}  #{check.name}: #{check.detail}" }
-      failures = checks.count { |check| check.status == :fail }
-      warnings = checks.count { |check| check.status == :warn }
+      failures = checks.count(&.status.fail?)
+      warnings = checks.count(&.status.warn?)
       stdout.puts "doctor: #{failures} failure(s), #{warnings} warning(s)"
-      failures > 0 ? 1 : 0
+      checks.any?(&.status.fail?) ? 1 : 0
     end
 
-    private def marker(status : Symbol) : String
+    private def marker(status : Check::Status) : String
       case status
-      when :ok
+      in .ok?
         "ok  "
-      when :warn
+      in .warn?
         "warn"
-      else
+      in .fail?
         "fail"
       end
     end

@@ -15,6 +15,7 @@
     "src/agent_apropos/agents/claude.cr",
     "src/agent_apropos/agents/codex.cr",
     "src/agent_apropos/lint.cr",
-    "src/agent_apropos/doctor.cr"
+    "src/agent_apropos/doctor.cr",
+    "src/agent_apropos/check.cr"
   ]
 }

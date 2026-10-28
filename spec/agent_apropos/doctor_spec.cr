@@ -100,7 +100,7 @@ describe AgentApropos::Doctor do
         DOC_PATH   => "---\npaths: [\n---\nx\n", # malformed → walk raises
       })
       _, stdout = run_doctor(fs, FakeEnv.new)
-      stdout.should contain("cannot evaluate freshness")
+      stdout.should contain("warn  index: cannot evaluate freshness")
     end
 
     it "warns when the index is stale" do
