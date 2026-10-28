@@ -38,7 +38,7 @@ private class RecordingFS < InMemoryFS
   getter writes = [] of {String, String}
 
   def write(path : String, content : String) : Nil
-    @writes << {path, content}
+    @writes << {SpecPaths.key(path), content}
     super
   end
 end
