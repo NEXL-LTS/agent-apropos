@@ -50,6 +50,7 @@ module AgentApropos
         post_groups = ensure_command(post_groups, "Edit|Write", hook_post, CLAUDE_HOOK_TIMEOUT)
         post_groups = ensure_command(post_groups, "Read", hook_post, CLAUDE_HOOK_TIMEOUT)
         hooks["PostToolUse"] = JSON::Any.new(post_groups)
+        refresh_shell_hooks(hooks, hook_pre, hook_post, CLAUDE_HOOK_TIMEOUT)
 
         root["hooks"] = JSON::Any.new(hooks)
         JSON::Any.new(root).to_pretty_json + "\n"

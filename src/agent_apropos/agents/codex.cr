@@ -73,6 +73,7 @@ module AgentApropos
         hooks = (root["hooks"]?.try(&.as_h?)).try(&.dup) || {} of String => JSON::Any
         wire_event(hooks, "PreToolUse", hook_command(HOOK_PRE_BASE, options))
         wire_event(hooks, "PostToolUse", hook_command(HOOK_POST_BASE, options))
+        refresh_shell_hooks(hooks, hook_command(HOOK_PRE_BASE, options), hook_command(HOOK_POST_BASE, options), HOOK_TIMEOUT.to_i64)
         root["hooks"] = JSON::Any.new(hooks)
         JSON::Any.new(root).to_pretty_json + "\n"
       end

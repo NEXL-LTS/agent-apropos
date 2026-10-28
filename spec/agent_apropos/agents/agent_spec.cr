@@ -79,6 +79,14 @@ private class ShellAgent < AgentApropos::Agents::Agent
     existing || ""
   end
 
+  # Exposes the protected refresh for specs: the hooks of `existing` after
+  # refreshing its own Bash commands for `allow_outside`.
+  def refresh(existing : String, allow_outside : Bool) : JSON::Any
+    hooks = JSON.parse(existing)["hooks"].as_h.dup
+    refresh_shell_hooks(hooks, hook_command(PRE, allow_outside), hook_command(POST, allow_outside), TIMEOUT)
+    JSON::Any.new(hooks)
+  end
+
   protected def hook_check(repo_root : Path, fs : AgentApropos::Filesystem,
                            env : AgentApropos::Environment) : AgentApropos::Check
     AgentApropos::Check.new(:ok, "shell hook", "")
@@ -206,6 +214,28 @@ describe AgentApropos::Agents::Agent do
       checks = StubAgent.new.checks(root, InMemoryFS.new, StubEnv.new)
 
       checks.map(&.name).should eq(["stub hook"])
+    end
+  end
+
+  describe "#refresh_shell_hooks" do
+    it "drops a stale --allow-outside-repo from its own Bash hooks, Pre and Post each keeping its own command" do
+      stale = wired(bash(entry(PRE_FLAG)), bash(entry(POST_FLAG)))
+      ShellAgent.new.refresh(stale, false).should eq(JSON.parse(wired)["hooks"])
+    end
+
+    it "adds --allow-outside-repo to its own Bash hooks when it is enabled" do
+      ShellAgent.new.refresh(wired, true).should eq(JSON.parse(wired(bash(entry(PRE_FLAG)), bash(entry(POST_FLAG))))["hooks"])
+    end
+
+    it "creates no Bash hook where none was wired" do
+      seed = %({"hooks":{"PreToolUse":[{"matcher":"Edit|Write","hooks":[#{PRE_ENTRY}]}]}})
+      ShellAgent.new.refresh(seed, true).should eq(JSON.parse(seed)["hooks"])
+      ShellAgent.new.refresh(%({"hooks":{}}), true).should eq(JSON.parse(%({})))
+    end
+
+    it "leaves another tool's hook in a Bash group untouched" do
+      seed = wired(bash(entry("lint"), entry(PRE_FLAG)), bash(entry(POST_FLAG)))
+      ShellAgent.new.refresh(seed, false).should eq(JSON.parse(wired(bash(entry("lint"), PRE_ENTRY), bash(POST_ENTRY)))["hooks"])
     end
   end
 

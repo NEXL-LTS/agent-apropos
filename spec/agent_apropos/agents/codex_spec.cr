@@ -92,6 +92,21 @@ describe AgentApropos::Agents::Codex do
   end
 
   describe "#scaffold after #sync_shell_hook" do
+    it "drops --allow-outside-repo from the generated Bash hooks when init reruns without it" do
+      agent = AgentApropos::Agents::Codex.new
+      fs = InMemoryFS.new
+      run_scaffold(fs, AgentApropos::Init::Options.new(allow_outside_repo: true))
+      fs.files[HOOKS_PATH] = agent.sync_shell_hook(fs.files[HOOKS_PATH], "hooks", true).as(String)
+
+      run_scaffold(fs)
+      hooks = JSON.parse(fs.files[HOOKS_PATH])["hooks"]
+      commands = ["PreToolUse", "PostToolUse"].flat_map do |event|
+        hooks[event].as_a.select { |group| group["matcher"] == "Bash" }.flat_map { |group| group["hooks"].as_a.map(&.["command"].as_s) }
+      end
+      commands.should eq(["agent-apropos hook pre --tool codex", "agent-apropos hook post --tool codex"])
+      agent.sync_shell_hook(fs.files[HOOKS_PATH], "hooks", true).should eq(fs.files[HOOKS_PATH])
+    end
+
     it "keeps the generated Bash hooks when init runs again" do
       fs = InMemoryFS.new
       run_scaffold(fs)

@@ -74,6 +74,18 @@ module AgentApropos
         JSON::Any.new(root).to_pretty_json + "\n"
       end
 
+      protected def refresh_shell_hooks(hooks : Hash(String, JSON::Any), pre : String, post : String, timeout : Int64) : Nil
+        refresh_shell_event(hooks, "PreToolUse", pre, timeout)
+        refresh_shell_event(hooks, "PostToolUse", post, timeout)
+      end
+
+      private def refresh_shell_event(hooks : Hash(String, JSON::Any), event : String, command : String, timeout : Int64) : Nil
+        groups = event_groups(hooks, event)
+        entry = hook_entry(command, timeout)
+        refreshed = groups.map { |group| group_matcher(group) == SHELL_MATCHER ? refresh_owned_hooks(group, command, entry) : group }
+        hooks[event] = JSON::Any.new(refreshed) unless refreshed == groups
+      end
+
       private def sync_event_hook(hooks : Hash(String, JSON::Any), event : String,
                                   command : String, wire : Bool, timeout : Int64) : Nil
         groups = event_groups(hooks, event)
