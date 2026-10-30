@@ -109,7 +109,8 @@ module AgentApropos
                                 session_id : String?, now : Time, name : String, stdout : IO,
                                 payload : Payload) : Nil
       notice = session_notice(state, session_id)
-      combined = combine(notice, build_context(root, fs, matches))
+      budget = notice ? Rendering::CHAR_CAP - notice.size - 2 : Rendering::CHAR_CAP
+      combined = combine(notice, build_context(root, fs, matches, budget))
       return if combined.empty?
 
       state.add_all(matches.map { |match| {match.entry.path, SessionState::Cause.new(name, match.relative, match.patterns)} })
@@ -202,7 +203,7 @@ module AgentApropos
     rescue
     end
 
-    private def build_context(root : Path, fs : Filesystem, matches : Array(Match)) : String
+    private def build_context(root : Path, fs : Filesystem, matches : Array(Match), budget : Int32) : String
       docs = matches.compact_map do |match|
         entry = match.entry
         text = fs.read?(root.join(entry.path).to_s)
@@ -211,7 +212,7 @@ module AgentApropos
         note = match.removal ? removal_scope_note(entry) : scope_note(entry)
         {entry.path, body.strip + note}
       end
-      Rendering.context(docs)
+      Rendering.context(docs, budget)
     end
 
     private def scope_note(entry : Index::Entry) : String

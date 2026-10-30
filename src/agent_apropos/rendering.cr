@@ -6,9 +6,9 @@ module AgentApropos
 
     SEPARATOR = "\n\n---\n\n"
 
-    def context(docs : Array({String, String})) : String
+    def context(docs : Array({String, String}), budget : Int32 = CHAR_CAP) : String
       full = docs.map { |(path, body)| "Convention (#{path}):\n\n#{body}" }.join(SEPARATOR)
-      full.size <= CHAR_CAP ? full : summarized(docs)
+      full.size <= budget ? full : summarized(docs)
     end
 
     private def summarized(docs : Array({String, String})) : String
