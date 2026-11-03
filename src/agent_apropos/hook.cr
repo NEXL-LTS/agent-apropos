@@ -32,36 +32,42 @@ module AgentApropos
                      "whatever file or construct you're touching into your " \
                      "context, as you read and edit files."
 
+    private enum Phase
+      Pre
+      Post
+    end
+
     def pre(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-            override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
-            allow_outside : Bool = false, git : Git = Git::Real.new) : Int32
-      deliver(:pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
+            override_root : String?, verbose : Bool, tool : String?,
+            allow_outside : Bool, git : Git = Git::Real.new) : Int32
+      deliver(Phase::Pre, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
     end
 
     def post(io_in : IO, stdout : IO, fs : Filesystem, now : Time,
-             override_root : String? = nil, verbose : Bool = false, tool : String? = nil,
-             allow_outside : Bool = false, git : Git = Git::Real.new) : Int32
-      deliver(:post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
+             override_root : String?, verbose : Bool, tool : String?,
+             allow_outside : Bool, git : Git = Git::Real.new) : Int32
+      deliver(Phase::Post, io_in, stdout, fs, now, override_root, verbose, tool, allow_outside, git)
     end
 
-    private def deliver(event : Symbol, io_in : IO, stdout : IO, fs : Filesystem,
+    private def deliver(phase : Phase, io_in : IO, stdout : IO, fs : Filesystem,
                         now : Time, override_root : String?, verbose : Bool, tool : String?,
                         allow_outside : Bool, git : Git) : Int32
       payload = Payload.parse(io_in.gets_to_end)
       root = resolve_root(override_root, payload)
-      execute(event, payload, root, stdout, fs, now, tool, allow_outside, git) if payload && root
+      execute(phase, payload, root, stdout, fs, now, tool, allow_outside, git) if payload && root
       0
     rescue ex
       log_failure(fs, override_root, verbose, now, ex)
       0
     end
 
-    private def execute(event : Symbol, payload : Payload, root : Path, stdout : IO, fs : Filesystem,
+    private def execute(phase : Phase, payload : Payload, root : Path, stdout : IO, fs : Filesystem,
                         now : Time, tool : String?, allow_outside : Bool, git : Git) : Nil
       in_root = payload.file_edits.compact_map { |edit| relative_edit(root, edit) }
-      return execute_removal(event, payload, root, stdout, fs, now, allow_outside, git) if in_root.empty?
+      removed = removed_relative_paths(payload, root, fs, git)
+      return if in_root.empty? && removed.empty?
 
-      index, session_id, state, name, pending = session_context(root, fs, allow_outside, now, payload, event)
+      index, session_id, state, name = load_pipeline_state(payload, root, fs, allow_outside, now, phase)
 
       agent = Agents.find(tool) || Agents.detect(payload)
       if agent.read?(payload)
@@ -69,59 +75,44 @@ module AgentApropos
         return
       end
 
-      matches = dedup_by_entry(in_root.flat_map do |relative, edit|
-        matches_for(pending, event, root, fs, relative, edit)
-      end)
-
-      deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload)
-    end
-
-    private def execute_removal(event : Symbol, payload : Payload, root : Path, stdout : IO,
-                                fs : Filesystem, now : Time, allow_outside : Bool, git : Git) : Nil
-      removed = removed_relative_paths(payload, root, fs, git)
-      return if removed.empty?
-
-      _, session_id, state, name, pending = session_context(root, fs, allow_outside, now, payload, event)
-
-      matches = dedup_by_entry(removed.each_with_index.flat_map { |relative, i|
-        matches_for_removal(pending, root, fs, git, relative, i < REMOVAL_CONTENT_RESOLUTION_BOUND)
-      }.to_a)
-
-      deliver_matches(matches, state, root, fs, session_id, now, name, stdout, payload, removal: true)
-    end
-
-    private def session_context(root : Path, fs : Filesystem, allow_outside : Bool, now : Time,
-                                payload : Payload, event : Symbol) : {Index, String?, SessionState, String, Array(Index::Entry)}
-      index = load_or_build_index(root, fs, allow_outside)
-      session_id = SessionState.key?(payload.session_id)
-      SessionState.prune(root, fs, now)
-      state = SessionState.load(root, fs, session_id)
-      name = event_name(event)
       pending = index.docs.reject { |entry| state.injected?(entry.path) }
-      {index, session_id, state, name, pending}
+      writes = in_root.flat_map { |relative, edit| matches_for(pending, phase, root, fs, relative, edit) }
+      removals = removed.each_with_index.flat_map { |relative, i|
+        matches_for_removal(pending, root, fs, git, relative, i < REMOVAL_CONTENT_RESOLUTION_BOUND)
+      }.to_a
+
+      deliver_matches(dedup_by_entry(writes + removals), state, root, fs, session_id, now, name, stdout, payload)
     end
 
     private def removed_relative_paths(payload : Payload, root : Path, fs : Filesystem, git : Git) : Array(String)
-      structural = payload.removals.map(&.path)
+      structural = payload.removals.map { |removal| relativize(root, removal.path) }
       candidates = removal_command?(payload) ? structural + git.removed_paths(root, fs) : structural
       candidates.reject { |relative| outside_root?(relative) }
     end
 
+    private def load_pipeline_state(payload : Payload, root : Path, fs : Filesystem, allow_outside : Bool,
+                                    now : Time, phase : Phase) : {Index, String?, SessionState, String}
+      index = load_or_build_index(root, fs, allow_outside)
+      session_id = SessionState.key?(payload.session_id)
+      SessionState.prune(root, fs, now)
+      state = SessionState.load(root, fs, session_id)
+      {index, session_id, state, event_name(phase)}
+    end
+
     private def removal_command?(payload : Payload) : Bool
+      return false if payload.tool_name == "apply_patch"
       command = payload.tool_input.try(&.command)
       !command.nil? && REMOVAL_VERB_PATTERN.matches?(command)
     end
 
     private def deliver_matches(matches : Array(Match), state : SessionState, root : Path, fs : Filesystem,
                                 session_id : String?, now : Time, name : String, stdout : IO,
-                                payload : Payload, removal : Bool = false) : Nil
+                                payload : Payload) : Nil
       notice = session_notice(state, session_id)
-      combined = combine(notice, build_context(root, fs, matches.map(&.entry), removal))
+      combined = combine(notice, build_context(root, fs, matches))
       return if combined.empty?
 
-      matches.each do |match|
-        state.add(match.entry.path, SessionState::Cause.new(name, match.relative, match.patterns))
-      end
+      state.add_all(matches.map { |match| {match.entry.path, SessionState::Cause.new(name, match.relative, match.patterns)} })
       state.notify! if notice
       state.save(root, fs, session_id, now)
       emit(stdout, name, combined, payload.copilot?)
@@ -134,9 +125,7 @@ module AgentApropos
       recorded = index.docs.select { |entry| read.includes?(entry.path) }
       return if recorded.empty?
 
-      recorded.each do |entry|
-        state.add(entry.path, SessionState::Cause.new(name, entry.path, [] of String))
-      end
+      state.add_all(recorded.map { |entry| {entry.path, SessionState::Cause.new(name, entry.path, [] of String)} })
       state.save(root, fs, session_id, now)
     end
 
@@ -146,15 +135,10 @@ module AgentApropos
       {relative, edit}
     end
 
-    private record Match, entry : Index::Entry, patterns : Array(String), relative : String
+    private record Match, entry : Index::Entry, patterns : Array(String), relative : String, removal : Bool
 
     private def dedup_by_entry(matches : Array(Match)) : Array(Match)
-      seen = Set(String).new
-      matches.select do |match|
-        next false if seen.includes?(match.entry.path)
-        seen << match.entry.path
-        true
-      end
+      matches.uniq(&.entry.path)
     end
 
     private def session_notice(state : SessionState, session_id : String?) : String?
@@ -168,36 +152,34 @@ module AgentApropos
       "#{notice}\n\n#{context}"
     end
 
-    private def matches_for(entries : Array(Index::Entry), event : Symbol, root : Path,
+    private def matches_for(entries : Array(Index::Entry), phase : Phase, root : Path,
                             fs : Filesystem, relative : String, edit : Payload::FileEdit) : Array(Match)
-      content = content_for(event, edit, root, fs, relative)
+      content = content_for(phase, edit, root, fs, relative)
       entries.compact_map do |entry|
         patterns = entry.triggers(relative, content)
         next unless patterns
-        Match.new(entry, patterns, relative)
+        Match.new(entry, patterns, relative, false)
       end
     end
 
-    private def content_for(event : Symbol, edit : Payload::FileEdit, root : Path,
+    private def content_for(phase : Phase, edit : Payload::FileEdit, root : Path,
                             fs : Filesystem, relative : String) : String?
       pieces = edit.written_contents
       return pieces.join('\n') unless pieces.empty?
-      return nil if event == :pre
+      return nil if phase.pre?
       fs.read?(root.join(relative).to_s)
     end
 
     private def matches_for_removal(entries : Array(Index::Entry), root : Path, fs : Filesystem,
                                     git : Git, relative : String, resolve_content : Bool) : Array(Match)
-      content = nil
-      resolved = false
+      needs = resolve_content && entries.any? do |entry|
+        entry.events.includes?(Frontmatter::Event::Removed) && !entry.contents.empty?
+      end
+      content = needs ? resolve_removed_content(root, git, relative) : nil
       entries.compact_map do |entry|
-        if resolve_content && !entry.contents.empty? && !resolved
-          content = resolve_removed_content(root, git, relative)
-          resolved = true
-        end
         patterns = entry.triggers(relative, content, Frontmatter::Event::Removed)
         next unless patterns
-        Match.new(entry, patterns, relative)
+        Match.new(entry, patterns, relative, true)
       end
     end
 
@@ -220,13 +202,13 @@ module AgentApropos
     rescue
     end
 
-    private def build_context(root : Path, fs : Filesystem, entries : Array(Index::Entry),
-                              removal : Bool = false) : String
-      docs = entries.compact_map do |entry|
+    private def build_context(root : Path, fs : Filesystem, matches : Array(Match)) : String
+      docs = matches.compact_map do |match|
+        entry = match.entry
         text = fs.read?(root.join(entry.path).to_s)
         next unless text
         _, body = Frontmatter.split(text)
-        note = removal ? removal_scope_note(entry) : scope_note(entry)
+        note = match.removal ? removal_scope_note(entry) : scope_note(entry)
         {entry.path, body.strip + note}
       end
       Rendering.context(docs)
@@ -256,25 +238,15 @@ module AgentApropos
     end
 
     private def emit(stdout : IO, event_name : String, context : String, copilot : Bool) : Nil
-      JSON.build(stdout) do |json|
-        json.object do
-          if copilot
-            json.field "additionalContext", context
-          else
-            json.field "hookSpecificOutput" do
-              json.object do
-                json.field "hookEventName", event_name
-                json.field "additionalContext", context
-              end
-            end
-          end
-        end
-      end
-      stdout.puts
+      body = copilot ? {additionalContext: context} : {hookSpecificOutput: {hookEventName: event_name, additionalContext: context}}
+      stdout.puts body.to_json
     end
 
-    private def event_name(event : Symbol) : String
-      event == :pre ? "PreToolUse" : "PostToolUse"
+    private def event_name(phase : Phase) : String
+      case phase
+      in .pre?  then "PreToolUse"
+      in .post? then "PostToolUse"
+      end
     end
 
     private def resolve_root(override_root : String?, payload : Payload?) : Path?
@@ -314,10 +286,10 @@ module AgentApropos
     private def prune_logs(fs : Filesystem, log_dir : Path, now : Time) : Nil
       cutoff = (now - LOG_MAX_AGE).to_unix
       dated = fs.glob(log_dir, "*.log").compact_map do |file|
-        stamp = Path[file].basename(".log").partition('-').first.to_i64?
+        stamp = Path[file].basename.partition('-').first.to_i64?
         {stamp, file} if stamp
       end
-      keep = dated.sort_by! { |stamp, _| -stamp }.first(LOG_MAX_FILES).to_set
+      keep = dated.sort_by { |stamp, _| -stamp }.first(LOG_MAX_FILES).to_set
       dated.each do |entry|
         stamp, file = entry
         fs.remove(file) if stamp < cutoff || !keep.includes?(entry)

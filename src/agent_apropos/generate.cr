@@ -111,7 +111,7 @@ module AgentApropos
 
     private def shell_hook_drift(repo_root : Path, fs : Filesystem, wire : Bool) : Array(String)
       state = wire ? "missing" : "orphaned"
-      pending_shell_hook_updates(repo_root, fs, wire).map do |agent, _, _|
+      pending_shell_hook_updates(repo_root, fs, wire).map(&.first).map do |agent|
         "hook:    #{agent.config_relative.to_posix} (shell removal detection #{state})"
       end
     end

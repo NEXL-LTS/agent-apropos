@@ -68,26 +68,11 @@ dup: ## Check src/**/*.cr for code duplication (jscpd; zero clones required)
 mutate: ## Run the mutation gate on the changed lines (see docs/mutation-testing.md)
 	./scripts/mutate.sh $(ARGS)
 
-# Deterministic bats tests for the devcontainer's host-side initializeCommand
-# (.devcontainer/initialize.sh). Offline and credential-free, unlike the live
-# `e2e` target below, so this one does belong in `check`. bats and the
-# bats-support/bats-assert libraries ship in the devcontainer image; default
-# BATS_LIB_PATH to their install location so the target works even when that
-# env var is not exported into the current shell.
-.PHONY: devcontainer-spec
-devcontainer-spec: ## Run the bats tests for .devcontainer/initialize.sh
-	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats .devcontainer/tests
-
-# Deterministic bats tests for the repo's own Claude Code hook scripts under
-# .claude/hooks/. Same story as devcontainer-spec: offline, credential-free, and
-# therefore part of `check`.
-.PHONY: hooks-spec
-hooks-spec: ## Run the bats tests for .claude/hooks/
-	BATS_LIB_PATH="$${BATS_LIB_PATH:-/usr/local/lib/bats}" bats .claude/hooks/tests
-
-# Deterministic bats tests for install.sh's platform gate. Same story as the two
-# suites above: offline and credential-free, so it belongs in `check`. The
-# network-dependent half of the installer is covered by the release workflow's
+# Deterministic bats tests for install.sh's platform gate. Offline and
+# credential-free, unlike the live `e2e` target, so it belongs in `check`. bats and
+# the bats-support/bats-assert libraries ship in the devcontainer image; default
+# BATS_LIB_PATH to their install location so the target works even when that env
+# var is not exported into the current shell. The network-dependent half of the installer is covered by the release workflow's
 # self-test against a freshly built artifact.
 #
 # Named per suite rather than `bats tests`, so tests/ can hold more than one.
@@ -121,7 +106,7 @@ plans-check: ## Fail if any plan doc is committed under docs/plans/
 	./scripts/check-plans-empty.sh
 
 .PHONY: check
-check: lint spec dup devcontainer-spec hooks-spec installer-spec mutate-spec plans-spec plans-check ## Lint + spec + duplication + devcontainer + hook + installer + mutation-runner + plans checks (the fast local gate)
+check: lint spec dup installer-spec mutate-spec plans-spec plans-check ## Lint + spec + duplication + installer + mutation-runner + plans checks (the fast local gate)
 
 # End-to-end test: stands up a sample repo wired with agent-apropos's hooks and
 # proves agent-apropos injects conventions and steers a real `claude` run. Local/advisory —

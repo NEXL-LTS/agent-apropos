@@ -27,7 +27,7 @@ module AgentApropos
       end
 
       def checks(repo_root : Path, fs : Filesystem, env : Environment) : Array(Check)
-        super + [capability_check(env)]
+        super(repo_root, fs, env) + [capability_check(env)]
       end
 
       def skill_root : Path
@@ -42,14 +42,15 @@ module AgentApropos
         hooks = (root["hooks"]?.try(&.as_h?)).try(&.dup) || {} of String => JSON::Any
 
         pre_groups = (hooks["PreToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
-        pre_groups = ensure_commands(pre_groups, "Edit|Write", [hook_pre], CLAUDE_HOOK_TIMEOUT)
+        pre_groups = ensure_command(pre_groups, "Edit|Write", hook_pre, CLAUDE_HOOK_TIMEOUT)
         pre_groups = drop_owned_commands(pre_groups, "Read")
         hooks["PreToolUse"] = JSON::Any.new(pre_groups)
 
         post_groups = (hooks["PostToolUse"]?.try(&.as_a?)).try(&.dup) || [] of JSON::Any
-        post_groups = ensure_commands(post_groups, "Edit|Write", [hook_post], CLAUDE_HOOK_TIMEOUT)
-        post_groups = ensure_commands(post_groups, "Read", [hook_post], CLAUDE_HOOK_TIMEOUT)
+        post_groups = ensure_command(post_groups, "Edit|Write", hook_post, CLAUDE_HOOK_TIMEOUT)
+        post_groups = ensure_command(post_groups, "Read", hook_post, CLAUDE_HOOK_TIMEOUT)
         hooks["PostToolUse"] = JSON::Any.new(post_groups)
+        refresh_shell_hooks(hooks, hook_pre, hook_post, CLAUDE_HOOK_TIMEOUT)
 
         root["hooks"] = JSON::Any.new(hooks)
         JSON::Any.new(root).to_pretty_json + "\n"
@@ -78,21 +79,9 @@ module AgentApropos
       end
 
       private def agent_apropos_events(content : String) : Set(String)?
-        parsed =
-          begin
-            JSON.parse(content)
-          rescue JSON::ParseException
-            return nil
-          end
-        hooks = parsed.as_h?.try(&.["hooks"]?).try(&.as_h?)
-        events = Set(String).new
-        return events unless hooks
-        hooks.each do |event, groups|
-          array = groups.as_a?
-          next unless array
-          events << event if array.any? { |group| agent_apropos_group?(group) }
-        end
-        events
+        hooks = JSON.parse(content).as_h?.try(&.["hooks"]?).try(&.as_h?) || {} of String => JSON::Any
+        hooks.select { |_, groups| groups.as_a?.try(&.any? { |group| agent_apropos_group?(group) }) }.keys.to_set
+      rescue JSON::ParseException
       end
 
       private def capability_check(env : Environment) : Check
@@ -112,9 +101,9 @@ module AgentApropos
       end
 
       private def extract_version(output : String) : SemanticVersion?
-        match = output.match(/(\d+\.\d+\.\d+)/)
-        return nil unless match
-        SemanticVersion.parse(match[1])
+        version = output[/\d+\.\d+\.\d+/]?
+        return nil unless version
+        SemanticVersion.parse(version)
       end
 
       private def min_version : SemanticVersion

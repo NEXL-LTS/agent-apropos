@@ -52,6 +52,15 @@ generate() {
 
 mutants() { cat "$OUT"/*.cr; }
 
+# Every line a mutant changed or inserted, one per line, so a case can assert on
+# what one rule produced from one source line without the rest of the file.
+mutated_lines() {
+  local fixture="$FIXTURE_DIR/$1" mutant
+  for mutant in "$OUT"/*.cr; do
+    diff "$fixture" "$mutant" | sed -n 's/^> //p' || true
+  done
+}
+
 # The whole-number percentage of generated mutants that survive the compile
 # gate, for one subject and one gate command. Extra arguments select the rule
 # set; with none, the engine loads its own shipped defaults.
@@ -151,6 +160,144 @@ CR
   refute_regex "$(mutants)" 'abstract def diff\(\s*range'
   refute_regex "$(mutants)" 'abstract def config_content\(\s*options'
   assert_regex "$(mutants)" 'def concrete\(\s*b : Int32,a : Int32\)'
+}
+
+@test "a bare return is never rewritten to return nil, which it already is" {
+  cat >"$FIXTURE_DIR/bare.cr" <<'CR'
+def bare(value)
+  puts value
+  return
+  return # nothing to hand back
+end
+CR
+  generate bare.cr
+
+  run mutated_lines bare.cr
+  refute_line --partial 'return nil'
+}
+
+@test "a valued or guarded return still gets a return-nil mutant" {
+  cat >"$FIXTURE_DIR/valued.cr" <<'CR'
+def valued(value)
+  return value
+end
+CR
+  cat >"$FIXTURE_DIR/guarded.cr" <<'CR'
+def guarded(value)
+  return if value
+end
+CR
+  generate valued.cr
+  run mutated_lines valued.cr
+  assert_line '  return nil'
+
+  generate guarded.cr
+  run mutated_lines guarded.cr
+  assert_line '  return nil'
+}
+
+@test "digits inside an identifier are never treated as a numeric literal" {
+  cat >"$FIXTURE_DIR/typed.cr" <<'CR'
+def typed(a : Int32) : UInt64
+  foo_2 + a
+end
+CR
+  generate typed.cr
+
+  run mutated_lines typed.cr
+  refute_line --regexp 'Int(-1|0|1|\(32)'
+  refute_line --regexp 'UInt(-1|0|1|\(64)'
+  refute_line --regexp 'foo_(-1|0|1|\(2)'
+}
+
+@test "every digit run of a numeric literal still gets every literal mutant" {
+  cat >"$FIXTURE_DIR/literals.cr" <<'CR'
+def literals(a)
+  a + 10
+  a + 1_000
+  a + 0x1F
+  a + 1.5
+  a + 10_000_i64
+end
+CR
+  generate literals.cr
+
+  run mutated_lines literals.cr
+  assert_line '  a + 0'
+  assert_line '  a + 1'
+  assert_line '  a + -1'
+  assert_line '  a + (10+1)'
+  assert_line '  a + (10-1)'
+  # Runs after a separator, a radix prefix, a decimal point, and an underscore
+  # before a suffix: the shipped guard reached each of these.
+  assert_line '  a + 1_0'
+  assert_line '  a + 0x0F'
+  assert_line '  a + 1.0'
+  assert_line '  a + 10_1_i64'
+}
+
+@test "next before the end of an if with a statement after it is still inserted" {
+  cat >"$FIXTURE_DIR/guarded_loop.cr" <<'CR'
+def guarded_loop(values)
+  values.each do |value|
+    if value.empty?
+      puts "empty"
+    end
+    puts value
+  end
+end
+CR
+  generate guarded_loop.cr
+
+  # Skips the trailing `puts value` for empty values, so it is not equivalent.
+  grep -qzP 'puts "empty"\n      next\n    end\n    puts value' "$OUT"/*.cr ||
+    fail "no mutant inserted next as the last statement of the if"
+}
+
+@test "swapping two identical items is never generated, being whitespace-only" {
+  cat >"$FIXTURE_DIR/same.cr" <<'CR'
+def same(a, k)
+  Array({String, String})
+  {Agents::Agent, String, String}
+  qux(a , a)
+  bar(k=1, k=2)
+  baz(k: 1, k: 2)
+end
+CR
+  generate same.cr
+
+  local mutant
+  for mutant in "$OUT"/*.cr; do
+    if diff -w -q "$FIXTURE_DIR/same.cr" "$mutant" >/dev/null; then
+      fail "whitespace-only mutant: $(diff "$FIXTURE_DIR/same.cr" "$mutant" | sed -n 's/^> //p')"
+    fi
+  done
+}
+
+@test "swapping two different items is still generated" {
+  cat >"$FIXTURE_DIR/differ.cr" <<'CR'
+def differ(a, b, x, y)
+  foo(a, b)
+  {x, y}
+  [1, 2]
+  bar(k=1, j=2)
+  baz(k: 1, j: 2)
+  Array({Int32, String})
+  qux(a, ab)
+end
+CR
+  generate differ.cr
+
+  run mutated_lines differ.cr
+  assert_line 'def differ ( b,a, x, y)'
+  assert_line '  foo ( b,a)'
+  assert_line '   { y,x}'
+  assert_line '   [ 2,1]'
+  assert_line '  bar( j=1,k=2)'
+  assert_line '  baz( j: 1,k: 2)'
+  assert_line '  baz ( j: 2,k: 1)'
+  assert_line '  Array( { String,Int32})'
+  assert_line '  qux ( ab,a)'
 }
 
 @test "every rules file the engine ships is accounted for" {
