@@ -314,14 +314,14 @@ describe AgentApropos::Agents::Claude do
     describe "hooks check" do
       it "fails when settings.json is absent" do
         check = check_named(run_checks(InMemoryFS.new), "hooks")
-        check.status.should eq(:fail)
+        check.status.should eq(AgentApropos::Check::Status::Fail)
         check.detail.should contain(".claude/settings.json not found")
       end
 
       it "warns when settings.json is not valid JSON" do
         fs = InMemoryFS.new({SETTINGS_PATH => "{not json"})
         check = check_named(run_checks(fs), "hooks")
-        check.status.should eq(:warn)
+        check.status.should eq(AgentApropos::Check::Status::Warn)
         check.detail.should contain(".claude/settings.json is not valid JSON")
       end
 

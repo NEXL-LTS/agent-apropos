@@ -1,10 +1,11 @@
 require "../spec_helper"
 
-private ROOT          = Path["/repo"]
-private SETTINGS_PATH = "/repo/.claude/settings.json"
-private INDEX_PATH    = "/repo/.cache/agent-apropos/index.json"
-private DOC_PATH      = "/repo/docs/conventions/a.md"
-private DOC_TEXT      = "---\npaths: [\"src/**\"]\n---\n# A\n\nBody.\n"
+private ROOT             = Path["/repo"]
+private SETTINGS_PATH    = "/repo/.claude/settings.json"
+private INDEX_PATH       = "/repo/.cache/agent-apropos/index.json"
+private DOC_PATH         = "/repo/docs/conventions/a.md"
+private DOC_TEXT         = "---\npaths: [\"src/**\"]\n---\n# A\n\nBody.\n"
+private REMOVAL_DOC_TEXT = "---\non: [removed]\npaths: [\"src/**\"]\n---\n# A\n\nBody.\n"
 
 private FULL_SETTINGS = %({"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"agent-apropos hook pre"}]}],) +
                         %("PostToolUse":[{"hooks":[{"type":"command","command":"agent-apropos hook post"}]}]}})
@@ -29,6 +30,16 @@ end
 private class ReadOnlyFS < InMemoryFS
   def write(path : String, content : String) : Nil
     raise "read-only filesystem"
+  end
+end
+
+# Records every write so a spec can see what the cache probe put on disk.
+private class RecordingFS < InMemoryFS
+  getter writes = [] of {String, String}
+
+  def write(path : String, content : String) : Nil
+    @writes << {SpecPaths.key(path), content}
+    super
   end
 end
 
@@ -99,7 +110,7 @@ describe AgentApropos::Doctor do
         DOC_PATH   => "---\npaths: [\n---\nx\n", # malformed → walk raises
       })
       _, stdout = run_doctor(fs, FakeEnv.new)
-      stdout.should contain("cannot evaluate freshness")
+      stdout.should contain("warn  index: cannot evaluate freshness")
     end
 
     it "warns when the index is stale" do
@@ -142,5 +153,99 @@ describe AgentApropos::Doctor do
       code.should eq(1)
       stdout.should contain("fail  cache: .cache/agent-apropos is not writable")
     end
+  end
+
+  describe "removal hook check" do
+    it "reports ok when no removal convention exists" do
+      fs = InMemoryFS.new({DOC_PATH => DOC_TEXT, SETTINGS_PATH => "{}"})
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("ok    removal hook: no removal-triggered convention declared")
+    end
+
+    it "warns when a removal convention exists and a configured agent's shell hook is absent" do
+      fs = InMemoryFS.new({DOC_PATH => REMOVAL_DOC_TEXT, SETTINGS_PATH => FULL_SETTINGS})
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("warn  removal hook: claude shell-tool removal hook missing or out of date; run `agent-apropos generate`")
+    end
+
+    it "reports ok when the shell hook is already wired" do
+      wired = AgentApropos::Agents::Claude.new.sync_shell_hook(FULL_SETTINGS, "settings", true).as(String)
+      fs = InMemoryFS.new({DOC_PATH => REMOVAL_DOC_TEXT, SETTINGS_PATH => wired})
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("ok    removal hook: shell-tool removal detection is wired for every capable, configured agent")
+    end
+
+    it "stays silent about a configured agent that cannot deliver the event at all" do
+      fs = InMemoryFS.new({DOC_PATH => REMOVAL_DOC_TEXT, "/repo/.gemini/settings.json" => "{}"})
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("ok    removal hook: shell-tool removal detection is wired for every capable, configured agent")
+    end
+
+    it "names every unwired capable agent" do
+      fs = InMemoryFS.new({
+        DOC_PATH                  => REMOVAL_DOC_TEXT,
+        SETTINGS_PATH             => FULL_SETTINGS,
+        "/repo/.codex/hooks.json" => "{}",
+      })
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("warn  removal hook: claude, codex shell-tool removal hook missing or out of date")
+    end
+
+    it "detects a removal convention when only one of several docs declares it" do
+      fs = InMemoryFS.new({
+        DOC_PATH                      => DOC_TEXT,
+        "/repo/docs/conventions/b.md" => REMOVAL_DOC_TEXT,
+        SETTINGS_PATH                 => FULL_SETTINGS,
+      })
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("warn  removal hook: claude shell-tool removal hook missing or out of date")
+    end
+
+    it "warns rather than reporting ok when conventions cannot be evaluated" do
+      fs = InMemoryFS.new({
+        "/repo/agent-apropos.yml" => "conventions_dir: ../shared-conventions\n",
+        SETTINGS_PATH             => "{}",
+      })
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("warn  removal hook: cannot evaluate removal conventions; run `agent-apropos lint`")
+    end
+
+    it "warns about a malformed agent config instead of aborting the report" do
+      fs = InMemoryFS.new({DOC_PATH => REMOVAL_DOC_TEXT, SETTINGS_PATH => "{not json"})
+      _, stdout = run_doctor(fs, FakeEnv.new)
+      stdout.should contain("warn  removal hook: existing .claude/settings.json is not valid JSON")
+      stdout.should contain("cache: .cache/agent-apropos is writable")
+    end
+
+    it "probes and removes the exact .cache/agent-apropos/.doctor-probe path" do
+      fs = InMemoryFS.new
+      run_doctor(fs, FakeEnv.new)
+      fs.removed.should contain("/repo/.cache/agent-apropos/.doctor-probe")
+    end
+
+    it "probes with data, not an empty file, so a cache that cannot accept bytes fails" do
+      fs = RecordingFS.new
+      run_doctor(fs, FakeEnv.new)
+      fs.writes.should eq([{"/repo/.cache/agent-apropos/.doctor-probe", "ok"}])
+    end
+
+    it "defaults allow_outside to false, refusing to see a removal convention outside the repo root" do
+      fs = InMemoryFS.new({
+        "/repo/agent-apropos.yml"          => "conventions_dir: ../shared-conventions\n",
+        "/repo/../shared-conventions/a.md" => REMOVAL_DOC_TEXT,
+        SETTINGS_PATH                      => "{}",
+      })
+      stdout = IO::Memory.new
+      stderr = IO::Memory.new
+      AgentApropos::Doctor.run(ROOT, fs, FakeEnv.new, stdout, stderr)
+      stdout.to_s.should contain("warn  removal hook: cannot evaluate removal conventions")
+    end
+  end
+
+  it "counts a lone warning correctly, not zero or two" do
+    fs = InMemoryFS.new({SETTINGS_PATH => FULL_SETTINGS, DOC_PATH => DOC_TEXT, INDEX_PATH => index_for(DOC_TEXT)})
+    code, stdout = run_doctor(fs, FakeEnv.new)
+    code.should eq(0)
+    stdout.should contain("doctor: 0 failure(s), 1 warning(s)")
   end
 end
