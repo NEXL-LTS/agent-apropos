@@ -107,6 +107,36 @@ describe AgentApropos::Review do
       rules[0].as_h.has_key?("layer").should be_false
     end
 
+    it "sorts rule files across inputs, not in the order the inputs matched them" do
+      fs = InMemoryFS.new({A_PATH => A_DOC, DB_PATH => DB_DOC, "/repo/lib/x.cr" => "db.transaction do", "/repo/src/y.cr" => "y"})
+      _, stdout, _ = run_match(fs, ["lib/x.cr", "src/y.cr"])
+      stdout.should eq("docs/conventions/a.md\ndocs/conventions/db.md\n")
+    end
+
+    it "emits json with a fixed key order, byte for byte" do
+      fs = InMemoryFS.new({A_PATH => A_DOC, "/repo/src/x.cr" => "x"})
+      _, stdout, _ = run_match(fs, ["src/x.cr"], "json")
+      stdout.should eq(<<-JSON)
+      {
+        "files": [
+          {
+            "path": "src/x.cr",
+            "rules": [
+              {
+                "path": "docs/conventions/a.md",
+                "triggers": [
+                  "src/**"
+                ],
+                "verify": null
+              }
+            ]
+          }
+        ]
+      }
+
+      JSON
+    end
+
     it "concatenates bodies for --format full, deduping a rule matched by two paths" do
       fs = InMemoryFS.new({A_PATH => A_DOC, "/repo/src/x.cr" => "x", "/repo/src/y.cr" => "y"})
       code, stdout, _ = run_match(fs, ["src/x.cr", "src/y.cr"], "full")
@@ -240,6 +270,22 @@ describe AgentApropos::Review do
   end
 
   describe ".run" do
+    it "emits json with the range before the files, byte for byte" do
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n+y\n"), "main...HEAD", "json")
+      stdout.should eq(<<-JSON)
+      {
+        "range": "main...HEAD",
+        "files": [
+          {
+            "path": "x",
+            "rules": []
+          }
+        ]
+      }
+
+      JSON
+    end
+
     it "matches each changed file's path and added lines" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC, MODELS_PATH => MODELS_DOC})
       code, stdout, stderr = run_review(fs, FakeGit.new(diff_text: DIFF), "main...HEAD")
@@ -375,6 +421,8 @@ describe AgentApropos::Review do
       parsed = JSON.parse(stdout)
       file2 = parsed["files"].as_a.find! { |file| file["path"] == "file2" }
       file2["rules"].as_a.should be_empty
+      file1 = parsed["files"].as_a.find! { |file| file["path"] == "file1" }
+      file1["rules"].as_a.should be_empty
     end
 
     it "strips only the diff marker from an added line, not real content" do
@@ -402,6 +450,23 @@ describe AgentApropos::Review do
       _, stdout, _ = run_review(fs, FakeGit.new(diff_text: no_prefix_diff), "main...HEAD", "json")
       parsed = JSON.parse(stdout)
       parsed["files"][0]["path"].should eq("new.cr")
+    end
+
+    it "keeps an unprefixed path that sorts before /dev/null, such as a dotfile" do
+      no_prefix_diff = "--- .github/ci.yml\n+++ .github/ci.yml\n@@ -1 +1 @@\n+x\n"
+      write_doc = "---\npaths: [\".github/**\"]\n---\n# W\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: no_prefix_diff), "main...HEAD", "json")
+      parsed = JSON.parse(stdout)
+      parsed["files"][0]["path"].should eq(".github/ci.yml")
+      parsed["files"][0]["rules"][0]["path"].should eq("docs/conventions/w.md")
+    end
+
+    it "drops the tab git appends after a path containing a space" do
+      spaced_diff = "--- a/my file.cr\t\n+++ b/my file.cr\t\n@@ -1 +1 @@\n+x\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => "---\npaths: [\"my file.cr\"]\n---\n# W\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: spaced_diff), "main...HEAD", "json")
+      JSON.parse(stdout)["files"][0]["path"].should eq("my file.cr")
     end
 
     it "harvests `## Verify` criteria as checklist items in the md manifest" do

@@ -23,6 +23,10 @@ module AgentApropos
 
       def initialize(@path, @triggers, @verify, @body)
       end
+
+      def to_json(json : JSON::Builder) : Nil
+        {path: path, triggers: triggers, verify: verify}.to_json(json)
+      end
     end
 
     struct FileMatches
@@ -30,6 +34,10 @@ module AgentApropos
       getter rules : Array(RuleMatch)
 
       def initialize(@path, @rules)
+      end
+
+      def to_json(json : JSON::Builder) : Nil
+        {path: path, rules: rules}.to_json(json)
       end
     end
 
@@ -121,52 +129,48 @@ module AgentApropos
     end
 
     private def default_base(git : Git, repo_root : Path) : String
-      if base = git.symbolic_ref(repo_root, "refs/remotes/origin/HEAD")
-        return base
-      end
-      DEFAULT_BASE_CANDIDATES.each do |candidate|
-        return candidate if git.ref_exists?(repo_root, candidate)
-      end
-      raise Git::Error.new(
-        "could not determine the default branch; pass an explicit range (e.g. origin/main...HEAD)"
-      )
+      git.symbolic_ref(repo_root, "refs/remotes/origin/HEAD") ||
+        DEFAULT_BASE_CANDIDATES.find { |candidate| git.ref_exists?(repo_root, candidate) } ||
+        raise Git::Error.new("could not determine the default branch; pass an explicit range (e.g. origin/main...HEAD)")
     end
 
     private record ParsedFile, path : String, old_path : String?, added : String, removed : String, deleted : Bool
 
-    private record DiffState,
-      order : Array(String) = [] of String,
-      added : Hash(String, Array(String)) = {} of String => Array(String),
-      removed : Hash(String, Array(String)) = {} of String => Array(String),
-      old_paths : Hash(String, String?) = {} of String => String?,
-      deleted : Hash(String, Bool) = {} of String => Bool
+    private class DiffState
+      getter order = [] of String
+      getter added = {} of String => Array(String)
+      getter removed = {} of String => Array(String)
+      getter old_paths = {} of String => String?
+      getter deleted = {} of String => Bool
+      property current : String? = nil
+      property pending_old : String? = nil
+      property hunk_path : String? = nil
+    end
 
     private def parse_diff(diff : String) : Array(ParsedFile)
       state = DiffState.new
-      current = nil
-      pending_old = nil
-      in_hunk = false
-
-      diff.each_line do |line|
-        if line.starts_with?("--- ")
-          pending_old = diff_path(line)
-        elsif line.starts_with?("+++ ")
-          current = register_file(state, line, pending_old)
-          in_hunk = false
-        elsif line.starts_with?("@@")
-          in_hunk = true
-        elsif in_hunk && (path = current)
-          collect_line(state, line, path)
-        end
-      end
-
+      diff.each_line { |line| step(state, line) }
       state.order.map do |path|
         ParsedFile.new(path, state.old_paths[path], state.added[path].join('\n'),
           state.removed[path].join('\n'), state.deleted[path])
       end
     end
 
-    private def register_file(state : DiffState, line : String, pending_old : String?) : String?
+    private def step(state : DiffState, line : String) : Nil
+      if line.starts_with?("--- ")
+        state.pending_old = diff_path(line)
+      elsif line.starts_with?("+++ ")
+        state.current = register_file(state, line)
+        state.hunk_path = nil
+      elsif line.starts_with?("@@")
+        state.hunk_path = state.current
+      elsif path = state.hunk_path
+        collect_line(state, line, path)
+      end
+    end
+
+    private def register_file(state : DiffState, line : String) : String?
+      pending_old = state.pending_old
       target = diff_path(line)
       path = target || pending_old
       if path && !state.added.has_key?(path)
@@ -188,22 +192,19 @@ module AgentApropos
     end
 
     private def diff_path(line : String) : String?
-      target = line[4..].strip
+      target = line[4..].rstrip
       return nil if target == "/dev/null"
       strip_prefix(target)
     end
 
     private def strip_prefix(target : String) : String
-      {"a/", "b/"}.each do |prefix|
-        return target[prefix.size..] if target.starts_with?(prefix)
-      end
-      target
+      target.sub(/\A[ab]\//, "")
     end
 
     private def render_match(files : Array(FileMatches), format : String, stdout : IO) : Nil
       case format
       when "json"
-        build_json(stdout) { |json| files_field(json, files) }
+        stdout.puts({files: files}.to_pretty_json)
       when "full"
         stdout.puts Rendering.context(unique_docs(files))
       else
@@ -213,11 +214,9 @@ module AgentApropos
 
     private def render_review(range : String, files : Array(FileMatches),
                               format : String, stdout : IO) : Nil
-      if format == "json"
-        build_json(stdout) do |json|
-          json.field "range", range
-          files_field(json, files)
-        end
+      case format
+      when "json"
+        stdout.puts({range: range, files: files}.to_pretty_json)
       else
         render_review_md(range, files, stdout)
       end
@@ -225,16 +224,15 @@ module AgentApropos
 
     private def render_review_md(range : String, files : Array(FileMatches), io : IO) : Nil
       io << "# Review manifest (#{range})\n\n"
-      applicable = files.select { |file| !file.rules.empty? }
-      if applicable.empty?
-        io << "No conventions apply to the changed files.\n"
-        return
-      end
-      applicable.each do |file|
-        io << "## #{file.path}\n\n"
-        file.rules.each { |rule| render_rule_md(io, rule) }
-        io << '\n'
-      end
+      applicable = files.reject(&.rules.empty?)
+      io << "No conventions apply to the changed files.\n" if applicable.empty?
+      applicable.each { |file| render_file_md(io, file) }
+    end
+
+    private def render_file_md(io : IO, file : FileMatches) : Nil
+      io << "## #{file.path}\n\n"
+      file.rules.each { |rule| render_rule_md(io, rule) }
+      io << '\n'
     end
 
     private def render_rule_md(io : IO, rule : RuleMatch) : Nil
@@ -244,60 +242,16 @@ module AgentApropos
 
     private def verify_items(verify : String?) : Array(String)
       return [] of String unless verify
-      items = [] of String
-      verify.each_line do |line|
-        stripped = line.strip
-        next if stripped.empty?
-        items << stripped.sub(/\A[-*+]\s+/, "").sub(/\A\d+[.)]\s+/, "")
-      end
-      items
-    end
-
-    private def build_json(io : IO, &) : Nil
-      JSON.build(io, indent: "  ") do |json|
-        json.object { yield json }
-      end
-      io.puts
-    end
-
-    private def files_field(json : JSON::Builder, files : Array(FileMatches)) : Nil
-      json.field "files" do
-        json.array { files.each { |file| file_object(json, file) } }
-      end
-    end
-
-    private def file_object(json : JSON::Builder, file : FileMatches) : Nil
-      json.object do
-        json.field "path", file.path
-        json.field "rules" do
-          json.array { file.rules.each { |rule| rule_object(json, rule) } }
-        end
-      end
-    end
-
-    private def rule_object(json : JSON::Builder, rule : RuleMatch) : Nil
-      json.object do
-        json.field "path", rule.path
-        json.field "triggers" do
-          json.array { rule.triggers.each { |trigger| json.string trigger } }
-        end
-        json.field "verify", rule.verify
-      end
+      verify.each_line.map(&.strip).reject(&.empty?).map { |item| item.sub(/\A[-*+]\s+/, "").sub(/\A\d+[.)]\s+/, "") }.to_a
     end
 
     private def rule_paths(files : Array(FileMatches)) : Array(String)
-      files.flat_map { |file| file.rules.map(&.path) }.uniq!.sort!
+      unique_docs(files).map(&.first)
     end
 
     private def unique_docs(files : Array(FileMatches)) : Array({String, String})
-      seen = Set(String).new
-      docs = [] of {String, String}
-      files.each do |file|
-        file.rules.each do |rule|
-          docs << {rule.path, rule.body} if seen.add?(rule.path)
-        end
-      end
-      docs.sort_by! { |(path, _)| path }
+      docs = files.flat_map(&.rules).to_h { |rule| {rule.path, rule.body} }.to_a
+      docs.sort_by { |(path, _)| path }
     end
   end
 end
