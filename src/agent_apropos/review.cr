@@ -15,6 +15,9 @@ module AgentApropos
 
     DEFAULT_BASE_CANDIDATES = %w[origin/main origin/master main master]
 
+    C_ESCAPES    = "abtnvfr"
+    QUOTED_TOKEN = /\\(?<octal>\d{3})|\\(?<escape>.)|[^\\]/
+
     struct RuleMatch
       getter path : String
       getter triggers : Array(String)
@@ -190,18 +193,18 @@ module AgentApropos
     private def start_block(state : DiffState, line : String) : Nil
       finish_block(state)
       sides = line.lchop("diff --git ")
-      state.block = DiffBlock.new(strip_prefix(sides[sides.size // 2 + 1..]))
+      state.block = DiffBlock.new(strip_prefix(unquote(sides[sides.size // 2 + 1..])))
     end
 
     private def block_metadata(block : DiffBlock, line : String) : Nil
       if line.starts_with?("rename from ")
-        block.rename_from = line.lchop("rename from ")
+        block.rename_from = unquote(line.lchop("rename from "))
       elsif line.starts_with?("rename to ")
-        block.new_path = line.lchop("rename to ")
+        block.new_path = unquote(line.lchop("rename to "))
       elsif line.starts_with?("copy from ")
         block.copy = true
       elsif line.starts_with?("copy to ")
-        block.new_path = line.lchop("copy to ")
+        block.new_path = unquote(line.lchop("copy to "))
       elsif line.starts_with?("deleted file mode ")
         block.deleting = true
       end
@@ -261,9 +264,27 @@ module AgentApropos
     end
 
     private def diff_path(line : String) : String?
-      target = line[4..].rstrip
+      target = unquote(line[4..].rstrip)
       return nil if target == "/dev/null"
       strip_prefix(target)
+    end
+
+    private def unquote(path : String) : String
+      inner = path.lchop?('"').try(&.rchop?('"'))
+      return path unless inner
+      bytes = IO::Memory.new
+      inner.scan(QUOTED_TOKEN) { |token| write_unquoted(bytes, token) }
+      String.new(bytes.to_slice)
+    end
+
+    private def write_unquoted(bytes : IO, token : Regex::MatchData) : Nil
+      if octal = token["octal"]?
+        bytes.write_byte(octal.to_u8(8))
+      elsif escape = token["escape"]?
+        bytes << (C_ESCAPES.index(escape).try { |i| (i + 7).chr } || escape)
+      else
+        bytes << token[0]
+      end
     end
 
     private def strip_prefix(target : String) : String

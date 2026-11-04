@@ -519,6 +519,41 @@ describe AgentApropos::Review do
       JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq(["x.cr", "y.cr", "z.cr"])
     end
 
+    it "decodes git's quoted path in a pure rename's metadata" do
+      quoted = %(diff --git "a/caf\\303\\251.cr" b/cafe.cr\nsimilarity index 100%\nrename from "caf\\303\\251.cr"\nrename to cafe.cr\n)
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => "---\non: [removed]\npaths: [\"café.cr\"]\n---\n# R\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: quoted), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["cafe.cr"])
+      files[0]["rules"][0]["path"].should eq("docs/conventions/r.md")
+    end
+
+    it "decodes git's quoted path in ---/+++ headers" do
+      quoted = %(diff --git "a/caf\\303\\251\\302\\240.cr" "b/caf\\303\\251\\302\\240.cr"\nindex 1111111..2222222 100644\n) +
+               %(--- "a/caf\\303\\251\\302\\240.cr"\n+++ "b/caf\\303\\251\\302\\240.cr"\n@@ -0,0 +1 @@\n+x\n)
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: quoted), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq(["café\u00A0.cr"])
+    end
+
+    it "decodes git's quoted path on the diff --git line of an empty file's deletion" do
+      quoted = %(diff --git "a/caf\\303\\251.cr" "b/caf\\303\\251.cr"\ndeleted file mode 100644\nindex e69de29..0000000\n)
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: quoted), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq(["café.cr"])
+    end
+
+    it "decodes every escape git's quoted path syntax uses, in copy metadata too" do
+      quoted = %(diff --git a/src.cr "b/x\\a\\b\\t\\n\\v\\f\\r\\"\\\\.cr"\nsimilarity index 100%\n) +
+               %(copy from src.cr\ncopy to "x\\a\\b\\t\\n\\v\\f\\r\\"\\\\.cr"\n)
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: quoted), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq(["x\a\b\t\n\v\f\r\"\\.cr"])
+    end
+
+    it "leaves a lone double quote in a path alone" do
+      lone = %(--- a/"\n+++ b/"\n@@ -0,0 +1 @@\n+x\n)
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: lone), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq([%(")])
+    end
+
     it "lists a pure rename, which has no ---/+++ headers, under both of its paths' events" do
       pure_rename = "diff --git a/o.cr b/renamed_file.cr\nsimilarity index 100%\nrename from o.cr\nrename to renamed_file.cr\n"
       fs = InMemoryFS.new({
