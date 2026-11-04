@@ -1,0 +1,6 @@
+# Used only by smoke-test.sh. Renames the Claude config volume to a per-run
+# throwaway, so the test never touches the shared volume holding your real
+# login — and so smoke-test.sh's `down --volumes` can't delete it either.
+volumes:
+  claude-config:
+    name: ${SMOKE_CLAUDE_VOLUME:?smoke-test.sh sets SMOKE_CLAUDE_VOLUME}

@@ -91,6 +91,48 @@ describe AgentApropos::Agents::Codex do
     end
   end
 
+  describe "#scaffold after #sync_shell_hook" do
+    it "drops --allow-outside-repo from the generated Bash hooks when init reruns without it" do
+      agent = AgentApropos::Agents::Codex.new
+      fs = InMemoryFS.new
+      run_scaffold(fs, AgentApropos::Init::Options.new(allow_outside_repo: true))
+      fs.files[HOOKS_PATH] = agent.sync_shell_hook(fs.files[HOOKS_PATH], "hooks", true).as(String)
+
+      run_scaffold(fs)
+      hooks = JSON.parse(fs.files[HOOKS_PATH])["hooks"]
+      commands = ["PreToolUse", "PostToolUse"].flat_map do |event|
+        hooks[event].as_a.select { |group| group["matcher"] == "Bash" }.flat_map { |group| group["hooks"].as_a.map(&.["command"].as_s) }
+      end
+      commands.should eq(["agent-apropos hook pre --tool codex", "agent-apropos hook post --tool codex"])
+      agent.sync_shell_hook(fs.files[HOOKS_PATH], "hooks", true).should eq(fs.files[HOOKS_PATH])
+    end
+
+    it "keeps the generated Bash hooks when init runs again" do
+      fs = InMemoryFS.new
+      run_scaffold(fs)
+      wired = AgentApropos::Agents::Codex.new.sync_shell_hook(fs.files[HOOKS_PATH], "hooks", true).as(String)
+      fs.files[HOOKS_PATH] = wired
+
+      stdout = run_scaffold(fs)
+      stdout.should contain("current  .codex/hooks.json")
+      fs.files[HOOKS_PATH].should eq(wired)
+    end
+
+    it "fails closed on a malformed existing hooks file, naming it in the error" do
+      fs = InMemoryFS.new({HOOKS_PATH => "{not json"})
+      expect_raises(AgentApropos::Init::Error, /\.codex\/hooks\.json is not valid JSON/) { run_scaffold(fs) }
+      fs.files[HOOKS_PATH].should eq("{not json")
+    end
+
+    it "keeps hooks it does not own when init runs over an existing file" do
+      fs = InMemoryFS.new({HOOKS_PATH => %({"hooks":{"Stop":[{"hooks":[{"type":"command","command":"notify"}]}]}})})
+      run_scaffold(fs)
+      parsed = JSON.parse(fs.files[HOOKS_PATH])
+      parsed["hooks"]["Stop"][0]["hooks"][0]["command"].as_s.should eq("notify")
+      parsed["hooks"]["PreToolUse"][0]["matcher"].as_s.should eq("apply_patch")
+    end
+  end
+
   describe "#checks" do
     it "is ok (skipped) when codex is not on PATH" do
       check_named(run_checks(InMemoryFS.new), "codex").detail.should contain("not on PATH; skipped hook check")

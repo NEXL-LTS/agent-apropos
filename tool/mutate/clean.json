@@ -11,11 +11,13 @@
     "src/agent_apropos/generate.cr",
     "src/agent_apropos/hook.cr",
     "src/agent_apropos/hooks/payload.cr",
+    "src/agent_apropos/session_state.cr",
     "src/agent_apropos/agents/claude.cr",
     "src/agent_apropos/agents/codex.cr",
     "src/agent_apropos/agents/copilot.cr",
     "src/agent_apropos/lint.cr",
     "src/agent_apropos/doctor.cr",
+    "src/agent_apropos/check.cr",
     "src/agent_apropos/review.cr"
   ]
 }

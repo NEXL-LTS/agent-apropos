@@ -1,0 +1,20 @@
+# Opt-in nested Docker (start.sh --docker). dockerd needs unrestricted cgroup and
+# device access, which only privileged mode gives — and privileged mode plus the
+# vscode user's access to dockerd (it can start a container as root) means this
+# container is no longer a boundary between Claude and the host, and the
+# read-only mounts can be remounted. Use it only for sessions that need Docker.
+services:
+  app:
+    privileged: true
+    environment:
+      - ENABLE_DOCKER=1
+    volumes:
+      # Real filesystems under the image stores let the overlay snapshotter
+      # work; overlay-on-overlay (the container's own root) does not. Docker 29+
+      # keeps images in containerd's store, hence both paths.
+      - docker-data:/var/lib/docker
+      - containerd-data:/var/lib/containerd
+
+volumes:
+  docker-data:
+  containerd-data:

@@ -34,9 +34,7 @@ module AgentApropos
       end
 
       protected def hook_check(repo_root : Path, fs : Filesystem, env : Environment) : Check
-        unless env.which("codex")
-          return Check.new(:ok, "codex", "not on PATH; skipped hook check")
-        end
+        return Check.new(:ok, "codex", "not on PATH; skipped hook check") unless env.which("codex")
 
         content = fs.read?(repo_root.join(HOOKS_RELATIVE).to_s)
         return Check.new(:warn, "codex", ".codex/hooks.json absent; run `agent-apropos init --tool codex`") unless content
@@ -52,14 +50,10 @@ module AgentApropos
       end
 
       private def wired?(content : String) : Bool?
-        parsed =
-          begin
-            JSON.parse(content)
-          rescue JSON::ParseException
-            return nil
-          end
+        parsed = JSON.parse(content)
         command_prefix_present?(parsed, "PreToolUse", HOOK_PRE_BASE) &&
           command_prefix_present?(parsed, "PostToolUse", HOOK_POST_BASE)
+      rescue JSON::ParseException
       end
 
       private def command_prefix_present?(parsed : JSON::Any, event : String, prefix : String) : Bool
@@ -75,38 +69,17 @@ module AgentApropos
       end
 
       protected def config_content(existing : String?, options : Init::Options) : String
-        hook_pre = hook_command(HOOK_PRE_BASE, options)
-        hook_post = hook_command(HOOK_POST_BASE, options)
-        <<-JSON
-          {
-            "hooks": {
-              "PreToolUse": [
-                {
-                  "matcher": "#{MATCHER}",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "#{hook_pre}",
-                      "timeout": #{HOOK_TIMEOUT}
-                    }
-                  ]
-                }
-              ],
-              "PostToolUse": [
-                {
-                  "matcher": "#{MATCHER}",
-                  "hooks": [
-                    {
-                      "type": "command",
-                      "command": "#{hook_post}",
-                      "timeout": #{HOOK_TIMEOUT}
-                    }
-                  ]
-                }
-              ]
-            }
-          }
-          JSON
+        root = Init.settings_root(existing, ".codex/hooks.json")
+        hooks = (root["hooks"]?.try(&.as_h?)).try(&.dup) || {} of String => JSON::Any
+        wire_event(hooks, "PreToolUse", hook_command(HOOK_PRE_BASE, options))
+        wire_event(hooks, "PostToolUse", hook_command(HOOK_POST_BASE, options))
+        refresh_shell_hooks(hooks, hook_command(HOOK_PRE_BASE, options), hook_command(HOOK_POST_BASE, options), HOOK_TIMEOUT.to_i64)
+        root["hooks"] = JSON::Any.new(hooks)
+        JSON::Any.new(root).to_pretty_json + "\n"
+      end
+
+      private def wire_event(hooks : Hash(String, JSON::Any), event : String, command : String) : Nil
+        hooks[event] = JSON::Any.new(ensure_command(event_groups(hooks, event), MATCHER, command, HOOK_TIMEOUT.to_i64))
       end
     end
   end
