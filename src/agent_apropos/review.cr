@@ -144,12 +144,31 @@ module AgentApropos
       getter deleted = {} of String => Bool
       property current : String? = nil
       property pending_old : String? = nil
-      property hunk_path : String? = nil
+      property hunk : Hunk? = nil
+      property block : DiffBlock? = nil
+    end
+
+    private record Hunk, old_left : Int32, new_left : Int32 do
+      def open? : Bool
+        old_left > 0 || new_left > 0
+      end
+    end
+
+    private class DiffBlock
+      getter header_path : String
+      property rename_from : String? = nil
+      property new_path : String? = nil
+      property? copy = false
+      property? deleting = false
+
+      def initialize(@header_path)
+      end
     end
 
     private def parse_diff(diff : String) : Array(ParsedFile)
       state = DiffState.new
       diff.each_line { |line| step(state, line) }
+      finish_block(state)
       state.order.map do |path|
         ParsedFile.new(path, state.old_paths[path], state.added[path].join('\n'),
           state.removed[path].join('\n'), state.deleted[path])
@@ -157,37 +176,87 @@ module AgentApropos
     end
 
     private def step(state : DiffState, line : String) : Nil
-      if line.starts_with?("--- ")
-        state.pending_old = diff_path(line)
-      elsif line.starts_with?("+++ ")
-        state.current = register_file(state, line)
-        state.hunk_path = nil
-      elsif line.starts_with?("@@")
-        state.hunk_path = state.current
-      elsif path = state.hunk_path
-        collect_line(state, line, path)
+      hunk = state.hunk
+      if hunk && hunk.open? && (path = state.current)
+        collect_line(state, line, path, hunk)
+      elsif line.starts_with?("diff --git ")
+        start_block(state, line)
+      else
+        state.block.try { |block| block_metadata(block, line) }
+        file_header(state, line)
       end
     end
 
-    private def register_file(state : DiffState, line : String) : String?
+    private def start_block(state : DiffState, line : String) : Nil
+      finish_block(state)
+      sides = line.lchop("diff --git ")
+      state.block = DiffBlock.new(strip_prefix(sides[sides.size // 2 + 1..]))
+    end
+
+    private def block_metadata(block : DiffBlock, line : String) : Nil
+      if line.starts_with?("rename from ")
+        block.rename_from = line.lchop("rename from ")
+      elsif line.starts_with?("rename to ")
+        block.new_path = line.lchop("rename to ")
+      elsif line.starts_with?("copy from ")
+        block.copy = true
+      elsif line.starts_with?("copy to ")
+        block.new_path = line.lchop("copy to ")
+      elsif line.starts_with?("deleted file mode ")
+        block.deleting = true
+      end
+    end
+
+    private def file_header(state : DiffState, line : String) : Nil
+      if line.starts_with?("--- ")
+        state.pending_old = diff_path(line)
+      elsif line.starts_with?("+++ ")
+        state.current = register_header(state, diff_path(line))
+      elsif state.current && line.starts_with?("@@ ")
+        ranges = line.split(' ')
+        state.hunk = Hunk.new(hunk_size(ranges[1]?), hunk_size(ranges[2]?))
+      end
+    end
+
+    private def hunk_size(range : String?) : Int32
+      range.try(&.partition(',').last.to_i?) || 1
+    end
+
+    private def register_header(state : DiffState, target : String?) : String?
       pending_old = state.pending_old
-      target = diff_path(line)
-      path = target || pending_old
+      renamed = target && pending_old && pending_old != target && !state.block.try(&.copy?)
+      register_file(state, target || pending_old, renamed ? pending_old : nil, target.nil?)
+    end
+
+    private def finish_block(state : DiffState) : Nil
+      block = state.block
+      return unless block
+      path = block.new_path || block.header_path
+      register_file(state, path, block.rename_from, block.deleting?)
+    end
+
+    private def register_file(state : DiffState, path : String?, old_path : String?, deleted : Bool) : String?
       if path && !state.added.has_key?(path)
         state.added[path] = [] of String
         state.removed[path] = [] of String
-        state.old_paths[path] = (target && pending_old && pending_old != target) ? pending_old : nil
-        state.deleted[path] = target.nil?
+        state.old_paths[path] = old_path
+        state.deleted[path] = deleted
         state.order << path
       end
       path
     end
 
-    private def collect_line(state : DiffState, line : String, path : String) : Nil
-      if line.starts_with?('+')
+    private def collect_line(state : DiffState, line : String, path : String, hunk : Hunk) : Nil
+      case line[0]?
+      when '+'
         state.added[path] << line[1..]
-      elsif line.starts_with?('-')
+        state.hunk = hunk.copy_with(new_left: hunk.new_left - 1)
+      when '-'
         state.removed[path] << line[1..]
+        state.hunk = hunk.copy_with(old_left: hunk.old_left - 1)
+      when '\\'
+      else
+        state.hunk = Hunk.new(hunk.old_left - 1, hunk.new_left - 1)
       end
     end
 
