@@ -101,6 +101,13 @@ private def invoke(event : Symbol, input : String, fs : AgentApropos::Filesystem
   {code, stdout.to_s}
 end
 
+private def notice_room : Int32
+  fs = InMemoryFS.new({A_PATH => "---\npaths: [\"src/**\"]\n---\nFirst paragraph.\n\nx\n"})
+  _, stdout = invoke(:pre, pre_json("src/app.cr", session_id: nil), fs)
+  one_x = JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s.size
+  AgentApropos::Rendering::CHAR_CAP - AgentApropos::Hook::SESSION_NOTICE.size - "\n\n".size - one_x + 1
+end
+
 private def shell_json(command : String, session_id : String? = "s", cwd : String? = REPO) : String
   {session_id: session_id, tool_name: "Bash", cwd: cwd, tool_input: {command: command}}.to_json
 end
@@ -241,6 +248,29 @@ describe AgentApropos::Hook do
       stdout.should contain("summarized to fit")
       stdout.should contain("First paragraph.")
       stdout.should contain("Read the full rule in docs/conventions/a.md")
+    end
+
+    it "renders a rule in full when it and the session notice together land exactly on the character cap" do
+      body = "First paragraph.\n\n" + ("x" * notice_room)
+      fs = InMemoryFS.new({A_PATH => "---\npaths: [\"src/**\"]\n---\n#{body}\n"})
+      _, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
+
+      context = JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s
+      context.size.should eq(AgentApropos::Rendering::CHAR_CAP)
+      context.should_not contain("summarized to fit")
+    end
+
+    # Claude Code moves an additionalContext over the cap to a file and shows a
+    # preview, while the session state still records the rule as injected.
+    it "summarizes a rule that fits the cap alone but not alongside the session notice" do
+      body = "First paragraph.\n\n" + ("x" * (notice_room + 1))
+      fs = InMemoryFS.new({A_PATH => "---\npaths: [\"src/**\"]\n---\n#{body}\n"})
+      _, stdout = invoke(:pre, pre_json("src/app.cr"), fs)
+
+      context = JSON.parse(stdout)["hookSpecificOutput"]["additionalContext"].as_s
+      context.size.should be <= AgentApropos::Rendering::CHAR_CAP
+      context.should start_with(AgentApropos::Hook::SESSION_NOTICE)
+      context.should contain("summarized to fit")
     end
 
     it "records the triggering file and matched patterns as the cause" do
