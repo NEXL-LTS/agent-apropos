@@ -226,7 +226,7 @@ module AgentApropos
     private def removal_scope_note(entry : Index::Entry) : String
       parts = [] of String
       parts << "whose path matches #{quoted(entry.paths)}" unless entry.paths.empty?
-      parts << "whose last committed contents matched #{quoted(entry.contents)}" unless entry.contents.empty?
+      parts << "whose last tracked contents matched #{quoted(entry.contents)}" unless entry.contents.empty?
       "\n\n_Scope: this convention fired because a tracked file #{parts.join(" and ")} " \
       "is now missing from the working tree — not necessarily because this command " \
       "removed it. Apply it to any other matching removal this session; it will not " \
