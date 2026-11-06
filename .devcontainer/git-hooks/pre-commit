@@ -1,0 +1,13 @@
+#!/bin/sh
+# Baked into the image at /usr/local/share/git-hooks and enabled by core.hooksPath
+# in /etc/gitconfig, because the checkout's .git/hooks is mounted read-only (see
+# docker-compose.yml). Runs the lefthook hook named after this file; to run
+# another hook from lefthook.yml, link that name to this script in the Dockerfile.
+# Repos without a lefthook config commit unhooked.
+for config in lefthook.yml .lefthook.yml lefthook.yaml .lefthook.yaml; do
+  if [ -e "$config" ]; then
+    # --no-auto-install: lefthook would otherwise try to rewrite this read-only hook.
+    exec lefthook run "$(basename "$0")" --no-auto-install "$@"
+  fi
+done
+exit 0

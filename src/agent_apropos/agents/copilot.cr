@@ -57,16 +57,20 @@ module AgentApropos
       private def owned_allow_outside?(entries : Array(JSON::Any)) : Bool
         entries.any? do |entry|
           command = entry.as_h?.try(&.["command"]?).try(&.as_s?)
-          !command.nil? && command.starts_with?(AGENT_APROPOS_HOOK_PREFIX) && command.ends_with?(ALLOW_OUTSIDE_FLAG)
+          !command.nil? && command.starts_with?(AGENT_APROPOS_HOOK_PREFIX) && command.split.includes?(ALLOW_OUTSIDE_FLAG)
         end
       end
 
       private def ensure_bash_entries(entries : Array(JSON::Any), allow_outside : Bool) : Array(JSON::Any)
-        desired = [hook_command(HOOK_PRE_BASE, allow_outside), hook_command(HOOK_POST_BASE, allow_outside)]
+        desired = desired_commands(allow_outside)
         refreshed = entries.map { |entry| refresh_bash_entry(entry, desired) }
         present = bash_commands(refreshed)
         missing = desired.reject { |command| present.includes?(command) }
         refreshed + missing.map { |command| bash_entry(command) }
+      end
+
+      private def desired_commands(allow_outside : Bool) : Array(String)
+        [hook_command(HOOK_PRE_BASE, allow_outside), hook_command(HOOK_POST_BASE, allow_outside)]
       end
 
       private def refresh_bash_entry(entry : JSON::Any, desired : Array(String)) : JSON::Any
@@ -107,9 +111,13 @@ module AgentApropos
       end
 
       private def bash_entry(command : String) : JSON::Any
+        hook_entry(BASH_MATCHER, command)
+      end
+
+      private def hook_entry(matcher : String, command : String) : JSON::Any
         JSON::Any.new({
           "type"       => JSON::Any.new("command"),
-          "matcher"    => JSON::Any.new(BASH_MATCHER),
+          "matcher"    => JSON::Any.new(matcher),
           "command"    => JSON::Any.new(command),
           "timeoutSec" => JSON::Any.new(HOOK_TIMEOUT.to_i64),
         })
@@ -151,35 +159,18 @@ module AgentApropos
       end
 
       protected def config_content(existing : String?, options : Init::Options) : String
-        hook_pre = hook_command(HOOK_PRE_BASE, options)
-        hook_post = hook_command(HOOK_POST_BASE, options)
-        <<-JSON
-          {
-            "version": 1,
-            "hooks": {
-              "postToolUse": [
-                {
-                  "type": "command",
-                  "matcher": "view",
-                  "command": "#{hook_pre}",
-                  "timeoutSec": #{HOOK_TIMEOUT}
-                },
-                {
-                  "type": "command",
-                  "matcher": "create|edit",
-                  "command": "#{hook_pre}",
-                  "timeoutSec": #{HOOK_TIMEOUT}
-                },
-                {
-                  "type": "command",
-                  "matcher": "create|edit",
-                  "command": "#{hook_post}",
-                  "timeoutSec": #{HOOK_TIMEOUT}
-                }
-              ]
-            }
-          }
-          JSON
+        desired = desired_commands(options.allow_outside_repo)
+        hook_pre, hook_post = desired
+        scoped = [hook_entry("view", hook_pre), hook_entry("create|edit", hook_pre), hook_entry("create|edit", hook_post)]
+        bash = existing_bash_entries(existing).map { |entry| refresh_bash_entry(entry, desired) }
+        root = {"version" => JSON::Any.new(1), "hooks" => JSON::Any.new({"postToolUse" => JSON::Any.new(scoped + bash)})}
+        JSON::Any.new(root).to_pretty_json + "\n"
+      end
+
+      private def existing_bash_entries(existing : String?) : Array(JSON::Any)
+        hooks = Init.settings_root(existing, HOOKS_RELATIVE.to_posix.to_s)["hooks"]?
+        entries = hooks.try(&.as_h?).try(&.["postToolUse"]?).try(&.as_a?) || [] of JSON::Any
+        entries.select { |entry| entry.as_h?.try(&.["matcher"]?) == BASH_MATCHER }
       end
     end
   end

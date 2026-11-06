@@ -77,7 +77,7 @@ rename to new_name.cr
 index 40bc07c..2dfca03 100644
 --- a/old_name.cr
 +++ b/new_name.cr
-@@ -1,2 +1,3 @@
+@@ -1,3 +1,3 @@
  class User
 -  old
 +  changed
@@ -105,6 +105,36 @@ describe AgentApropos::Review do
       rules[0]["triggers"].should eq(["src/**"])
       rules[1]["triggers"].should eq(["\\btransaction\\b"])
       rules[0].as_h.has_key?("layer").should be_false
+    end
+
+    it "sorts rule files across inputs, not in the order the inputs matched them" do
+      fs = InMemoryFS.new({A_PATH => A_DOC, DB_PATH => DB_DOC, "/repo/lib/x.cr" => "db.transaction do", "/repo/src/y.cr" => "y"})
+      _, stdout, _ = run_match(fs, ["lib/x.cr", "src/y.cr"])
+      stdout.should eq("docs/conventions/a.md\ndocs/conventions/db.md\n")
+    end
+
+    it "emits json with a fixed key order, byte for byte" do
+      fs = InMemoryFS.new({A_PATH => A_DOC, "/repo/src/x.cr" => "x"})
+      _, stdout, _ = run_match(fs, ["src/x.cr"], "json")
+      stdout.should eq(<<-JSON)
+      {
+        "files": [
+          {
+            "path": "src/x.cr",
+            "rules": [
+              {
+                "path": "docs/conventions/a.md",
+                "triggers": [
+                  "src/**"
+                ],
+                "verify": null
+              }
+            ]
+          }
+        ]
+      }
+
+      JSON
     end
 
     it "concatenates bodies for --format full, deduping a rule matched by two paths" do
@@ -240,6 +270,22 @@ describe AgentApropos::Review do
   end
 
   describe ".run" do
+    it "emits json with the range before the files, byte for byte" do
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: "--- a/x\n+++ b/x\n@@ -0,0 +1 @@\n+y\n"), "main...HEAD", "json")
+      stdout.should eq(<<-JSON)
+      {
+        "range": "main...HEAD",
+        "files": [
+          {
+            "path": "x",
+            "rules": []
+          }
+        ]
+      }
+
+      JSON
+    end
+
     it "matches each changed file's path and added lines" do
       fs = InMemoryFS.new({DB_PATH => DB_DOC, MODELS_PATH => MODELS_DOC})
       code, stdout, stderr = run_review(fs, FakeGit.new(diff_text: DIFF), "main...HEAD")
@@ -324,7 +370,7 @@ describe AgentApropos::Review do
       index 40bc07c..2dfca03 100644
       --- a/aaa_old.cr
       +++ b/zzz_new.cr
-      @@ -1,2 +1,3 @@
+      @@ -1,3 +1,3 @@
        class User
       -  old
       +  changed
@@ -338,237 +384,15 @@ describe AgentApropos::Review do
       stdout.should contain("- docs/conventions/r.md")
     end
 
-    # A 100%-similarity rename carries no "---"/"+++"/"@@" at all — there is
-    # no content diff to show. Confirmed against a real repo (`git mv` with
-    # no further edit).
-    it "matches a pure rename's removal doc on the old path, with no content diff at all" do
-      pure_rename = <<-DIFF
-      diff --git a/old.txt b/new.txt
-      similarity index 100%
-      rename from old.txt
-      rename to new.txt
-
-      DIFF
-      removal_doc = "---\non: [removed]\npaths: [\"old.txt\"]\n---\n# R\n\nRemoval doc.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => removal_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: pure_rename), "main...HEAD")
-      stdout.should contain("## new.txt")
-      stdout.should contain("- docs/conventions/r.md")
-    end
-
-    it "still matches a write-triggered doc on a pure rename's new path" do
-      pure_rename = <<-DIFF
-      diff --git a/old.txt b/new.txt
-      similarity index 100%
-      rename from old.txt
-      rename to new.txt
-
-      DIFF
-      write_doc = "---\npaths: [\"new.txt\"]\n---\n# W\n\nWrite doc.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: pure_rename), "main...HEAD")
-      stdout.should contain("## new.txt")
-      stdout.should contain("- docs/conventions/w.md")
-    end
-
-    # A pure rename's metadata lines are handled by their own elsif branches,
-    # not the hunk-counting loop — nothing must stop the parser from reaching
-    # whatever comes after them in a multi-file diff.
-    it "still parses a second file's diff after a pure rename with no content change" do
-      rename_then_second_file = <<-DIFF
-      diff --git a/old.txt b/new.txt
-      similarity index 100%
-      rename from old.txt
-      rename to new.txt
-      diff --git a/second.txt b/second.txt
-      index 1111111..2222222 100644
-      --- a/second.txt
-      +++ b/second.txt
-      @@ -1 +1 @@
-      -old second line
-      +new second line
-
-      DIFF
-      write_doc = "---\ncontents: ['new second line']\n---\n# W\n\nBody.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: rename_then_second_file), "main...HEAD")
-      stdout.should contain("## second.txt")
-      stdout.should contain("- docs/conventions/w.md")
-    end
-
-    # Once the new side's remaining count reaches 0, only the old side's own
-    # count still decides whether a trailing removed-only line belongs to
-    # this hunk.
-    it "collects every trailing removed-only line after the new side's count is exhausted" do
-      deleted = <<-DIFF
-      diff --git a/f.txt b/f.txt
-      deleted file mode 100644
-      index 1111111..0000000
-      --- a/f.txt
-      +++ /dev/null
-      @@ -1,3 +0,0 @@
-       context
-      -removed1
-      -removed2
-
-      DIFF
-      removal_doc = "---\non: [removed]\ncontents: ['removed2']\n---\n# R\n\nBody.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => removal_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: deleted), "main...HEAD")
-      stdout.should contain("## f.txt")
-      stdout.should contain("- docs/conventions/r.md")
-    end
-
-    # A removed line whose own text starts with "-- " renders as "--- " in
-    # the diff — indistinguishable by text alone from a real file header.
-    # Confirmed against a real repo (deleting a file containing such a
-    # line). Header detection must track the hunk's own declared line
-    # counts, not just what a line's text looks like, or this line gets
-    # mistaken for the start of a new file and dropped from `removed`.
-    it "collects a removed line that looks like a file header, deep inside a real hunk" do
-      tricky_delete = <<-DIFF
-      diff --git a/markdown.md b/markdown.md
-      deleted file mode 100644
-      index 1111111..0000000
-      --- a/markdown.md
-      +++ /dev/null
-      @@ -1,3 +0,0 @@
-      -line one
-      --- a horizontal rule looking line
-      -line three
-
-      DIFF
-      removal_doc = "---\non: [removed]\ncontents: ['horizontal rule looking line']\n---\n# R\n\nBody.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => removal_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: tricky_delete), "main...HEAD")
-      stdout.should contain("## markdown.md")
-      stdout.should contain("- docs/conventions/r.md")
-    end
-
-    # A pure-addition hunk (old side has zero lines, "@@ -0,0 +1,2 @@") drives
-    # the hunk-tracking loop by its new-side count alone, with the old-side
-    # count staying at 0 throughout — the mirror image of tricky_delete's
-    # pure-removal case above, and the only shape that actually exercises the
-    # new-side count independently of the old-side one.
-    it "collects every line of a multi-line pure-addition hunk, not just the first" do
-      pure_add = <<-DIFF
-      diff --git a/new_file.md b/new_file.md
-      new file mode 100644
-      index 0000000..1111111
-      --- /dev/null
-      +++ b/new_file.md
-      @@ -0,0 +1,2 @@
-      +first added line
-      +second added line
-
-      DIFF
-      write_doc = "---\ncontents: ['second added line']\n---\n# W\n\nBody.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: pure_add), "main...HEAD")
-      stdout.should contain("## new_file.md")
-      stdout.should contain("- docs/conventions/w.md")
-    end
-
-    # "@@ -0,0 +1 @@" — a single-line pure addition — omits the new-side
-    # count entirely (unified diff format elides a count of 1), unlike the
-    # explicit "+1,2" above. A content-scoped rule is required here, not a
-    # path-only one: a missing-content bug still leaves the path known, so
-    # only matching against the actual captured text proves the one added
-    # line was collected. Confirmed against a real repo (adding one line to
-    # a previously-empty file produces exactly this header shape).
-    it "collects the single added line of a hunk whose new-side count is omitted (implicit 1)" do
-      single_add = <<-DIFF
-      diff --git a/empty.txt b/empty.txt
-      index e69de29..2f38458 100644
-      --- a/empty.txt
-      +++ b/empty.txt
-      @@ -0,0 +1 @@
-      +just one line
-
-      DIFF
-      write_doc = "---\ncontents: ['just one line']\n---\n# W\n\nBody.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: single_add), "main...HEAD")
-      stdout.should contain("## empty.txt")
-      stdout.should contain("- docs/conventions/w.md")
-    end
-
-    # "\ No newline at end of file" can land mid-hunk, not just at its very
-    # end: here it describes a removed line that exhausts the old side
-    # while the new side still has two more added lines to come. Confirmed
-    # against a real repo (fixing a file that previously lacked a trailing
-    # newline). If this metadata line were miscounted as real content, the
-    # new side's count would be thrown off by one and the hunk would exit
-    # before the second added line — so this only proves correct if BOTH
-    # added lines land, not just the first.
-    it "does not miscount a mid-hunk \"No newline at end of file\" marker as content" do
-      mid_hunk_marker = <<-DIFF
-      diff --git a/noeof.txt b/noeof.txt
-      index cf0683d..75b8f1c 100644
-      --- a/noeof.txt
-      +++ b/noeof.txt
-      @@ -1,2 +1,3 @@
-       line one
-      -no newline at end
-      \\ No newline at end of file
-      +no newline at end
-      +new line with newline
-
-      DIFF
-      write_doc = "---\ncontents: ['new line with newline']\n---\n# W\n\nBody.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: mid_hunk_marker), "main...HEAD")
-      stdout.should contain("## noeof.txt")
-      stdout.should contain("- docs/conventions/w.md")
-    end
-
-    # A synthetic swap of consume_hunk_line's returned tuple order survives
-    # the single-file marker test above (with nothing following, the
-    # corrupted counts have nothing left to overrun) — this is what actually
-    # catches it: enough trailing added lines in the first file inflate the
-    # corrupted count past the second file's own metadata lines, so its
-    # real "---"/"+++" headers get silently swallowed as fake hunk content
-    # instead of registering the file at all.
-    it "does not let a mid-hunk backslash marker's count corruption bleed into the next file" do
-      overrun = <<-DIFF
-      diff --git a/noeof.txt b/noeof.txt
-      index cf0683d..75b8f1c 100644
-      --- a/noeof.txt
-      +++ b/noeof.txt
-      @@ -1,2 +1,6 @@
-       line one
-      -no newline at end
-      \\ No newline at end of file
-      +no newline at end
-      +added two
-      +added three
-      +added four
-      +added five
-      diff --git a/second.txt b/second.txt
-      index 1111111..2222222 100644
-      --- a/second.txt
-      +++ b/second.txt
-      @@ -1 +1 @@
-      -old second line
-      +new second line
-
-      DIFF
-      write_doc = "---\ncontents: ['new second line']\n---\n# W\n\nBody.\n"
-      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
-      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: overrun), "main...HEAD")
-      stdout.should contain("## second.txt")
-      stdout.should contain("- docs/conventions/w.md")
-    end
-
     it "does not reset already-collected content if the same path's header repeats" do
       odd_diff = <<-DIFF
       --- a/file.cr
       +++ b/file.cr
-      @@ -1 +1 @@
+      @@ -0,0 +1 @@
       +first
       --- a/file.cr
       +++ b/file.cr
-      @@ -1 +1 @@
+      @@ -0,0 +1 @@
       +second
 
       DIFF
@@ -584,7 +408,7 @@ describe AgentApropos::Review do
       malformed = <<-DIFF
       --- a/file1
       +++ b/file1
-      @@ -1 +1 @@
+      @@ -0,0 +1 @@
       +file1 content
       --- a/file2
       +++ b/file2
@@ -597,6 +421,8 @@ describe AgentApropos::Review do
       parsed = JSON.parse(stdout)
       file2 = parsed["files"].as_a.find! { |file| file["path"] == "file2" }
       file2["rules"].as_a.should be_empty
+      file1 = parsed["files"].as_a.find! { |file| file["path"] == "file1" }
+      file1["rules"].as_a.should be_empty
     end
 
     it "strips only the diff marker from an added line, not real content" do
@@ -618,12 +444,176 @@ describe AgentApropos::Review do
     end
 
     it "leaves a path with no a/ or b/ prefix unmodified" do
-      no_prefix_diff = "--- old.cr\n+++ new.cr\n@@ -1 +1 @@\n+x\n"
+      no_prefix_diff = "--- old.cr\n+++ new.cr\n@@ -0,0 +1 @@\n+x\n"
       write_doc = "---\npaths: [\"new.cr\"]\n---\n# W\n\nBody.\n"
       fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
       _, stdout, _ = run_review(fs, FakeGit.new(diff_text: no_prefix_diff), "main...HEAD", "json")
       parsed = JSON.parse(stdout)
       parsed["files"][0]["path"].should eq("new.cr")
+    end
+
+    it "collects a deleted line that itself starts with `--` as removed content, not a header" do
+      deleted_sql = <<-DIFF
+      diff --git a/db/setup.sql b/db/setup.sql
+      deleted file mode 100644
+      --- a/db/setup.sql
+      +++ /dev/null
+      @@ -1,2 +0,0 @@
+      --- transaction
+      --- commit
+
+      DIFF
+      removal_doc = "---\non: [removed]\ncontents: ['\\bcommit\\b']\n---\n# R\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => removal_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: deleted_sql), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["db/setup.sql"])
+      files[0]["rules"][0]["path"].should eq("docs/conventions/r.md")
+    end
+
+    it "collects an added line that itself starts with `++` as added content, not a header" do
+      added = "--- a/x.c\n+++ b/x.c\n@@ -1 +1,3 @@\n x\n+++ counter;\n+++ total;\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => "---\ncontents: ['total']\n---\n# W\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: added), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["x.c"])
+      files[0]["rules"][0]["path"].should eq("docs/conventions/w.md")
+    end
+
+    it "ends a hunk once its old and new line counts are spent, so the next file's header still parses" do
+      two_files = "--- a/x.cr\n+++ b/x.cr\n@@ -1,3 +1,2 @@\n keep\n-gone\n+new\n-also gone\n" \
+                  "--- a/y.cr\n+++ b/y.cr\n@@ -1 +1 @@\n-old\n+fresh\n"
+      fs = InMemoryFS.new({
+        "/repo/docs/conventions/r.md" => "---\non: [removed]\npaths: [\"x.cr\"]\n---\n# R\n\nBody.\n",
+        "/repo/docs/conventions/w.md" => "---\npaths: [\"y.cr\"]\n---\n# W\n\nBody.\n",
+      })
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: two_files), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["x.cr", "y.cr"])
+      files[1]["rules"].as_a.map(&.["path"]).should eq(["docs/conventions/w.md"])
+    end
+
+    it "opens a hunk only on an @@ line, not on the index line before the next file's header" do
+      two_files = "diff --git a/x.cr b/x.cr\nindex 1111111..2222222 100644\n--- a/x.cr\n+++ b/x.cr\n@@ -0,0 +1 @@\n+x\n" \
+                  "diff --git a/y.cr b/y.cr\nindex 3333333..4444444 100644\n--- a/y.cr\n+++ b/y.cr\n@@ -0,0 +1 @@\n+fresh\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => "---\ncontents: ['fresh']\n---\n# W\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: two_files), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["x.cr", "y.cr"])
+      files.map(&.["rules"].as_a.size).should eq([0, 1])
+    end
+
+    it "spends a hunk's old count on context lines too" do
+      renamed = "diff --git a/old.sql b/new.sql\nrename from old.sql\nrename to new.sql\n" \
+                "--- a/old.sql\n+++ b/new.sql\n@@ -1,2 +1 @@\n ctx\n--- commit\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => "---\non: [removed]\ncontents: ['\\bcommit\\b']\n---\n# R\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: renamed), "main...HEAD", "json")
+      JSON.parse(stdout)["files"][0]["rules"][0]["path"].should eq("docs/conventions/r.md")
+    end
+
+    it "closes a hunk whose header undercounts its lines instead of swallowing the next file" do
+      undercounted = "--- a/x.cr\n+++ b/x.cr\n@@ -1 +1 @@\n+a\n+b\n-c\n" \
+                     "--- a/y.cr\n+++ b/y.cr\n@@ -1 +1 @@\n-a\n-b\n+c\n" \
+                     "--- a/z.cr\n+++ b/z.cr\n@@ -0,0 +1 @@\n+z\n"
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: undercounted), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq(["x.cr", "y.cr", "z.cr"])
+    end
+
+    it "decodes git's quoted path in a pure rename's metadata" do
+      quoted = %(diff --git "a/caf\\303\\251.cr" b/cafe.cr\nsimilarity index 100%\nrename from "caf\\303\\251.cr"\nrename to cafe.cr\n)
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => "---\non: [removed]\npaths: [\"café.cr\"]\n---\n# R\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: quoted), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["cafe.cr"])
+      files[0]["rules"][0]["path"].should eq("docs/conventions/r.md")
+    end
+
+    it "decodes git's quoted path in ---/+++ headers" do
+      quoted = %(diff --git "a/caf\\303\\251\\302\\240.cr" "b/caf\\303\\251\\302\\240.cr"\nindex 1111111..2222222 100644\n) +
+               %(--- "a/caf\\303\\251\\302\\240.cr"\n+++ "b/caf\\303\\251\\302\\240.cr"\n@@ -0,0 +1 @@\n+x\n)
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: quoted), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq(["café\u00A0.cr"])
+    end
+
+    it "decodes git's quoted path on the diff --git line of an empty file's deletion" do
+      quoted = %(diff --git "a/caf\\303\\251.cr" "b/caf\\303\\251.cr"\ndeleted file mode 100644\nindex e69de29..0000000\n)
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: quoted), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq(["café.cr"])
+    end
+
+    it "decodes every escape git's quoted path syntax uses, in copy metadata too" do
+      quoted = %(diff --git a/src.cr "b/x\\a\\b\\t\\n\\v\\f\\r\\"\\\\.cr"\nsimilarity index 100%\n) +
+               %(copy from src.cr\ncopy to "x\\a\\b\\t\\n\\v\\f\\r\\"\\\\.cr"\n)
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: quoted), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq(["x\a\b\t\n\v\f\r\"\\.cr"])
+    end
+
+    it "leaves a lone double quote in a path alone" do
+      lone = %(--- a/"\n+++ b/"\n@@ -0,0 +1 @@\n+x\n)
+      _, stdout, _ = run_review(InMemoryFS.new, FakeGit.new(diff_text: lone), "main...HEAD", "json")
+      JSON.parse(stdout)["files"].as_a.map(&.["path"]).should eq([%(")])
+    end
+
+    it "lists a pure rename, which has no ---/+++ headers, under both of its paths' events" do
+      pure_rename = "diff --git a/o.cr b/renamed_file.cr\nsimilarity index 100%\nrename from o.cr\nrename to renamed_file.cr\n"
+      fs = InMemoryFS.new({
+        "/repo/docs/conventions/r.md" => "---\non: [removed]\npaths: [\"o.cr\"]\n---\n# R\n\nBody.\n",
+        "/repo/docs/conventions/w.md" => "---\npaths: [\"renamed_file.cr\"]\n---\n# W\n\nBody.\n",
+      })
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: pure_rename), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["renamed_file.cr"])
+      files[0]["rules"].as_a.map(&.["path"]).should eq(["docs/conventions/w.md", "docs/conventions/r.md"])
+    end
+
+    it "lists the deletion of an empty file, which has no ---/+++ headers" do
+      empty = "diff --git a/empty.cr b/empty.cr\ndeleted file mode 100644\nindex e69de29..0000000\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => "---\non: [removed]\npaths: [\"empty.cr\"]\n---\n# R\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: empty), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["empty.cr"])
+      files[0]["rules"][0]["path"].should eq("docs/conventions/r.md")
+    end
+
+    it "lists the deletion of a binary file alongside a later text edit" do
+      binary = "diff --git a/logo.png b/logo.png\ndeleted file mode 100644\nindex 1234567..0000000\n" \
+               "Binary files a/logo.png and /dev/null differ\n" \
+               "diff --git a/x.cr b/x.cr\n--- a/x.cr\n+++ b/x.cr\n@@ -0,0 +1 @@\n+x\n"
+      fs = InMemoryFS.new({
+        "/repo/docs/conventions/r.md" => "---\non: [removed]\npaths: [\"*.png\"]\n---\n# R\n\nBody.\n",
+        "/repo/docs/conventions/w.md" => "---\npaths: [\"*.png\"]\n---\n# W\n\nBody.\n",
+      })
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: binary), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["logo.png", "x.cr"])
+      files[0]["rules"].as_a.map(&.["path"]).should eq(["docs/conventions/r.md"])
+    end
+
+    it "does not treat a copy as a rename, so the still-present source gets no removal rules" do
+      copy = "diff --git a/a.cr b/copy_of_a.cr\nsimilarity index 90%\ncopy from a.cr\ncopy to copy_of_a.cr\n" \
+             "--- a/a.cr\n+++ b/copy_of_a.cr\n@@ -1 +1 @@\n-x\n+y\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/r.md" => "---\non: [removed]\npaths: [\"a.cr\"]\n---\n# R\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: copy), "main...HEAD", "json")
+      files = JSON.parse(stdout)["files"].as_a
+      files.map(&.["path"]).should eq(["copy_of_a.cr"])
+      files[0]["rules"].as_a.should be_empty
+    end
+
+    it "keeps an unprefixed path that sorts before /dev/null, such as a dotfile" do
+      no_prefix_diff = "--- .github/ci.yml\n+++ .github/ci.yml\n@@ -0,0 +1 @@\n+x\n"
+      write_doc = "---\npaths: [\".github/**\"]\n---\n# W\n\nBody.\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => write_doc})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: no_prefix_diff), "main...HEAD", "json")
+      parsed = JSON.parse(stdout)
+      parsed["files"][0]["path"].should eq(".github/ci.yml")
+      parsed["files"][0]["rules"][0]["path"].should eq("docs/conventions/w.md")
+    end
+
+    it "drops the tab git appends after a path containing a space" do
+      spaced_diff = "--- a/my file.cr\t\n+++ b/my file.cr\t\n@@ -0,0 +1 @@\n+x\n"
+      fs = InMemoryFS.new({"/repo/docs/conventions/w.md" => "---\npaths: [\"my file.cr\"]\n---\n# W\n\nBody.\n"})
+      _, stdout, _ = run_review(fs, FakeGit.new(diff_text: spaced_diff), "main...HEAD", "json")
+      JSON.parse(stdout)["files"][0]["path"].should eq("my file.cr")
     end
 
     it "harvests `## Verify` criteria as checklist items in the md manifest" do

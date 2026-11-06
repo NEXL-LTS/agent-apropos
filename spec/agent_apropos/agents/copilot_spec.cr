@@ -87,6 +87,38 @@ describe AgentApropos::Agents::Copilot do
       fs.files[HOOKS_PATH].should eq(before)
     end
 
+    it "keeps generate's bash wiring when init re-runs" do
+      fs = InMemoryFS.new
+      run_scaffold(fs)
+      wired = AgentApropos::Agents::Copilot.new.sync_shell_hook(fs.files[HOOKS_PATH], "hooks", true).as(String)
+      fs.files[HOOKS_PATH] = wired
+
+      stdout = run_scaffold(fs)
+      stdout.should contain("current  .github/hooks/agent-apropos.json")
+      fs.files[HOOKS_PATH].should eq(wired)
+    end
+
+    it "refreshes generate's bash wiring to init's allow-outside choice" do
+      fs = InMemoryFS.new
+      run_scaffold(fs)
+      fs.files[HOOKS_PATH] = AgentApropos::Agents::Copilot.new.sync_shell_hook(fs.files[HOOKS_PATH], "hooks", true).as(String)
+
+      run_scaffold(fs, AgentApropos::Init::Options.new(allow_outside_repo: true))
+      bash = JSON.parse(fs.files[HOOKS_PATH])["hooks"]["postToolUse"].as_a.select { |e| e["matcher"] == "bash" }
+      bash.map(&.[]("command").as_s).should eq([
+        "agent-apropos hook pre --tool copilot --allow-outside-repo",
+        "agent-apropos hook post --tool copilot --allow-outside-repo",
+      ])
+    end
+
+    it "keeps a hand-written bash entry when init re-runs" do
+      seed = %({"hooks":{"postToolUse":[{"matcher":"bash","command":"my-other-tool"}]}})
+      fs = InMemoryFS.new({HOOKS_PATH => seed})
+      run_scaffold(fs)
+      commands = JSON.parse(fs.files[HOOKS_PATH])["hooks"]["postToolUse"].as_a.map(&.[]("command").as_s)
+      commands.last.should eq("my-other-tool")
+    end
+
     it "reports would-create under --dry-run without writing" do
       fs = InMemoryFS.new
       stdout = run_scaffold(fs, AgentApropos::Init::Options.new(dry_run: true))
@@ -227,6 +259,24 @@ describe AgentApropos::Agents::Copilot do
       wired = JSON.parse(AgentApropos::Agents::Copilot.new.sync_shell_hook(with_flag, "hooks", true).as(String))
       entry = wired["hooks"]["postToolUse"].as_a.find! { |e| e["matcher"] == "bash" && e["command"].as_s.starts_with?("agent-apropos hook pre") }
       entry["command"].as_s.should eq("agent-apropos hook pre --tool copilot --allow-outside-repo")
+    end
+
+    it "detects --allow-outside-repo anywhere among the command's arguments" do
+      flag_mid = %({"hooks":{"postToolUse":[) +
+                 %({"matcher":"create|edit","command":"agent-apropos hook pre --tool copilot --allow-outside-repo --repo-root /repo"}) +
+                 %(]}})
+      wired = JSON.parse(AgentApropos::Agents::Copilot.new.sync_shell_hook(flag_mid, "hooks", true).as(String))
+      bash = wired["hooks"]["postToolUse"].as_a.select { |e| e["matcher"] == "bash" }
+      bash.map(&.[]("command").as_s).should eq([
+        "agent-apropos hook pre --tool copilot --allow-outside-repo",
+        "agent-apropos hook post --tool copilot --allow-outside-repo",
+      ])
+    end
+
+    it "does not read --allow-outside-repo from a foreign entry's command" do
+      foreign = %({"hooks":{"postToolUse":[{"matcher":"bash","command":"my-tool --allow-outside-repo"}]}})
+      wired = JSON.parse(AgentApropos::Agents::Copilot.new.sync_shell_hook(foreign, "hooks", true).as(String))
+      wired["hooks"]["postToolUse"].as_a.map(&.[]("command").as_s).should contain("agent-apropos hook pre --tool copilot")
     end
 
     it "returns existing verbatim, without reformatting, when there is truly nothing to wire or drop" do
