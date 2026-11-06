@@ -138,6 +138,23 @@ describe AgentApropos::Hook::Payload do
     end
   end
 
+  describe "#command" do
+    it "reads a Claude/Codex-style tool_input.command" do
+      json = %({"tool_name":"Bash","tool_input":{"command":"rm a.cr"}})
+      parse(json).command.should eq("rm a.cr")
+    end
+
+    it "reads a Copilot bash tool's toolArgs.command" do
+      json = %({"toolName":"bash",) +
+             %("toolArgs":"{\\"command\\":\\"rm scratch.txt\\",\\"description\\":\\"Remove scratch.txt\\"}"})
+      parse(json).command.should eq("rm scratch.txt")
+    end
+
+    it "is nil when neither shape carries a command" do
+      parse(%({"tool_name":"Edit","tool_input":{"file_path":"a.cr"}})).command.should be_nil
+    end
+  end
+
   # Codex CLI's own `apply_patch` tool: `tool_input.command` is a whole patch
   # envelope, not a single file_path/content pair — confirmed against a real
   # captured Codex hook payload, not upstream docs.

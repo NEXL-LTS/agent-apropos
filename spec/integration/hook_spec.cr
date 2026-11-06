@@ -232,4 +232,37 @@ describe "agent-apropos hook (binary)" do
       FileUtils.rm_rf(dir)
     end
   end
+
+  # A real captured Copilot CLI bash payload (spec/fixtures/hook_payloads/),
+  # confirming its shell tool ("bash", lowercase — distinct from Claude/Codex's
+  # capitalized "Bash") is recognized end to end against a real git removal,
+  # not just parsed in isolation.
+  it "detects a real git removal from a Copilot CLI bash postToolUse payload" do
+    dir = File.tempname("agent-apropos-hook-repo")
+    begin
+      Dir.mkdir_p(File.join(dir, "docs/conventions"))
+      File.write(File.join(dir, "docs/conventions/scratch.md"),
+        "---\non: [removed]\npaths: [\"scratch.txt\"]\n---\n# Scratch\n\nRemove its registry entry too.\n")
+      File.write(File.join(dir, "scratch.txt"), "scratch\n")
+
+      run_git = ->(args : Array(String)) {
+        status = Process.run("git", args, chdir: dir,
+          output: Process::Redirect::Close, error: Process::Redirect::Close)
+        raise "git #{args.join(' ')} failed" unless status.success?
+      }
+      run_git.call(["init", "-q", "."])
+      run_git.call(["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"])
+      run_git.call(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "init"])
+      File.delete(File.join(dir, "scratch.txt"))
+
+      payload = File.read("spec/fixtures/hook_payloads/copilot_post_tool_use_bash.json")
+        .gsub("/repo", json_path(dir))
+
+      code, output = run_hook(binary, ["hook", "post", "--repo-root", dir], payload)
+      code.should eq(0)
+      output.should contain("Remove its registry entry too.")
+    ensure
+      FileUtils.rm_rf(dir)
+    end
+  end
 end

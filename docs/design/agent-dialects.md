@@ -66,6 +66,19 @@ instead of the `hookSpecificOutput` envelope every other wired agent expects.
 This shape was confirmed against a real captured Copilot CLI hook payload,
 not upstream docs — Copilot's own reference types `toolArgs` as `unknown`.
 
+Copilot's shell tool is `bash` — lowercase, unlike Claude/Codex's capitalized
+`Bash` — confirmed against a real captured `postToolUse` payload for a `rm`
+command (`spec/fixtures/hook_payloads/copilot_post_tool_use_bash.json`);
+`toolArgs` carries `command`/`description` keys instead of a path. Removal
+detection (`Hook::Payload#command`) reads this the same way it reads
+`tool_input.command` for the other dialects. Because Copilot's own hook
+config has no grouped-matcher shape (each `postToolUse` entry is a flat
+`{matcher, command}` pair, not Claude's `{matcher, hooks: [...]}` groups),
+`Agents::Copilot#sync_shell_hook` is its own implementation rather than a
+call into `Agent#sync_standard_shell_hook`, wiring `agent-apropos hook
+pre`/`post` onto a `bash`-matched entry alongside the existing `view`/
+`create|edit` ones.
+
 ## Codex (`agents/codex.cr`)
 
 Codex CLI's `PreToolUse`/`PostToolUse` envelope and reply schema mirror

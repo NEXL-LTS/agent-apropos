@@ -101,7 +101,7 @@ module AgentApropos
 
     private def removal_command?(payload : Payload) : Bool
       return false if payload.tool_name == "apply_patch"
-      command = payload.tool_input.try(&.command)
+      command = payload.command
       !command.nil? && REMOVAL_VERB_PATTERN.matches?(command)
     end
 

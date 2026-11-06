@@ -63,8 +63,8 @@ echo "Conventions folder this run: $CONVENTIONS_FOLDER"
 # e2e/run.sh does), so each per-agent copy below starts fully wired
 # regardless of which agents happen to be installed on this machine.
 "$AGENT_APROPOS_BIN" init --tool claude --tool opencode --tool gemini --tool copilot --tool codex \
-  --claude-symlink --repo-root "$E2E_DIR/project" >/dev/null
-"$AGENT_APROPOS_BIN" generate --repo-root "$E2E_DIR/project" >/dev/null
+  --claude-symlink --allow-outside-repo --repo-root "$E2E_DIR/project" >/dev/null
+"$AGENT_APROPOS_BIN" generate --allow-outside-repo --repo-root "$E2E_DIR/project" >/dev/null
 
 AGENTS=(claude opencode copilot codex gemini)
 for agent in "${AGENTS[@]}"; do
