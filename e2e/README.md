@@ -73,20 +73,21 @@ by exploring the sample's own tree.
 make e2e          # or: bash e2e/run.sh
 ```
 
-**Authenticate with each CLI first.** The live tests need a working, logged-in
-`claude`, `opencode`, `gemini`, and `copilot` — see [CI-safety and credentials](#ci-safety-and-credentials)
-below for how. Skip this and the corresponding live tests don't fail; they
-just skip cleanly, which can look like a pass at a glance.
+**Install and log in to each CLI first.** The live tests need a working,
+logged-in `claude`, `opencode`, `copilot`, and `codex` (plus `gemini` if you
+opt in) — see [CI-safety and credentials](#ci-safety-and-credentials) below
+for how. Skip this and the corresponding live tests don't fail; they just
+skip cleanly, which can look like a pass at a glance.
 
 `bats` and its `bats-support`/`bats-assert` libraries ship in the devcontainer
 image (resolved via `BATS_LIB_PATH`), so nothing is fetched at run time.
 Before invoking `bats`, `run.sh` runs `agent-apropos init --tool claude --tool
-opencode --tool gemini --tool copilot` and `agent-apropos generate` against `project/`
+opencode --tool gemini --tool copilot --tool codex` and `agent-apropos generate` against `project/`
 itself (both with `--allow-outside-repo`, since `project/agent-apropos.yml`
 points `conventions_dir` outside the sample repo — see above; `Config`
 refuses to resolve an escaping conventions_dir without that flag, and `init`
 also bakes it into the wired hook commands so the live hook invocations below
-keep working), so its hook wiring (`.claude/`, `.opencode/`, `.gemini/`, `.github/hooks/`)
+keep working), so its hook wiring (`.claude/`, `.opencode/`, `.gemini/`, `.github/hooks/`, `.codex/`)
 is always freshly generated rather than committed (see `project/.gitignore`) —
 that way the fixture is fully wired regardless of which agents happen to be
 installed on the machine running the suite. `run.sh` invokes `bats` on
@@ -112,31 +113,33 @@ actually steered.
 
 ## CI-safety and credentials
 
-The live checks require the `claude` / `opencode` / `gemini` / `copilot` CLI
+The live checks require the `claude` / `opencode` / `copilot` / `codex` (and opt-in `gemini`) CLI
 and valid credentials. When one is absent or unauthenticated, its tests
 **skip cleanly** and the run still exits `0`; the deterministic checks always
 run. This is why the e2e is not wired into `make check` or CI — it is a
 local, opt-in confidence check.
 
-In the devcontainer, Claude's credentials arrive via the `${HOME}/.claude.json`
-bind mount. Codex CLI keeps its credential under `~/.codex` (bind-mounted as
-the `codex-data` volume) — run `codex login` once and it persists across
-rebuilds. OpenCode's credential lives in a named volume (`opencode-data`), so
-authenticate once per container:
+The devcontainer ships only Claude Code, logged in once via the
+`agent-apropos-claude-config` volume (see `.devcontainer/README.md`). The other
+CLIs aren't in the image, and the container has no `sudo`, so install them
+under `~/.local` (already on `PATH`) and log in to each:
 
 ```sh
+npm install -g --prefix ~/.local @openai/codex @github/copilot   # add @google/gemini-cli to opt in
+curl -fsSL https://opencode.ai/install | bash                    # then open a new shell
+
+codex login
 opencode auth login
+copilot        # then /login
+gemini         # opt-in only: complete the browser OAuth flow
 ```
 
-It then persists across rebuilds. Until you do, the live OpenCode tests skip.
+These installs and their credentials (`~/.codex`, `~/.copilot`,
+`~/.local/share/opencode`, `~/.gemini`) live in the container's own filesystem:
+they survive restarts but not a recreation (`start.sh --rebuild`, or a
+Dockerfile change), after which you repeat the steps above.
 
-Gemini CLI (opt-in — see below) keeps its OAuth credential under `~/.gemini`,
-bind-mounted as the `gemini-data` volume — run `gemini` once in the container
-and complete its browser OAuth flow on first prompt; it then persists across
-rebuilds the same way.
-
-GitHub Copilot CLI keeps its credential under `~/.copilot` — run `copilot`
-once and complete `/login`. A stray `GH_TOKEN` in the environment (common in
+For GitHub Copilot CLI, a stray `GH_TOKEN` in the environment (common in
 devcontainers/CI, exported for other tooling) shadows that stored credential
 and makes every call fail authentication even when `copilot` itself is
 logged in; `run_copilot`/`require_live_copilot` (`helpers.bash`) already
@@ -205,7 +208,8 @@ both.
   section in `docs/design/agent-dialects.md`), so registering a test that
   can never pass would just be noise in an opted-in run.
 - `E2E_MODEL=<model>` — pass a specific model to `claude -p --model` /
-  `opencode run --model` / `gemini -p --model` / `copilot -p --model`
+  `opencode run --model` / `gemini -p --model` / `copilot -p --model` /
+  `codex exec --model`
   (default: each CLI's configured model). Use a small model (e.g.
   `E2E_MODEL=claude-haiku-4-5`) for cheaper runs.
 - `bash e2e/run.sh --no-tempdir-cleanup` — keep the per-test temp dirs for

@@ -25,7 +25,7 @@ even where the global Crystal cache is not writable.
 - `make mutate` — the mutation gate on the lines the change touched; blocking in CI. A file `tool/mutate/clean.json` does not name is mutated in full, and clearing it is part of your change. A survivor is a suspected bug, not a missing assertion — see `docs/mutation-testing.md`. `make mutate-rules-spec` covers the operator set (slow; needs the engine)
 - `make e2e` (or `bash e2e/run.sh`) — the **live** end-to-end suite: this is what "e2e tests" means
   in this repo. A bats suite (`e2e/tests/`) that runs real, authenticated CLI agents (Claude Code,
-  OpenCode, and GitHub Copilot CLI by default; Gemini is opt-in via `E2E_GEMINI=1`) against a sample
+  OpenCode, GitHub Copilot CLI, and Codex CLI by default; Gemini is opt-in via `E2E_GEMINI=1`) against a sample
   repo (`e2e/project/`) and asserts the model's own output is actually steered by a wired convention.
   Local/opt-in only — not part of `make check` or CI, since it needs live credentials. Read
   `e2e/README.md` before touching it. Don't confuse it with `spec/integration/` (deterministic,
