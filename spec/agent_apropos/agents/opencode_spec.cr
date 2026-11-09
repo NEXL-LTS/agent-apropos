@@ -97,6 +97,28 @@ describe AgentApropos::Agents::OpenCode do
       fs.files[PLUGIN_PATH].should eq(before)
     end
 
+    it "keeps generate's bash wiring when init re-runs" do
+      fs = InMemoryFS.new
+      run_scaffold(fs)
+      wired = AgentApropos::Agents::OpenCode.new.sync_shell_hook(fs.files[PLUGIN_PATH], "plugin", true).as(String)
+      fs.files[PLUGIN_PATH] = wired
+
+      stdout = run_scaffold(fs)
+      stdout.should contain("current  .opencode/plugins/agent-apropos.js")
+      fs.files[PLUGIN_PATH].should eq(wired)
+    end
+
+    it "keeps generate's bash wiring when init re-runs with a different allow-outside choice" do
+      fs = InMemoryFS.new
+      run_scaffold(fs)
+      fs.files[PLUGIN_PATH] = AgentApropos::Agents::OpenCode.new.sync_shell_hook(fs.files[PLUGIN_PATH], "plugin", true).as(String)
+
+      run_scaffold(fs, AgentApropos::Init::Options.new(allow_outside_repo: true))
+      plugin = fs.files[PLUGIN_PATH]
+      plugin.should contain(%(["agent-apropos", "hook", sub, "--tool", "opencode", "--allow-outside-repo"]))
+      plugin.should contain(%(if (!["edit", "write", "apply_patch", "bash"].includes(input.tool)) return))
+    end
+
     it "reports would-create under --dry-run without writing" do
       fs = InMemoryFS.new
       stdout = run_scaffold(fs, AgentApropos::Init::Options.new(dry_run: true))
