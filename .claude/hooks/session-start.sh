@@ -43,6 +43,27 @@ if ! crystal --version 2>/dev/null | grep -q "^Crystal ${CRYSTAL_VERSION} "; the
   ln -sf /opt/crystal/bin/crystal /opt/crystal/bin/shards /usr/local/bin/
 fi
 
+# --- kcov (make coverage): Ubuntu 24.04 dropped the package, so build the same
+# pinned tag CI builds. Build deps only when kcov itself is missing.
+KCOV_VERSION=v43
+if ! kcov --version 2>/dev/null | grep -qx "kcov ${KCOV_VERSION}"; then
+  kcov_deps=(cmake binutils-dev libcurl4-openssl-dev libdw-dev libelf-dev libiberty-dev)
+  missing=()
+  for p in "${kcov_deps[@]}"; do
+    dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p")
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"
+  fi
+  kcov_src="$(mktemp -d)"
+  git clone -q --depth 1 --branch "$KCOV_VERSION" https://github.com/SimonKagstrom/kcov.git "$kcov_src"
+  cmake -S "$kcov_src" -B "$kcov_src/build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local >/dev/null
+  cmake --build "$kcov_src/build" --parallel "$(nproc)" >/dev/null
+  cmake --install "$kcov_src/build" >/dev/null
+  rm -rf "$kcov_src"
+fi
+
 # --- Mutation engine (make mutate), in its own venv like the devcontainer -----
 venv=/opt/mutate
 venv_hashes="$venv/.session-start.sha256"
