@@ -12,6 +12,15 @@ fi
 
 cd "${CLAUDE_PROJECT_DIR:-.}"
 
+# SessionStart stdout becomes model context; install logs belong on stderr.
+# Failures still exit non-zero so they are shown — SessionStart cannot block.
+exec 1>&2
+
+# --- Session environment ------------------------------------------------------
+if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+  echo "export BATS_LIB_PATH=/usr/lib/bats" >> "$CLAUDE_ENV_FILE"
+fi
+
 # --- System packages: Crystal's link-time libs, bats and its libraries -------
 apt_pkgs=(build-essential pkg-config libssl-dev libyaml-dev libpcre2-dev
   libgmp-dev libevent-dev libxml2-dev zlib1g-dev jq bats bats-assert bats-support)
@@ -94,20 +103,21 @@ if ! sha256sum --check --status "$npm_hashes" 2>/dev/null; then
 fi
 
 # --- agent-apropos on PATH, for the edit-time hooks in .claude/settings.json --
-# Rebuilt when any tracked source changes; hash file sits beside the binary.
-prefix="$HOME/.local"
+# Installed to /usr/local/bin, which hook processes inherit on PATH
+# (CLAUDE_ENV_FILE only reaches Bash tool commands). Rebuilt when any source
+# file changes; a deleted file drops out of the hash rather than aborting.
+prefix=/usr/local
 bin_hashes="$prefix/bin/.agent-apropos.sha256"
-src_hash="$(git ls-files -z src shard.yml shard.lock | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+src_hash="$(git ls-files -z -c -o --exclude-standard src shard.yml shard.lock |
+  while IFS= read -r -d '' f; do if [ -f "$f" ]; then sha256sum "$f"; fi; done |
+  sha256sum | cut -d' ' -f1)"
 if [ ! -x "$prefix/bin/agent-apropos" ] || [ "$(cat "$bin_hashes" 2>/dev/null)" != "$src_hash" ]; then
   rm -f "$bin_hashes"
-  make install PREFIX="$prefix"
-  echo "$src_hash" > "$bin_hashes"
-fi
-
-# --- Session environment ------------------------------------------------------
-if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-  {
-    echo "export BATS_LIB_PATH=/usr/lib/bats"
-    echo "export PATH=\"$prefix/bin:\$PATH\""
-  } >> "$CLAUDE_ENV_FILE"
+  # Work-in-progress source may not compile; keep the previous binary and
+  # retry next session rather than failing setup.
+  if make install PREFIX="$prefix"; then
+    echo "$src_hash" > "$bin_hashes"
+  else
+    echo "session-start: agent-apropos build failed; keeping the previous binary" >&2
+  fi
 fi
